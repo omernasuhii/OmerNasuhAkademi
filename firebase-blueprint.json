@@ -1,0 +1,276 @@
+{
+  "entities": {
+    "user": {
+      "title": "User",
+      "description": "App user (student, coach, or admin)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "coach", "admin"] },
+        "coachId": { "type": "string", "description": "Student's assigned coach" },
+        "studentNumber": { "type": "string" },
+        "grade": { "type": "string", "description": "Sınıf Seviyesi (9, 10, 11, 12, Mezun)" },
+        "branch": { "type": "string", "description": "Alan (SAY, EA, SÖZ, DİL)" },
+        "targetDepartment": { "type": "string", "description": "Hedef Bölüm" },
+        "targetTyt": { "type": "number", "description": "Hedef TYT Neti" },
+        "targetAyt": { "type": "number", "description": "Hedef AYT Neti" },
+        "startDate": { "type": "string", "format": "date-time" },
+        "photoUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "global_book": {
+      "title": "Global Book",
+      "description": "Global dictionary of books with topic counts",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "subject": { "type": "string" },
+        "type": { "type": "string" },
+        "topicQuestionCounts": { "type": "object" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "subject", "type"]
+    },
+    "weekly_report": {
+      "title": "Weekly Progress Report",
+      "description": "Weekly stats for completed/not completed tasks",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "weekNumber": { "type": "number" },
+        "date": { "type": "string", "format": "date" },
+        "solvedCount": { "type": "number", "description": "Completed tasks count" },
+        "unsolvedCount": { "type": "number", "description": "Not completed tasks count" },
+        "successPercentage": { "type": "number" },
+        "coachNote": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "weekNumber", "date"]
+    },
+    "exam_result": {
+      "title": "Exam Result",
+      "description": "Detailed exam scores and analysis",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "examName": { "type": "string" },
+        "examType": { "type": "string", "enum": ["TYT", "AYT", "MSÜ", "LGS"] },
+        "date": { "type": "string", "format": "date" },
+        "percentile": { "type": "number" },
+        "rank": { "type": "number" },
+        "totalParticipants": { "type": "number" },
+        "scores": {
+          "type": "object",
+          "description": "Map of subjects to { d, y, b, n }"
+        },
+        "totalNet": { "type": "number" },
+        "analysisFileUrl": { "type": "string" }
+      },
+      "required": ["studentId", "examName", "date", "examType"]
+    },
+    "book_tracking": {
+      "title": "Book Tracking",
+      "description": "Completion status for study books with topic breakdown",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "subject": { "type": "string" },
+        "bookName": { "type": "string" },
+        "completedTopics": { 
+          "type": "array", 
+          "description": "List of strings representing completed topic titles"
+        },
+        "completionPercentage": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "subject", "bookName"]
+    },
+    "weekly_program": {
+      "title": "Weekly Program",
+      "description": "Detailed daily study schedule",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "coachId": { "type": "string" },
+        "weekNumber": { "type": "number" },
+        "weekStartDate": { "type": "string", "format": "date" },
+        "tasks": {
+          "type": "array",
+          "description": "List of tasks: { day, subject, topic, targetCount, completedCount, isDone }"
+        },
+        "status": { "type": "string", "enum": ["draft", "published", "completed"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "coachId", "weekStartDate"]
+    },
+    "appointment": {
+      "title": "Appointment",
+      "description": "Individual appointment for a service",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "coachId": { "type": "string" },
+        "serviceId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "startTime": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "cancelled", "completed"] }
+      },
+      "required": ["studentId", "coachId", "date", "startTime", "status"]
+    },
+    "service": {
+      "title": "Service",
+      "description": "Available tutoring or coaching service",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "type": { "type": "string", "enum": ["one-on-one", "lesson", "course"] },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["title", "type", "isActive"]
+    },
+    "room": {
+      "title": "Room",
+      "description": "Physical or virtual space for appointments",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "capacity": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["name", "capacity", "isActive"]
+    },
+    "coach_schedule": {
+      "title": "Coach Schedule",
+      "description": "Weekly working hours for a coach",
+      "type": "object",
+      "properties": {
+        "coachId": { "type": "string" },
+        "weeklyHours": { "type": "object" }
+      },
+      "required": ["coachId", "weeklyHours"]
+    },
+    "exam_analysis": {
+      "title": "Exam Analysis",
+      "description": "Detailed question-by-question analysis of an exam",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "examId": { "type": "string" },
+        "data": {
+          "type": "object",
+          "description": "Map of subjects/branches to arrays of question analyses: { questionNo, topic, errorType }"
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "examId"]
+    },
+    "monthly_goal": {
+      "title": "Monthly Goal",
+      "description": "Topic and book goals for a specific month",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "month": { "type": "string", "description": "Format: YYYY-MM" },
+        "topicGoals": {
+          "type": "array",
+          "description": "List of { subject, topic, status, isCompleted }"
+        },
+        "bookGoals": {
+          "type": "array",
+          "description": "List of { bookId, bookName, targetDescription, progress, isCompleted }"
+        },
+        "coachNote": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "month"]
+    },
+    "wallet_transaction": {
+      "title": "Wallet Transaction",
+      "description": "Financial transaction record for a student's wallet",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["DEPOSIT", "WITHDRAWAL"] },
+        "description": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "amount", "type"]
+    },
+    "user_analysis": {
+      "title": "User Analysis",
+      "description": "Results of various personality and academic analyses",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "analysisType": { "type": "string" },
+        "data": { "type": "object" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "analysisType", "data", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "User profiles"
+    },
+    "/global_books/{bookId}": {
+      "schema": "global_book",
+      "description": "Global book definitions"
+    },
+    "/weekly_reports/{reportId}": {
+      "schema": "weekly_report",
+      "description": "Weekly task completion counts"
+    },
+    "/exam_results/{resultId}": {
+      "schema": "exam_result",
+      "description": "Detailed exam scores"
+    },
+    "/exam_analyses/{analysisId}": {
+      "schema": "exam_analysis",
+      "description": "Question-by-question exam breakdowns"
+    },
+    "/monthly_goals/{goalId}": {
+      "schema": "monthly_goal",
+      "description": "Targeted topics and books for a month"
+    },
+    "/book_tracking/{trackId}": {
+      "schema": "book_tracking",
+      "description": "Curriculum progress"
+    },
+    "/weekly_programs/{programId}": {
+      "schema": "weekly_program",
+      "description": "Detailed study schedules"
+    },
+    "/appointments/{appointmentId}": {
+      "schema": "appointment",
+      "description": "Booking records"
+    },
+    "/services/{serviceId}": {
+      "schema": "service",
+      "description": "Service definitions"
+    },
+    "/rooms/{roomId}": {
+      "schema": "room",
+      "description": "Room definitions"
+    },
+    "/coach_schedules/{coachId}": {
+      "schema": "coach_schedule",
+      "description": "Coach availability"
+    },
+    "/wallet_transactions/{transactionId}": {
+      "schema": "wallet_transaction",
+      "description": "Financial transaction records"
+    },
+    "/user_analyses/{analysisId}": {
+      "schema": "user_analysis",
+      "description": "Analysis results for students"
+    }
+  }
+}

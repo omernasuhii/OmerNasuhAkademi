@@ -1,0 +1,114 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitives
+    function isSignedIn() { return request.auth != null; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'destek@omernasuhakademi.com' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
+    }
+
+    function isCoach() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'coach';
+    }
+
+    function isCoachOf(studentId) {
+      return isCoach() && get(/databases/$(database)/documents/users/$(studentId)).data.coachId == request.auth.uid;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // 1. Users Collection
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.keys().hasAll(['uid', 'email', 'role']) &&
+               data.uid == userId &&
+               data.role in ['student', 'coach', 'admin'];
+      }
+
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if (isOwner(userId) || isAdmin()) && 
+                    incoming().diff(existing()).affectedKeys().hasAny(['displayName', 'coachId', 'studentNumber', 'grade', 'branch', 'targetDepartment', 'targetTyt', 'targetAyt', 'startDate', 'photoUrl', 'updatedAt']);
+    }
+
+    // 2. Weekly Reports
+    match /weekly_reports/{reportId} {
+      function isValidReport(data) {
+        return data.studentId is string && 
+               data.weekNumber is number && 
+               data.weekNumber >= 0 &&
+               data.solvedCount is number &&
+               data.unsolvedCount is number;
+      }
+
+      allow read: if isSignedIn() && (isOwner(resource.data.studentId) || isCoachOf(resource.data.studentId) || isAdmin());
+      allow create: if (isCoach() || isAdmin()) && isValidReport(incoming());
+      allow update: if (isCoachOf(existing().studentId) || isAdmin()) && isValidReport(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // 3. Exam Results
+    match /exam_results/{resultId} {
+      function isValidResult(data) {
+        return data.studentId is string && 
+               data.examName is string && 
+               data.examType in ['TYT', 'AYT', 'MSÜ', 'LGS'];
+      }
+
+      allow read: if isSignedIn() && (isOwner(resource.data.studentId) || isCoachOf(resource.data.studentId) || isAdmin());
+      allow create: if (isCoach() || isAdmin()) && isValidResult(incoming());
+      allow update: if (isCoachOf(existing().studentId) || isAdmin()) && isValidResult(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // 4. Book Tracking
+    match /book_tracking/{trackId} {
+      function isValidTrack(data) {
+        return data.studentId is string && 
+               data.subject is string && 
+               data.completionPercentage is number &&
+               data.completionPercentage >= 0 &&
+               data.completionPercentage <= 100;
+      }
+
+      allow read: if isSignedIn() && (isOwner(resource.data.studentId) || isCoachOf(resource.data.studentId) || isAdmin());
+      allow create: if (isCoach() || isAdmin()) && isValidTrack(incoming());
+      allow update: if (isCoachOf(existing().studentId) || isAdmin()) && isValidTrack(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // 5. Weekly Programs
+    match /weekly_programs/{programId} {
+      function isValidProgram(data) {
+        return data.studentId is string && 
+               data.coachId is string &&
+               data.weekStartDate is string;
+      }
+
+      allow read: if isSignedIn() && (isOwner(resource.data.studentId) || isOwner(resource.data.coachId) || isAdmin());
+      allow create: if (isCoach() || isAdmin()) && isValidProgram(incoming());
+      allow update: if (isCoachOf(existing().studentId) || isOwner(existing().coachId) || isAdmin()) && isValidProgram(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // 6. Appointments
+    match /appointments/{appointmentId} {
+      allow read: if isSignedIn() && (isOwner(resource.data.studentId) || isOwner(resource.data.coachId) || isAdmin());
+      allow write: if isSignedIn(); // Basic access, could be hardened further
+    }
+  }
+}
