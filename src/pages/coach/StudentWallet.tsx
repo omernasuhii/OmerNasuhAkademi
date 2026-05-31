@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useStudent } from '../../lib/StudentContext';
-import { Wallet, Plus, Loader2, ArrowUpRight, CheckCircle2, History } from 'lucide-react';
+import { Wallet, Plus, Loader2, ArrowUpRight, ArrowDownLeft, CheckCircle2, History, X, Check } from 'lucide-react';
 import { studentDataService } from '../../services/studentDataService';
+import { motion, AnimatePresence } from 'motion/react';
 
 export default function StudentWallet() {
   const { selectedStudent, setSelectedStudent } = useStudent();
@@ -9,6 +10,7 @@ export default function StudentWallet() {
   const [success, setSuccess] = useState(false);
   const [amountToAdd, setAmountToAdd] = useState('');
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [selectedTx, setSelectedTx] = useState<any | null>(null);
   const [fetchingTransactions, setFetchingTransactions] = useState(true);
 
   useEffect(() => {
@@ -162,12 +164,16 @@ export default function StudentWallet() {
               ) : transactions.length > 0 ? (
                 <div className="space-y-4">
                   {transactions.map((tx) => (
-                    <div key={tx.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 transition-all">
+                    <div 
+                      key={tx.id} 
+                      onClick={() => tx.type === 'WITHDRAWAL' && setSelectedTx(tx)}
+                      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 transition-all ${tx.type === 'WITHDRAWAL' ? 'cursor-pointer' : ''}`}
+                    >
                       <div className="flex items-center gap-4">
                         <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-lg ${
                           tx.type === 'DEPOSIT' ? 'bg-emerald-500/20 text-emerald-400 shadow-emerald-500/10' : 'bg-red-500/20 text-red-400 shadow-red-500/10'
                         }`}>
-                          <ArrowUpRight size={20} className={tx.type === 'DEPOSIT' ? 'rotate-45' : 'rotate-[135deg]'} />
+                          {tx.type === 'DEPOSIT' ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}
                         </div>
                         <div>
                           <p className="text-sm font-bold text-white">{tx.description || (tx.type === 'DEPOSIT' ? 'Bakiye Eklendi' : 'Ödeme Alındı')}</p>
@@ -194,6 +200,72 @@ export default function StudentWallet() {
            </div>
         </div>
       </div>
+
+      <AnimatePresence>
+        {selectedTx && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-900 border border-slate-700/50 rounded-3xl p-8 w-full max-w-sm shadow-2xl relative"
+            >
+              <button 
+                onClick={() => setSelectedTx(null)}
+                className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center bg-white/5 border border-white/10 rounded-full text-slate-400 hover:text-white transition-colors"
+              >
+                <X size={16} />
+              </button>
+              
+              <div className="flex flex-col items-center mb-6 mt-4">
+                 <div className={`w-16 h-16 rounded-2xl flex items-center justify-center border mb-4 ${
+                    selectedTx.type === 'DEPOSIT' 
+                       ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                       : 'bg-red-500/10 border-red-500/20 text-red-400'
+                 }`}>
+                    {selectedTx.type === 'DEPOSIT' ? <ArrowDownLeft size={32} strokeWidth={2.5}/> : <ArrowUpRight size={32} strokeWidth={2.5} />}
+                 </div>
+                 <h3 className="text-xl font-bold text-white text-center">İşlem Detayı</h3>
+                 <p className="text-slate-400 text-sm">{selectedTx.type === 'DEPOSIT' ? 'Gelen Bakiye' : 'Öğrenci Harcaması'}</p>
+                 <div className={`mt-4 text-3xl font-black ${selectedTx.type === 'DEPOSIT' ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {selectedTx.type === 'DEPOSIT' ? '+' : '-'}{selectedTx.amount.toFixed(2)} ₺
+                 </div>
+              </div>
+              
+              <div className="space-y-4 text-sm text-slate-300 bg-white/5 p-4 rounded-xl border border-white/10 mt-4 h-max overflow-y-auto max-h-[40vh]">
+                 <div>
+                    <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1">Açıklama</div>
+                    <div className="font-medium text-white">{selectedTx.description || 'Detay bulunmuyor'}</div>
+                 </div>
+                 <div>
+                    <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1">Tarih</div>
+                    <div className="font-medium text-white">{new Date(selectedTx.createdAt?.seconds ? selectedTx.createdAt.seconds * 1000 : selectedTx.date).toLocaleString('tr-TR')}</div>
+                 </div>
+                 {selectedTx.items && selectedTx.items.length > 0 && (
+                    <div>
+                       <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-3">Harcanan Kalemler</div>
+                       <div className="space-y-3">
+                          {selectedTx.items.map((item: any, i: number) => (
+                             <div key={i} className="flex justify-between items-center bg-white/5 p-2 rounded-lg">
+                                <div className="flex flex-col">
+                                   <span className="font-medium text-slate-200">{item.title}</span>
+                                   <span className="text-xs text-slate-500">{item.quantity} Adet</span>
+                                </div>
+                                <span className="font-medium text-red-400">{item.price} ₺</span>
+                             </div>
+                          ))}
+                       </div>
+                    </div>
+                 )}
+                 <div>
+                    <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1 mt-2">Durum</div>
+                    <div className="font-medium text-emerald-400 flex items-center gap-1"><Check size={14} /> Başarılı</div>
+                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

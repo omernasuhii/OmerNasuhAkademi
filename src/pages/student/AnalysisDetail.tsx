@@ -342,7 +342,6 @@ export default function AnalysisDetail() {
       // Save for future use
       await analysisService.updateResult(data.id, { aiInsight: text });
     } catch (err) {
-      console.error("AI Hatası:", err);
       setAiInsight("Şu anda yapay zeka analizi yapılamıyor. Lütfen daha sonra tekrar deneyiniz.");
     } finally {
       setGeneratingAi(false);

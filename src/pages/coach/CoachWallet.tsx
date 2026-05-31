@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
-import { Wallet, TrendingUp, History, ArrowDownLeft, ArrowUpRight, CreditCard, Users, Loader2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Wallet, TrendingUp, History, ArrowDownLeft, ArrowUpRight, CreditCard, Users, Loader2, X, Check } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
@@ -13,6 +13,7 @@ export default function CoachWallet() {
   const [students, setStudents] = useState<any[]>([]);
   const [rawTransactions, setRawTransactions] = useState<any[]>([]);
   const [systemBalance, setSystemBalance] = useState(0); 
+  const [selectedTx, setSelectedTx] = useState<any | null>(null);
 
   useEffect(() => {
     if (user && userData) {
@@ -246,7 +247,11 @@ export default function CoachWallet() {
         <div className="p-4 space-y-2">
           {recentTransactions.length > 0 ? (
             recentTransactions.map((tx, idx) => (
-              <div key={tx.id || idx} className="flex items-center justify-between p-4 bg-white/[0.02] hover:bg-white/[0.06] border border-transparent hover:border-white/10 rounded-2xl transition-all group">
+              <div 
+                key={tx.id || idx} 
+                className={`flex items-center justify-between p-4 bg-white/[0.02] hover:bg-white/[0.06] border border-transparent hover:border-white/10 rounded-2xl transition-all group ${tx.direction === 'out' ? 'cursor-pointer' : ''}`}
+                onClick={() => tx.direction === 'out' && setSelectedTx(tx)}
+              >
                  <div className="flex items-center gap-4">
                     <div className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-all ${
                        tx.category === 'student' 
@@ -263,7 +268,7 @@ export default function CoachWallet() {
                  </div>
                  <div className="text-right shrink-0">
                     <p className={`text-base font-black ${tx.direction === 'in' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {tx.direction === 'in' ? '+' : '-'}{tx.amount} ₺
+                      {tx.direction === 'in' ? '+' : '-'}{tx.amount.toFixed(2)} ₺
                     </p>
                  </div>
               </div>
@@ -275,6 +280,72 @@ export default function CoachWallet() {
           )}
         </div>
       </motion.div>
+
+      <AnimatePresence>
+        {selectedTx && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-900 border border-slate-700/50 rounded-3xl p-8 w-full max-w-sm shadow-2xl relative"
+            >
+              <button 
+                onClick={() => setSelectedTx(null)}
+                className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center bg-white/5 border border-white/10 rounded-full text-slate-400 hover:text-white transition-colors"
+              >
+                <X size={16} />
+              </button>
+              
+              <div className="flex flex-col items-center mb-6 mt-4">
+                 <div className={`w-16 h-16 rounded-2xl flex items-center justify-center border mb-4 ${
+                    selectedTx.direction === 'in' 
+                       ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                       : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                 }`}>
+                    {selectedTx.direction === 'in' ? <ArrowDownLeft size={32} strokeWidth={2.5}/> : <ArrowUpRight size={32} strokeWidth={2.5} />}
+                 </div>
+                 <h3 className="text-xl font-bold text-white text-center">İşlem Detayı</h3>
+                 <p className="text-slate-400 text-sm">{selectedTx.subject}</p>
+                 <div className={`mt-4 text-3xl font-black ${selectedTx.direction === 'in' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {selectedTx.direction === 'in' ? '+' : '-'}{selectedTx.amount.toFixed(2)} ₺
+                 </div>
+              </div>
+              
+              <div className="space-y-4 text-sm text-slate-300 bg-white/5 p-4 rounded-xl border border-white/10 mt-4 h-max overflow-y-auto max-h-[40vh]">
+                 <div>
+                    <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1">Açıklama</div>
+                    <div className="font-medium text-white">{selectedTx.description || 'Detay bulunmuyor'}</div>
+                 </div>
+                 <div>
+                    <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1">Tarih</div>
+                    <div className="font-medium text-white">{new Date(selectedTx.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+                 </div>
+                 {selectedTx.items && selectedTx.items.length > 0 && (
+                    <div>
+                       <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-3">Harcanan Kalemler</div>
+                       <div className="space-y-3">
+                          {selectedTx.items.map((item: any, i: number) => (
+                             <div key={i} className="flex justify-between items-center bg-white/5 p-2 rounded-lg">
+                                <div className="flex flex-col">
+                                   <span className="font-medium text-slate-200">{item.title}</span>
+                                   <span className="text-xs text-slate-500">{item.quantity} Adet</span>
+                                </div>
+                                <span className="font-medium text-rose-400">{item.price} ₺</span>
+                             </div>
+                          ))}
+                       </div>
+                    </div>
+                 )}
+                 <div>
+                    <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1 mt-2">Kategori</div>
+                    <div className="font-medium text-white">{selectedTx.category === 'student' ? 'Öğrenci' : 'Sistem'}</div>
+                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

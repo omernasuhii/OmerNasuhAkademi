@@ -5,6 +5,7 @@ import { useAuth } from '../../lib/AuthContext';
 import ReactMarkdown from 'react-markdown';
 import { appointmentService, Service } from '../../services/appointmentService';
 import { studentDataService } from '../../services/studentDataService';
+import { analysisService } from '../../services/analysisService';
 
 interface Message {
   id: string;
@@ -352,19 +353,27 @@ export default function AIAssistant() {
       if (name === 'get_student_academic_data') {
         const uid = user!.uid;
         // Fetch all possible data to analyze
-        const [dailyPrograms, routines, bookTracking, examResults] = await Promise.all([
+        const [dailyPrograms, routines, bookTracking, examResults, personalityAnalyses] = await Promise.all([
           studentDataService.getAllDailyPrograms(uid),
           studentDataService.getRoutines(uid),
           studentDataService.getBookTracking(uid),
-          studentDataService.getExamResults(uid)
+          studentDataService.getExamResults(uid),
+          analysisService.getResults(uid)
         ]);
+
+        // Fetch analyses for each exam to get subject-by-subject error types
+        const examAnalyses = await Promise.all(
+          examResults.map(exam => studentDataService.getExamAnalysis(exam.id))
+        );
 
         return {
           success: true,
           dailyPrograms,
           routines,
           bookTracking,
-          examResults
+          examResults,
+          examAnalyses: examAnalyses.filter(Boolean), // Filter out nulls
+          personalityAnalyses // Added cognitive and behavioural analyses (stress, form info etc.)
         };
       }
       return { success: false, error: "Bilinmeyen fonksiyon: " + name };

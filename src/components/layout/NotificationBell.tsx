@@ -1,26 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bell, X, Check, Clock, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-
-export interface Notification {
-  id: string;
-  title: string;
-  message: string;
-  time: string;
-  read: boolean;
-  type: 'info' | 'success' | 'warning' | 'error';
-}
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../lib/AuthContext';
+import { notificationService, Notification } from '../../services/notificationService';
 
 interface NotificationBellProps {
   notifications: Notification[];
-  setNotifications: React.Dispatch<React.SetStateAction<Notification[]>>;
 }
 
-export default function NotificationBell({ notifications, setNotifications }: NotificationBellProps) {
+export default function NotificationBell({ notifications }: NotificationBellProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = notifications.filter(n => !n.isRead).length;
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -32,17 +27,39 @@ export default function NotificationBell({ notifications, setNotifications }: No
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  const markAllAsRead = async () => {
+    if (user?.uid) {
+      await notificationService.markAllAsRead(user.uid);
+    }
   };
 
-  const deleteNotification = (id: string, e: React.MouseEvent) => {
+  const deleteNotification = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setNotifications(prev => prev.filter(n => n.id !== id));
+    await notificationService.deleteNotification(id);
   };
 
-  const toggleRead = (id: string) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: !n.read } : n));
+  const toggleRead = async (id: string, currentRead: boolean) => {
+    if (!currentRead) {
+      await notificationService.markAsRead(id);
+    }
+  };
+  
+  const handleViewAll = () => {
+    setIsOpen(false);
+    navigate('/profil', { state: { activeTab: 'Bildirimler' } });
+  };
+  
+  // Sadece son 5 bildirimi göster
+  const displayNotifications = notifications.slice(0, 5);
+
+  const getRelativeTime = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diff = Math.floor((now.getTime() - d.getTime()) / 60000); // in minutes
+    if (diff < 1) return 'Şimdi';
+    if (diff < 60) return `${diff} dk önce`;
+    if (diff < 1440) return `${Math.floor(diff / 60)} saat önce`;
+    return `${Math.floor(diff / 1440)} gün önce`;
   };
 
   return (
@@ -54,7 +71,7 @@ export default function NotificationBell({ notifications, setNotifications }: No
         <Bell size={20} className={isOpen ? 'text-emerald-400' : 'group-hover:rotate-12 transition-transform'} />
         {unreadCount > 0 && (
           <span className="absolute top-2 right-2 w-4 h-4 bg-emerald-500 text-[10px] font-black text-white rounded-full flex items-center justify-center border-2 border-[#070b14] animate-pulse">
-            {unreadCount}
+            {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
       </button>
@@ -85,27 +102,27 @@ export default function NotificationBell({ notifications, setNotifications }: No
             </div>
 
             <div className="max-h-[400px] overflow-y-auto custom-scrollbar">
-              {notifications.length > 0 ? (
+              {displayNotifications.length > 0 ? (
                 <div className="divide-y divide-white/5">
-                  {notifications.map((n) => (
+                  {displayNotifications.map((n) => (
                     <div 
                       key={n.id} 
-                      onClick={() => toggleRead(n.id)}
-                      className={`p-5 hover:bg-white/[0.02] transition-colors cursor-pointer group relative ${!n.read ? 'bg-emerald-500/[0.02]' : ''}`}
+                      onClick={() => toggleRead(n.id, n.isRead)}
+                      className={`p-5 hover:bg-white/[0.02] transition-colors cursor-pointer group relative ${!n.isRead ? 'bg-emerald-500/[0.02]' : ''}`}
                     >
-                      {!n.read && (
+                      {!n.isRead && (
                         <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-emerald-500" />
                       )}
                       <div className="flex justify-between gap-4">
                         <div className="flex-1">
-                          <h4 className={`text-sm font-bold mb-1 ${!n.read ? 'text-white' : 'text-slate-400'}`}>
+                          <h4 className={`text-sm font-bold mb-1 ${!n.isRead ? 'text-white' : 'text-slate-400'}`}>
                             {n.title}
                           </h4>
                           <p className="text-xs text-slate-500 leading-relaxed">
                             {n.message}
                           </p>
                           <div className="flex items-center gap-2 mt-3 text-[10px] font-bold text-slate-600 uppercase tracking-widest">
-                            <Clock size={12} /> {n.time}
+                            <Clock size={12} /> {getRelativeTime(n.createdAt)}
                           </div>
                         </div>
                         <button 
@@ -128,7 +145,10 @@ export default function NotificationBell({ notifications, setNotifications }: No
               )}
             </div>
 
-            <button className="w-full py-4 bg-white/5 hover:bg-white/10 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] transition-all border-t border-white/5">
+            <button 
+              onClick={handleViewAll}
+              className="w-full py-4 bg-white/5 hover:bg-white/10 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] transition-all border-t border-white/5"
+            >
               Tümünü Görüntüle
             </button>
           </motion.div>

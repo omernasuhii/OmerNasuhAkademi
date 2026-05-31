@@ -1,46 +1,57 @@
 import React, { useState, useEffect } from 'react';
-import { User, Menu, ChevronDown, LogOut, LayoutDashboard, Shield, Clock, ExternalLink, X, Bell, Check, Trash2, Users } from 'lucide-react';
+import { User, Menu, ChevronDown, LogOut, LayoutDashboard, Shield, Clock, ExternalLink, X, Bell, Check, Trash2, Users, ShoppingBag } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../lib/AuthContext';
-import NotificationBell, { Notification } from './NotificationBell';
+import { useCart } from '../../lib/CartContext';
+import NotificationBell from './NotificationBell';
+import { notificationService, Notification } from '../../services/notificationService';
 
 export default function Navbar() {
   const { user, userData, logout } = useAuth();
+  const { totalItems } = useCart();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [openMobileSubmenu, setOpenMobileSubmenu] = useState<string | null>(null);
   const [mobileDrawerView, setMobileDrawerView] = useState<'menu' | 'notifications'>('menu');
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   
-  // Notification State
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: '1',
-      title: 'Yeni Randevu',
-      message: 'Yarın saat 14:00\'de Matematik seansınız var.',
-      time: '5 dk önce',
-      read: false,
-      type: 'info'
-    },
-    {
-      id: '2',
-      title: 'Ödev Tamamlandı',
-      message: 'Trigonometri I ödevi başarıyla sisteme yüklendi.',
-      time: '2 saat önce',
-      read: true,
-      type: 'success'
-    },
-    {
-      id: '3',
-      title: 'Deneme Analizi Hazır',
-      message: 'Son girdiğiniz sınavın detaylı analizi koçunuz tarafından onaylandı.',
-      time: '1 gün önce',
-      read: true,
-      type: 'info'
-    }
-  ]);
-
-  const unreadCount = notifications.filter(n => !n.read).length;
-
   const location = useLocation();
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsubscribe = notificationService.onNotificationsChange(user.uid, (data) => {
+      setNotifications(data);
+    });
+    return () => unsubscribe();
+  }, [user?.uid]);
+
+  const unreadCount = notifications.filter(n => !n.isRead).length;
+
+  const markAllAsRead = async () => {
+    if (user?.uid) {
+      await notificationService.markAllAsRead(user.uid);
+    }
+  };
+
+  const deleteNotification = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await notificationService.deleteNotification(id);
+  };
+
+  const toggleRead = async (id: string, currentRead: boolean) => {
+    if (!currentRead) {
+      await notificationService.markAsRead(id);
+    }
+  };
+
+  const getRelativeTime = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diff = Math.floor((now.getTime() - d.getTime()) / 60000); // in minutes
+    if (diff < 1) return 'Şimdi';
+    if (diff < 60) return `${diff} dk önce`;
+    if (diff < 1440) return `${Math.floor(diff / 60)} saat önce`;
+    return `${Math.floor(diff / 1440)} gün önce`;
+  };
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -64,19 +75,6 @@ export default function Navbar() {
 
   const toggleSubmenu = (menu: string) => {
     setOpenMobileSubmenu(openMobileSubmenu === menu ? null : menu);
-  };
-
-  const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-  };
-
-  const toggleRead = (id: string) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: !n.read } : n));
-  };
-  
-  const deleteNotification = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
   return (
@@ -167,8 +165,18 @@ export default function Navbar() {
 
       <div className="flex items-center gap-3">
         {user && (
-          <div className="hidden lg:block">
-            <NotificationBell notifications={notifications} setNotifications={setNotifications} />
+          <div className="hidden lg:flex items-center gap-3">
+            {userData?.role === 'student' && (
+              <Link to="/panel/ogrenci/sepet" className="relative p-2 rounded-full hover:bg-white/5 transition-colors text-slate-400 hover:text-white">
+                <ShoppingBag size={20} />
+                {totalItems > 0 && (
+                  <span className="absolute top-0 right-0 w-4 h-4 bg-rose-500 text-[10px] font-black text-white rounded-full flex items-center justify-center border border-[#070b14]">
+                    {totalItems}
+                  </span>
+                )}
+              </Link>
+            )}
+            <NotificationBell notifications={notifications} />
           </div>
         )}
         {user ? (
@@ -274,6 +282,21 @@ export default function Navbar() {
           <Link to="/giris" className="hidden lg:flex px-5 py-2 rounded-full border border-slate-700 hover:bg-slate-800 transition-colors text-sm font-medium gap-2 items-center">
             <User size={18} />
             Giriş Yap
+          </Link>
+        )}
+        
+        {/* Mobile Menu Cart button */}
+        {user && userData?.role === 'student' && (
+          <Link 
+            to="/panel/ogrenci/sepet"
+            className="lg:hidden text-slate-300 hover:text-white p-2 relative"
+          >
+            <ShoppingBag size={24} />
+            {totalItems > 0 && (
+              <span className="absolute top-1 right-1 w-4 h-4 bg-rose-500 text-[10px] font-black text-white rounded-full flex items-center justify-center border border-[#070b14]">
+                {totalItems}
+              </span>
+            )}
           </Link>
         )}
         
@@ -498,15 +521,15 @@ export default function Navbar() {
                   notifications.map(n => (
                     <div 
                       key={n.id} 
-                      onClick={() => toggleRead(n.id)}
-                      className={`p-4 rounded-xl border relative ${n.read ? 'bg-white/5 border-white/5' : 'bg-emerald-500/5 border-emerald-500/20'}`}
+                      onClick={() => toggleRead(n.id, n.isRead)}
+                      className={`p-4 rounded-xl border relative ${n.isRead ? 'bg-white/5 border-white/5' : 'bg-emerald-500/5 border-emerald-500/20'}`}
                     >
-                      {!n.read && <div className="absolute left-0 top-3 bottom-3 w-1 bg-emerald-500 rounded-r-md" />}
+                      {!n.isRead && <div className="absolute left-0 top-3 bottom-3 w-1 bg-emerald-500 rounded-r-md" />}
                       <div className="flex justify-between items-start gap-3">
                         <div className="flex-1">
-                          <h4 className={`text-sm font-bold mb-1 ${!n.read ? 'text-white' : 'text-slate-300'}`}>{n.title}</h4>
+                          <h4 className={`text-sm font-bold mb-1 ${!n.isRead ? 'text-white' : 'text-slate-300'}`}>{n.title}</h4>
                           <p className="text-xs text-slate-400 leading-relaxed">{n.message}</p>
-                          <div className="text-[10px] text-slate-500 mt-2 font-medium">{n.time}</div>
+                          <div className="text-[10px] text-slate-500 mt-2 font-medium">{getRelativeTime(n.createdAt)}</div>
                         </div>
                         <button 
                           onClick={(e) => deleteNotification(n.id, e)}

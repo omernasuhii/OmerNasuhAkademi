@@ -31,11 +31,7 @@ function getGeminiClient() {
 }
 
 function getModelName(defaultDevModel: string) {
-  if (defaultDevModel.includes("flash")) {
-    return "gemini-3.5-flash";
-  } else {
-    return "gemini-3.5-flash"; // Default to flash to prevent errors unless pro is specifically required
-  }
+  return "gemini-3.1-flash-lite"; // By-pass quota by using lite model
 }
 
 async function startServer() {
@@ -58,17 +54,17 @@ async function startServer() {
 
       const ai = getGeminiClient();
       
-      const systemInstruction = `Sen Ömer Nasuh Akademi'nin yapay zeka eğitim asistanısın. Öğrencilere hedeflerine ulaşmaları için empatik, profesyonel ve stratejik rehberlik sağlarsın.
+      const systemInstruction = `Sen Ömer Nasuh Akademi'nin yapay zeka eğitim asistanı "ON Asistan"sın. Öğrencilere hedeflerine ulaşmaları için empatik, profesyonel ve stratejik rehberlik sağlarsın.
 Şu anki öğrencinin bilgileri:
 - Adı Soyadı: ${userContext?.firstName || ''} ${userContext?.lastName || ''}
 - Sınıfı: ${userContext?.class || 'Belirtilmemiş'}
 - Hedefi: ${userContext?.goal || 'Belirtilmemiş'}
 
-Görevlerinden biri, öğrencinin akademik sürecini (çalışma programlarını, bitirdiği kitapları, görev tamamlama oranlarını vb.) analiz edip tavsiyeler vermektir. Öğrenci planları veya kitap takibi durumu hakkında detaylı bir analiz, ilerleme durumu veya tavsiye istediğinde "get_student_academic_data" aracını çağır ve oradan dönen veriyi (günlük çalışma planları, rutinleri, okuduğu kitapları/denemeleri vb.) detaylıca analiz et.
+Görevlerinden biri, öğrencinin akademik sürecini (çalışma programları, kitap takibi, deneme sınavı sonuçları, bu denemelerin konu konu hatalarını içeren analizlerini ve kişilik/bilişsel analizlerini) detaylıca inceleyip tavsiyeler vermektir. Öğrenci planları, sınav sonuçları, konu/hata analizleri, veya stres, motivasyon, kişilik özellikleri gibi konularda psikolojik ve rehberlik desteği istediğinde "get_student_academic_data" aracını çağır ve oradan dönen veriyi detaylıca analiz et. Eğer öğrenci stresten/odaklanmadan bahsediyor ve henüz bu konuda bir analiz (örneğin ÖTI-A, AG-MOT, DEHB, Sınav Kaygısı vb. formlar/tesler) çözmemişse, test çözmesini önerebilirsin.
 
 Öğrencinin randevularını yönetebilirsin. Eğer öğrenci randevu almak, mevcut randevularını listelemek veya iptal etmek isterse kullanabilecegin araçları (function_calling) kullan. Randevu iptal kurallarına dikkat et (kalan son 3 saat kala iptal edilemez vs. bu kuralları sen belirleyip öğrenciye aktar. Sadece uygunsa aracı çağır). Yeni randevu alırken mutlaka koçun müsait saatlerini saat saat isteyebileceğin aracı kullan ve ordan dönen saate göre randevu oluştur.
 
-Bu bilgileri dikkate alarak öğrenciyle doğrudan konuş, akademik hedeflerini destekle, program önerileri yap, ve YKS vb. konularda destek ol. Kısa ve öz, cesaretlendirici cevaplar ver. Asla gereksiz bilgi yüklemesi yapma, hep bir rehber gibi yaklaş.`;
+Bu bilgileri dikkate alarak öğrenciyle doğrudan konuş, isminin "ON Asistan" olduğunu unutma. Akademik hedeflerini destekle, konu bazlı hata ve eksikliklerini belirterek program önerileri yap, stres gibi durumları yakalayarak derinlikli analizler sun. Kısa ve öz, cesaretlendirici cevaplar ver. Asla gereksiz bilgi yüklemesi yapma, bir rehber gibi yaklaş.`;
 
       // Define Tools
       const tools = [{
@@ -79,7 +75,7 @@ Bu bilgileri dikkate alarak öğrenciyle doğrudan konuş, akademik hedeflerini 
           },
           {
             name: "get_student_academic_data",
-            description: "Öğrencinin Koçluk sayfasındaki tüm akademik verilerini (günlük planlar, görevler, kitap takip listeleri, rutinler, tamamlama oranları ve denemeler) getirir. Bu aracı kullanarak öğrencinin çalışma durumu hakkında detaylı analiz yapabilirsin."
+            description: "Öğrencinin akademik verilerini (planlar, görevler, kitaplar, deneme sınavı sonuçları, sınavların konu/hata türü detaylı analizleri ve stres/algı/motivasyon/kognitif konulardaki kişilik analizleri) getirir."
           },
           {
             name: "get_coach_schedule",
@@ -163,10 +159,13 @@ Bu bilgileri dikkate alarak öğrenciyle doğrudan konuş, akademik hedeflerini 
 
       res.json({ text: response.text });
     } catch (error: any) {
+      const errStr = typeof error === 'string' ? error : (error?.message || JSON.stringify(error) || '');
+      if (errStr.includes("RESOURCE_EXHAUSTED") || errStr.includes("429") || errStr.includes("depleted")) {
+         return res.json({ text: "Sistemde kota aşımı nedeniyle yapay zeka asistanı geçici olarak hizmet verememektedir." });
+      }
+      
       console.error("Gemini AI Assistant Error:", error);
       let message = "Asistan servisi şu an kullanılamıyor.";
-      
-      const errStr = typeof error === 'string' ? error : (error?.message || JSON.stringify(error) || '');
       
       if (errStr === "API_KEY_MISSING") {
         message = "Asistan API Anahtarı eksik. Lütfen uygulamanın ayarlarından (Secrets bölümünden) ASSISTAN_API_KEY değerini ekleyin.";
@@ -218,10 +217,13 @@ Bu bilgileri dikkate alarak öğrenciyle doğrudan konuş, akademik hedeflerini 
 
       res.json({ text: response.text });
     } catch (error: any) {
+      const errStr = typeof error === 'string' ? error : (error?.message || JSON.stringify(error) || '');
+      if (errStr.includes("RESOURCE_EXHAUSTED") || errStr.includes("429") || errStr.includes("depleted")) {
+        return res.json({ text: "Demo Modu: Gemini API kota limitlerine ulaşıldığı için, yapay zeka analizi uygulanamadı." });
+      }
+
       console.error("Analysis Insight Error:", error);
       let message = "Analiz raporu oluşturulamadı.";
-      
-      const errStr = typeof error === 'string' ? error : (error?.message || JSON.stringify(error) || '');
       
       if (errStr === "API_KEY_MISSING") {
         message = "Asistan API Anahtarı eksik. Lütfen uygulamanın ayarlarından (Secrets bölümünden) ASSISTAN_API_KEY değerini ekleyin.";
@@ -268,10 +270,13 @@ Bu bilgileri dikkate alarak öğrenciyle doğrudan konuş, akademik hedeflerini 
 
       res.json({ text: response.text });
     } catch (error: any) {
+      const errStr = typeof error === 'string' ? error : (error?.message || JSON.stringify(error) || '');
+      if (errStr.includes("RESOURCE_EXHAUSTED") || errStr.includes("429") || errStr.includes("depleted")) {
+        return res.json({ text: "Sistemde kota aşımı nedeniyle koç asistanı geçici olarak hizmet verememektedir." });
+      }
+
       console.error("Coach Assistant Error:", error);
       let message = "Asistan yanıt veremedi.";
-      
-      const errStr = typeof error === 'string' ? error : (error?.message || JSON.stringify(error) || '');
       
       if (errStr === "API_KEY_MISSING") {
         message = "Asistan API Anahtarı eksik. Lütfen uygulamanın ayarlarından (Secrets bölümünden) ASSISTAN_API_KEY değerini ekleyin.";
@@ -308,10 +313,13 @@ Bu bilgileri dikkate alarak öğrenciyle doğrudan konuş, akademik hedeflerini 
 
       res.json({ text: response.text });
     } catch (error: any) {
+      const errStr = typeof error === 'string' ? error : (error?.message || JSON.stringify(error) || '');
+      if (errStr.includes("RESOURCE_EXHAUSTED") || errStr.includes("429") || errStr.includes("depleted")) {
+        return res.json({ text: "Sistemde kota aşımı." });
+      }
+
       console.error("Gemini API Error:", error);
       let message = "AI Analiz servisi şu an kullanılamıyor.";
-      
-      const errStr = typeof error === 'string' ? error : (error?.message || JSON.stringify(error) || '');
       
       if (errStr === "API_KEY_MISSING") {
         message = "Asistan API Anahtarı eksik. Lütfen uygulamanın ayarlarından (Secrets bölümünden) ASSISTAN_API_KEY değerini ekleyin.";

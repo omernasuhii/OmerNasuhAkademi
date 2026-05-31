@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Star, 
@@ -14,10 +15,12 @@ import {
   CreditCard,
   CheckCircle2,
   Trash2,
-  Play
+  Play,
+  ChevronRight
 } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
 import { studentDataService } from '../../services/studentDataService';
+import { useCart } from '../../lib/CartContext';
 
 export interface SubscriptionPackage {
   name: string;
@@ -108,10 +111,13 @@ export const SUBSCRIPTION_PACKAGES: SubscriptionPackage[] = [
 
 export default function Subscription() {
   const { userData, user } = useAuth();
+  const navigate = useNavigate();
+  const { addToCart } = useCart();
   const [processing, setProcessing] = useState(false);
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const isChecking = useRef(false);
   
   // Modal states
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPackage | null>(null);
@@ -119,11 +125,13 @@ export default function Subscription() {
 
   useEffect(() => {
     if (userData) {
-      checkAndHandleExpiration();
+      if (!isChecking.current) {
+        checkAndHandleExpiration();
+      }
     } else {
       setChecking(false);
     }
-  }, [userData?.uid]);
+  }, [userData?.uid, userData?.subscriptionEndDate]);
 
   // Check and handle subscription expiration in client lazily
   const checkAndHandleExpiration = async () => {
@@ -131,11 +139,14 @@ export default function Subscription() {
       setChecking(false);
       return;
     }
+    
+    isChecking.current = true;
 
     const { subscriptionPlan, subscriptionEndDate, subscriptionStatus, autoRenew } = userData;
 
     if (!subscriptionPlan || !subscriptionEndDate) {
       setChecking(false);
+      isChecking.current = false;
       return;
     }
 
@@ -158,7 +169,13 @@ export default function Subscription() {
                 amount: cost,
                 type: 'WITHDRAWAL',
                 description: `Otomatik Abonelik Yenileme: ${subscriptionPlan}`,
-                coachDeductionAmount: cost / 3
+                coachDeductionAmount: cost / 3,
+                items: [{
+                   title: subscriptionPlan,
+                   quantity: 1,
+                   price: cost,
+                   type: 'subscription'
+                }]
               });
 
               if (txResult.success) {
@@ -200,6 +217,7 @@ export default function Subscription() {
       }
     }
     setChecking(false);
+    isChecking.current = false;
   };
 
   const handleSubscribeClick = (pkg: SubscriptionPackage) => {
@@ -210,52 +228,19 @@ export default function Subscription() {
   const executeSubscription = async () => {
     if (!selectedPlan || !user || !userData) return;
 
-    setProcessing(true);
-    setError(null);
-    setSuccess(null);
-    setShowConfirmModal(false);
-
-    const price = selectedPlan.price;
-    const walletBalance = userData.walletBalance || 0;
-
-    if (walletBalance < price) {
-      setError(`Yetersiz Cüzdan Bakiyesi! Abonelik başlatmak için ₺${price.toLocaleString('tr-TR')} bakiye gerekiyor. Mevcut bakiyeniz: ₺${walletBalance.toLocaleString('tr-TR')}`);
-      setProcessing(false);
-      return;
-    }
-
-    try {
-      // Execute the withdrawal process (1/3 of the amount from coach)
-      const res = await studentDataService.addWalletTransaction(user.uid, {
-        amount: price,
-        type: 'WITHDRAWAL',
-        description: `Abonelik Başlangıcı: ${selectedPlan.name}`,
-        coachDeductionAmount: price / 3
-      });
-
-      if (!res.success) {
-        throw new Error(typeof res.error === 'string' ? res.error : 'İşlem koç bakiyesi veya sistemsel limit engeli sebebiyle gerçekleştirilemedi.');
+    addToCart({
+      itemId: selectedPlan.name, // using name as id since it's unique
+      type: 'subscription',
+      title: selectedPlan.name,
+      price: selectedPlan.price,
+      quantity: 1,
+      metadata: {
+        durationDays: selectedPlan.durationDays
       }
+    });
 
-      // Update student profile with new subscription plan
-      const now = new Date();
-      const expiration = new Date(now.getTime() + selectedPlan.durationDays * 24 * 60 * 60 * 1000);
-
-      await studentDataService.updateStudentProfile(user.uid, {
-        subscriptionPlan: selectedPlan.name,
-        subscriptionStartDate: now.toISOString(),
-        subscriptionEndDate: expiration.toISOString(),
-        subscriptionStatus: 'active',
-        autoRenew: true
-      });
-
-      setSuccess(`Tebrikler! "${selectedPlan.name}" aboneliğiniz başarıyla başlatıldı ve 4 hafta boyunca aktif hale getirildi.`);
-      setSelectedPlan(null);
-    } catch (err: any) {
-      setError(err.message || 'Satın alma işlemi sırasında teknik bir hata oluştu. Lütfen koçunuza veya teknik ekibe danışın.');
-    } finally {
-      setProcessing(false);
-    }
+    setShowConfirmModal(false);
+    navigate('/panel/ogrenci/sepet');
   };
 
   const handleToggleAutoRenew = async () => {
@@ -495,7 +480,7 @@ export default function Subscription() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 items-stretch pt-2">
           {SUBSCRIPTION_PACKAGES.map((plan, idx) => {
-            const isCurrent = userData?.subscriptionPlan === plan.name;
+            const isCurrent = hasActiveSub && userData?.subscriptionPlan === plan.name;
             return (
               <motion.div 
                 key={idx}
@@ -630,10 +615,10 @@ export default function Subscription() {
               </div>
             </div>
 
-            <div className="text-xs text-amber-400 bg-amber-500/5 border border-amber-500/10 p-4 rounded-xl leading-relaxed flex items-start gap-2">
-              <AlertCircle size={16} className="shrink-0 mt-0.5" />
+            <div className="text-xs text-indigo-400 bg-indigo-500/5 border border-indigo-500/10 p-4 rounded-xl leading-relaxed flex items-start gap-2">
+              <Zap size={16} className="shrink-0 mt-0.5" />
               <span>
-                <strong>Önemli Bilgi:</strong> Bu onay işlemi cüzdanınızdan <strong>₺{selectedPlan.price.toLocaleString('tr-TR')}</strong> tutarında bakiye düşürülmesini tetikleyecektir.
+                <strong>Bilgi:</strong> Paket sepete eklenecektir. Sepette kupon kullanabilir ve ardından ödemenizi tamamlayabilirsiniz.
               </span>
             </div>
 
@@ -646,9 +631,9 @@ export default function Subscription() {
               </button>
               <button
                 onClick={executeSubscription}
-                className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold text-white shadow-lg shadow-indigo-600/25 transition-all"
+                className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold text-white shadow-lg shadow-indigo-600/25 transition-all flex items-center justify-center gap-2"
               >
-                Ödemeyi Yap & Başlat
+                Onayla & Sepete Git <ChevronRight size={16} />
               </button>
             </div>
           </motion.div>

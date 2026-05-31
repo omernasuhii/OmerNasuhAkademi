@@ -61,8 +61,7 @@ export default function StudentLayout() {
     {
       title: 'Hesap & Finans',
       items: [
-        { title: 'Mağaza & Sepet', path: 'magaza', icon: ShoppingBag },
-        { title: 'Cüzdan & Ödüller', path: 'cuzdan', icon: Wallet },
+        { title: 'Mağaza', path: 'magaza', icon: ShoppingBag },
         { title: 'Abonelikler', path: 'abonelik', icon: Star },
         { title: 'Profilim', path: 'profil', icon: User },
       ]

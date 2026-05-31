@@ -453,7 +453,7 @@ export const studentDataService = {
     }
   },
 
-  async addWalletTransaction(studentId: string, transaction: { amount: number; type: 'DEPOSIT' | 'WITHDRAWAL'; description: string; coachDeductionAmount?: number }) {
+  async addWalletTransaction(studentId: string, transaction: { amount: number; type: 'DEPOSIT' | 'WITHDRAWAL'; description: string; coachDeductionAmount?: number; items?: any[] }) {
     const path = 'wallet_transactions';
     try {
       const usersPath = 'users';

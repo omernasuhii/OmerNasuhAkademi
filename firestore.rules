@@ -73,7 +73,7 @@ service cloud.firestore {
 
       allow read: if isSignedIn();
       allow create: if isOwner(userId) && isValidUser(incoming());
-      allow update: if (isAdmin() || isOwner(userId) || isCoachOf(userId) || (isStudentOf(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['systemBalance', 'updatedAt']))) && 
+      allow update: if (isAdmin() || isOwner(userId) || isCoachOf(userId) || (isStudentOf(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['systemBalance', 'updatedAt'])) || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasAny(['referralCount', 'referralEarnings', 'walletBalance']))) && 
                     isValidUser(incoming()) &&
                     incoming().get('role', '') == existing().get('role', '') &&
                     incoming().get('uid', '') == existing().get('uid', '');
@@ -272,7 +272,8 @@ service cloud.firestore {
     // 18. Programs
     match /programs/{programId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['enrolledCount']));
     }
 
     // 19. Program Enrollments
@@ -299,7 +300,8 @@ service cloud.firestore {
     // 20. Events
     match /events/{eventId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['tickets']));
     }
     match /event_rsvps/{rsvpId} {
       allow read: if isSignedIn();
@@ -323,5 +325,25 @@ service cloud.firestore {
       allow create: if isSignedIn() && (isOwner(incoming().studentId) || isAdmin());
       allow update, delete: if isAdmin();
     }
+
+    // 23. Settings
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 24. Referral History
+    match /referral_history/{historyId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+    // 25. Notifications
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && (resource == null || isOwner(resource.data.userId) || isAdmin() || isCoachOf(resource.data.userId));
+      allow create: if isSignedIn() && (isOwner(incoming().userId) || isAdmin() || isCoach());
+      allow update: if isSignedIn() && (isOwner(resource.data.userId) || isAdmin());
+      allow delete: if isSignedIn() && (isOwner(resource.data.userId) || isAdmin());
+    }
   }
 }
+

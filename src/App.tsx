@@ -16,11 +16,13 @@ import AppointmentList from './pages/admin/AppointmentList';
 import ComingSoonAdmin from './pages/admin/ComingSoonAdmin';
 import ProductsManagement from './pages/admin/ProductsManagement';
 import CMSManagement from './pages/admin/CMSManagement';
+import ReferralSettings from './pages/admin/ReferralSettings';
 import FinancialStatus from './pages/admin/FinancialStatus';
 import StudentLayout from './pages/students/StudentLayout';
 import Summary from './pages/students/Summary';
 import Appointments from './pages/students/Appointments';
 import Store from './pages/student/Store';
+import Cart from './pages/student/Cart';
 import Wallet from './pages/students/Wallet';
 import CommunityProfile from './pages/CommunityProfile';
 import Profile from './pages/students/Profile';
@@ -231,6 +233,7 @@ export default function App() {
               <Route path="crm/toplantilar" element={<ComingSoonAdmin />} />
               <Route path="crm/takip" element={<ComingSoonAdmin />} />
               <Route path="crm/sadakat" element={<ComingSoonAdmin />} />
+              <Route path="referans" element={<ReferralSettings />} />
               <Route path="analizler" element={<ComingSoonAdmin />} />
               <Route path="otomasyonlar" element={<ComingSoonAdmin />} />
               <Route path="ayarlar" element={<ComingSoonAdmin />} />
@@ -310,6 +313,7 @@ export default function App() {
               
               {/* Hesap & Finans */}
               <Route path="magaza" element={<Store />} />
+              <Route path="sepet" element={<Cart />} />
               <Route path="cuzdan" element={<Wallet />} />
               <Route path="abonelik" element={<Subscription />} />
               <Route path="profil" element={<Profile />} />

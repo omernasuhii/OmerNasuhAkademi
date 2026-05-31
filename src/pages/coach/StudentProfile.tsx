@@ -17,8 +17,7 @@ export default function StudentProfile() {
     branch: '',
     targetDepartment: '',
     targetTyt: '',
-    targetAyt: '',
-    subscriptionPlan: ''
+    targetAyt: ''
   });
 
   useEffect(() => {
@@ -28,8 +27,7 @@ export default function StudentProfile() {
         branch: selectedStudent.branch || '',
         targetDepartment: selectedStudent.targetDepartment || '',
         targetTyt: selectedStudent.targetTyt?.toString() || '',
-        targetAyt: selectedStudent.targetAyt?.toString() || '',
-        subscriptionPlan: selectedStudent.subscriptionPlan || ''
+        targetAyt: selectedStudent.targetAyt?.toString() || ''
       });
       studentDataService.getExamResults(selectedStudent.uid).then(exams => {
         setMultipliers(calculateSubjectMultipliers(exams, selectedStudent.branch));
@@ -37,50 +35,11 @@ export default function StudentProfile() {
     }
   }, [selectedStudent]);
 
-  const canUpdateSubscription = () => {
-    if (!selectedStudent?.lastSubscriptionUpdate) return true;
-    
-    // Firestore timestamp or Date
-    const lastUpdate = selectedStudent.lastSubscriptionUpdate.seconds 
-      ? new Date(selectedStudent.lastSubscriptionUpdate.seconds * 1000)
-      : new Date(selectedStudent.lastSubscriptionUpdate);
-    
-    if (isNaN(lastUpdate.getTime())) return true;
-
-    const now = new Date();
-    const diffTime = Math.abs(now.getTime() - lastUpdate.getTime());
-    const diffDays = diffTime / (1000 * 60 * 60 * 24);
-    
-    return diffDays >= 30;
-  };
-
-  const daysUntilNextUpdate = () => {
-    if (!selectedStudent?.lastSubscriptionUpdate) return 0;
-    const lastUpdate = selectedStudent.lastSubscriptionUpdate.seconds 
-      ? new Date(selectedStudent.lastSubscriptionUpdate.seconds * 1000)
-      : new Date(selectedStudent.lastSubscriptionUpdate);
-    
-    const nextPossibleDate = new Date(lastUpdate.getTime() + (30 * 24 * 60 * 60 * 1000));
-    const now = new Date();
-    const diffTime = nextPossibleDate.getTime() - now.getTime();
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  };
-
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStudent) return;
     setLoading(true);
     setError(null);
-
-    const currentPlan = selectedStudent.subscriptionPlan || '';
-    const newPlan = academicInfo.subscriptionPlan || '';
-    const subscriptionChanged = newPlan !== currentPlan;
-    
-    if (subscriptionChanged && !canUpdateSubscription()) {
-      setError(`Abonelik planı ayda sadece 1 kez değiştirilebilir. Tekrar değiştirmek için ${daysUntilNextUpdate()} gün beklemeniz gerekiyor.`);
-      setLoading(false);
-      return;
-    }
 
     try {
       const updatedData: any = {
@@ -89,18 +48,12 @@ export default function StudentProfile() {
         targetAyt: parseInt(academicInfo.targetAyt) || 0,
       };
 
-      if (subscriptionChanged) {
-        updatedData.lastSubscriptionUpdate = serverTimestamp();
-      }
-      
       const res = await studentDataService.updateStudentProfile(selectedStudent.uid, updatedData);
       
       if (res) {
         setSelectedStudent({
           ...selectedStudent,
-          ...updatedData,
-          // Optimistically update timestamp on client to match local time for display until reload
-          lastSubscriptionUpdate: subscriptionChanged ? new Date() : selectedStudent.lastSubscriptionUpdate
+          ...updatedData
         });
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
@@ -168,7 +121,9 @@ export default function StudentProfile() {
               </div>
               <div className="bg-indigo-500/10 border border-indigo-500/20 p-4 rounded-2xl">
                  <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Mevcut Abonelik</p>
-                 <p className="text-lg font-black text-white italic uppercase leading-tight">{academicInfo.subscriptionPlan || 'Abonelik Yok'}</p>
+                 <p className="text-lg font-black text-white italic uppercase leading-tight">
+                    {selectedStudent?.subscriptionPlan || 'Abonelik Seçilmedi'}
+                 </p>
               </div>
            </div>
         </div>
@@ -228,34 +183,6 @@ export default function StudentProfile() {
                       placeholder="Örn: Bilgisayar Mühendisliği"
                       className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500/50 outline-none transition-all"
                     />
-                 </div>
-
-                 <div className="space-y-2 md:col-span-2 text-left">
-                    <div className="flex items-center justify-between mb-1 pr-1">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Mevcut Abonelik Paketi</label>
-                      {!canUpdateSubscription() && (
-                        <span className="text-[9px] font-black text-orange-500 bg-orange-500/10 px-2 py-0.5 rounded-full uppercase tracking-widest flex items-center gap-1">
-                          <AlertCircle size={10} /> Değişiklik için {daysUntilNextUpdate()} gün kaldı
-                        </span>
-                      )}
-                    </div>
-                    <select 
-                      value={academicInfo.subscriptionPlan}
-                      onChange={(e) => setAcademicInfo({...academicInfo, subscriptionPlan: e.target.value})}
-                      disabled={!canUpdateSubscription()}
-                      className={`w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-sm text-white outline-none transition-all ${
-                        !canUpdateSubscription() ? 'opacity-50 cursor-not-allowed grayscale' : 'focus:border-blue-500/50'
-                      }`}
-                    >
-                      <option value="">Abonelik Seçilmedi</option>
-                      <option value="Aylık Bronz Paket">Aylık Bronz Paket (3.000 ₺)</option>
-                      <option value="Aylık Gümüş Paket">Aylık Gümüş Paket (4.500 ₺)</option>
-                      <option value="Aylık Altın Paket">Aylık Altın Paket (6.000 ₺)</option>
-                      <option value="Özel Anlaşma">Özel Anlaşma</option>
-                    </select>
-                    {!canUpdateSubscription() && (
-                      <p className="text-[10px] text-slate-500 italic mt-1 pl-1">Abonelik paketi ayda sadece 1 kez güncellenebilir.</p>
-                    )}
                  </div>
 
                  <div className="space-y-2 text-left">

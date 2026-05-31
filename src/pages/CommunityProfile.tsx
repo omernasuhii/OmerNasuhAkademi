@@ -2,14 +2,40 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../lib/AuthContext';
 import { db } from '../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
-import { Camera, Save, User, UserCircle, Globe, Shield, Lock, Bell, Loader2, CheckCircle2, Copy } from 'lucide-react';
+import { Camera, Save, User, UserCircle, Globe, Shield, Lock, Bell, Loader2, CheckCircle2, Copy, ChevronDown, Star, Package, Calendar, BookOpen, Gift, Info } from 'lucide-react';
+import Wallet from './students/Wallet';
+import { ResponsiveTabs } from '../components/ui/ResponsiveTabs';
+import NotificationsList from '../components/notifications/NotificationsList';
+import { studentDataService } from '../services/studentDataService';
+import { storeService, Purchase } from '../services/storeService';
+import AppointmentList from '../components/appointments/AppointmentList';
+import { eventService, EventData, TicketOrder, EventRSVP } from '../services/eventService';
+import { programService, Program, ProgramEnrollment } from '../services/programService';
+
+import { useLocation } from 'react-router-dom';
 
 export default function CommunityProfile() {
   const { userData, user } = useAuth();
+  const location = useLocation();
+  const [activeTab, setActiveTab] = useState(location.state?.activeTab || 'Profil');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (location.state?.activeTab) {
+      setActiveTab(location.state.activeTab);
+    }
+  }, [location.state]);
+  const [showMoreTabs, setShowMoreTabs] = useState(false);
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [ticketOrders, setTicketOrders] = useState<TicketOrder[]>([]);
+  const [rsvps, setRsvps] = useState<EventRSVP[]>([]);
+  const [events, setEvents] = useState<Record<string, EventData>>({});
+  const [enrollments, setEnrollments] = useState<ProgramEnrollment[]>([]);
+  const [programs, setPrograms] = useState<Record<string, Program>>({});
+  const [walletTransactions, setWalletTransactions] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
@@ -33,6 +59,45 @@ export default function CommunityProfile() {
       });
     }
   }, [userData]);
+
+  useEffect(() => {
+    if (user?.uid) {
+      storeService.getPurchases(user.uid).then(setPurchases).catch(console.error);
+      studentDataService.getWalletTransactions(user.uid).then(setWalletTransactions).catch(console.error);
+      
+      const loadData = async () => {
+        try {
+          const [tickets, userRsvps, allEvents, userEnrollments, allPrograms] = await Promise.all([
+            eventService.getStudentTicketOrders(user.uid),
+            eventService.getStudentRSVPs(user.uid),
+            eventService.getEvents('student'),
+            programService.getStudentEnrollments(user.uid),
+            programService.getPrograms('student')
+          ]);
+          setTicketOrders(tickets);
+          setRsvps(userRsvps);
+          setEnrollments(userEnrollments);
+          
+          const eventMap = allEvents.reduce((acc, ev) => {
+            if (ev.id) acc[ev.id] = ev;
+            return acc;
+          }, {} as Record<string, EventData>);
+          setEvents(eventMap);
+          
+          const progMap = allPrograms.reduce((acc, prog) => {
+            if (prog.id) acc[prog.id] = prog;
+            return acc;
+          }, {} as Record<string, Program>);
+          setPrograms(progMap);
+          
+        } catch (e) {
+          console.error("Bilgiler yüklenemedi:", e);
+        }
+      };
+      
+      loadData();
+    }
+  }, [user]);
 
   if (!userData) return null;
 
@@ -92,8 +157,8 @@ export default function CommunityProfile() {
     <div className="w-full max-w-5xl mx-auto px-4 py-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
       
       {/* Profile Header (Banner & Avatar) */}
-      <div className="bg-slate-900 rounded-3xl overflow-hidden border border-slate-800 shadow-2xl relative mb-8">
-        <div className="h-48 bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 relative">
+      <div className="bg-slate-900 rounded-3xl border border-slate-800 shadow-2xl relative mb-8">
+        <div className="h-48 rounded-t-3xl overflow-hidden bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 relative">
           <div className="absolute top-4 right-4 bg-black/30 backdrop-blur-md px-3 py-1.5 rounded-full flex items-center gap-2 cursor-pointer hover:bg-black/50 transition-colors border border-white/10">
             <Camera size={14} className="text-white" />
             <span className="text-xs text-white font-medium">Kapak Fotoğrafı Ekle</span>
@@ -128,23 +193,25 @@ export default function CommunityProfile() {
               {formData.nickname || `${userData.firstName} ${userData.lastName}`}
               {userData.role === 'admin' && <span className="bg-indigo-500 text-[10px] px-2 py-0.5 rounded text-white font-bold uppercase tracking-wider">Admin</span>}
             </h1>
-            <p className="text-slate-400 text-sm mt-1">0 Takipçiler • 0 Takip Edilen</p>
           </div>
         </div>
 
-        {/* Action Tabs Mock */}
-        <div className="flex items-center gap-6 px-8 border-t border-slate-800 overflow-x-auto scrollbar-hide py-3">
-          <button className="text-sm font-semibold text-white border-b-2 border-blue-500 pb-3 -mb-3 whitespace-nowrap">Profil</button>
-          <button className="text-sm font-medium text-slate-400 hover:text-slate-300 transition-colors whitespace-nowrap">Aboneliklerim</button>
-          <button className="text-sm font-medium text-slate-400 hover:text-slate-300 transition-colors whitespace-nowrap">Siparişlerim</button>
-          <button className="text-sm font-medium text-slate-400 hover:text-slate-300 transition-colors whitespace-nowrap">Etkinlikler</button>
-          <button className="text-sm font-medium text-slate-400 hover:text-slate-300 transition-colors whitespace-nowrap">Programlarım</button>
+        <div className="px-8 border-t border-slate-800 py-3 relative z-30">
+          <ResponsiveTabs 
+            tabs={userData?.role === 'student' 
+              ? ['Profil', 'Aboneliklerim', 'Siparişlerim', 'Randevularım', 'Etkinlikler', 'Programlarım', 'Ödüllerim', 'Cüzdanım', 'Bildirimler']
+              : ['Profil', 'Bildirimler']
+            }
+            activeTab={activeTab}
+            onChange={setActiveTab}
+          />
         </div>
       </div>
 
-      <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl border border-slate-800 p-8 shadow-xl">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 pb-6 border-b border-slate-800">
-          <div>
+      {activeTab === 'Profil' && (
+        <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl border border-slate-800 p-8 shadow-xl">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 pb-6 border-b border-slate-800">
+            <div>
             <h2 className="text-2xl font-bold text-white tracking-tight">Hesap Ayarları</h2>
             <p className="text-slate-400 text-sm mt-1">Kişisel bilgilerinizi aşağıda görüntüleyin ve düzenleyin.</p>
           </div>
@@ -349,6 +416,337 @@ export default function CommunityProfile() {
 
         </div>
       </div>
+      )}
+
+      {activeTab === 'Cüzdanım' && (
+        <Wallet />
+      )}
+
+      {activeTab === 'Bildirimler' && (
+        <NotificationsList />
+      )}
+
+      {activeTab === 'Aboneliklerim' && (
+        <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl border border-slate-800 p-8 shadow-xl space-y-6">
+           <h2 className="text-2xl font-bold text-white tracking-tight mb-6">Aboneliklerim</h2>
+           
+           {userData?.subscriptionPlan && (
+             <div className="bg-slate-800 border border-slate-700/50 relative overflow-hidden rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-6 mb-6">
+               <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+               <div className="flex items-center gap-6 relative">
+                 <div className="w-16 h-16 bg-amber-500/20 text-amber-400 rounded-xl flex items-center justify-center border border-amber-500/30">
+                   <Star className="w-8 h-8" />
+                 </div>
+                 <div>
+                   <h4 className="text-xl text-white font-bold mb-1">{userData.subscriptionPlan} Paketi Aboneliği</h4>
+                   <div className="text-sm text-slate-400">
+                     Başlangıç: {userData.subscriptionStartDate ? new Date(userData.subscriptionStartDate).toLocaleDateString('tr-TR') : '-'}
+                   </div>
+                   <div className="text-sm text-slate-400">
+                     Bitiş: {userData.subscriptionEndDate ? new Date(userData.subscriptionEndDate).toLocaleDateString('tr-TR') : '-'}
+                   </div>
+                 </div>
+               </div>
+               
+               <div className="flex items-center gap-4 relative">
+                 <span className={`px-6 py-2 rounded-full text-sm font-bold uppercase tracking-widest border ${
+                   (userData.subscriptionEndDate && new Date(userData.subscriptionEndDate) > new Date())
+                     ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                     : 'bg-red-500/10 text-red-400 border-red-500/20'
+                 }`}>
+                   {(userData.subscriptionEndDate && new Date(userData.subscriptionEndDate) > new Date()) ? 'Aktif' : 'Bitti'}
+                 </span>
+               </div>
+            </div>
+           )}
+
+           <h3 className="text-lg font-bold text-white mb-4 mt-8">Abonelik Geçmişi</h3>
+           <div className="space-y-4">
+              {walletTransactions
+                .filter(tx => tx.type === 'WITHDRAWAL' && (
+                  (tx.items && tx.items.some((i: any) => i.type === 'subscription')) ||
+                  (tx.description && tx.description.toLowerCase().includes('abonelik'))
+                ))
+                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                .length > 0 ? (
+                  walletTransactions
+                    .filter(tx => tx.type === 'WITHDRAWAL' && (
+                      (tx.items && tx.items.some((i: any) => i.type === 'subscription')) ||
+                      (tx.description && tx.description.toLowerCase().includes('abonelik'))
+                    ))
+                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                    .map((tx, idx) => (
+                      <div key={idx} className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 flex flex-col md:flex-row justify-between md:items-center gap-4 hover:bg-slate-800/60 transition-colors">
+                        <div className="flex items-center gap-4">
+                           <div className="w-12 h-12 bg-slate-800 text-slate-400 rounded-lg flex items-center justify-center border border-slate-700">
+                              <Calendar className="w-6 h-6" />
+                           </div>
+                           <div>
+                              <div className="text-white font-bold">{tx.description}</div>
+                              <div className="text-xs text-slate-500">İşlem Tarihi: {new Date(tx.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute:'2-digit' })}</div>
+                           </div>
+                        </div>
+                        <div className="text-left md:text-right flex items-center justify-between md:justify-end gap-6">
+                           <div className="font-bold text-slate-300">{tx.amount.toFixed(2)} ₺</div>
+                           <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs px-3 py-1 rounded-full font-bold">Tamamlandı</span>
+                        </div>
+                      </div>
+                    ))
+                ) : (
+                  !userData?.subscriptionPlan && (
+                     <div className="text-center py-16 bg-slate-800/50 border border-slate-700/50 rounded-2xl">
+                       <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700">
+                         <Star className="w-10 h-10 text-slate-500" />
+                       </div>
+                       <p className="text-slate-400 mb-4">Mevcut veya geçmiş bir aboneliğiniz bulunmamaktadır.</p>
+                       <button onClick={() => window.location.href = '/abonelik'} className="px-6 py-3 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white rounded-xl font-medium transition">
+                         Paketleri İncele
+                       </button>
+                     </div>
+                  )
+                )}
+           </div>
+        </div>
+      )}
+
+      {activeTab === 'Siparişlerim' && (
+        <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl border border-slate-800 p-8 shadow-xl space-y-6">
+           <h2 className="text-2xl font-bold text-white tracking-tight mb-6">Siparişlerim</h2>
+           
+           <div className="space-y-4">
+             {purchases.map(purchase => (
+               <div key={purchase.id} className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
+                 <div className="flex items-center gap-4">
+                   <div className="w-12 h-12 bg-indigo-500/20 text-indigo-400 rounded-lg flex items-center justify-center">
+                     <Package className="w-6 h-6" />
+                   </div>
+                   <div>
+                     <h4 className="text-white font-medium">{purchase.productTitle}</h4>
+                     <div className="text-sm text-slate-400 mt-1">
+                       {new Date(purchase.purchasedAt).toLocaleDateString('tr-TR', {
+                         year: 'numeric', month: 'long', day: 'numeric',
+                         hour: '2-digit', minute: '2-digit'
+                       })}
+                     </div>
+                   </div>
+                 </div>
+                 
+                 <div className="flex items-center gap-4">
+                   <div className="text-right">
+                     <div className="text-lg font-bold text-indigo-400">{purchase.totalCost || purchase.cost || 0} ₺</div>
+                   </div>
+                   <span className={`px-3 py-1 text-xs font-bold uppercase tracking-wider rounded-full border ${
+                     purchase.status === 'completed' || purchase.status === 'delivered'
+                       ? 'bg-green-500/10 text-green-400 border-green-500/20'
+                       : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                   }`}>
+                     {purchase.status === 'completed' ? 'Tamamlandı' : 
+                      purchase.status === 'delivered' ? 'Teslim Edildi' : 'Bekliyor'}
+                   </span>
+                 </div>
+               </div>
+             ))}
+             {purchases.length === 0 && (
+                <div className="text-center py-16 bg-slate-800 border border-slate-700 rounded-xl">
+                  <p className="text-slate-400">Henüz hiçbir ürün satın almadınız.</p>
+                  <button 
+                    onClick={() => window.location.href = '/panel/ogrenci/magaza'}
+                    className="mt-4 text-indigo-400 hover:text-indigo-300 font-medium"
+                  >
+                    Mağazaya Göz At
+                  </button>
+                </div>
+             )}
+           </div>
+        </div>
+      )}
+
+      {activeTab === 'Randevularım' && (
+        <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl border border-slate-800 p-8 shadow-xl space-y-6">
+           <h2 className="text-2xl font-bold text-white tracking-tight mb-6">Randevularım</h2>
+           <AppointmentList role="student" />
+        </div>
+      )}
+
+      {activeTab === 'Etkinlikler' && (
+        <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl border border-slate-800 p-8 shadow-xl space-y-6">
+           <h2 className="text-2xl font-bold text-white tracking-tight mb-6">Etkinlikler</h2>
+           
+           <div className="space-y-6">
+             {ticketOrders.length > 0 || rsvps.length > 0 ? (
+               <>
+                 {ticketOrders.length > 0 && (
+                   <div className="space-y-4">
+                     <h3 className="text-lg font-semibold text-white">Etkinlik Biletlerim</h3>
+                     {ticketOrders.map(order => {
+                       const event = events[order.eventId];
+                       return (
+                         <div key={order.id} className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
+                           <div className="flex items-center gap-4">
+                             <div className="w-12 h-12 bg-blue-500/20 text-blue-400 rounded-lg flex items-center justify-center">
+                               <Calendar className="w-6 h-6" />
+                             </div>
+                             <div>
+                               <h4 className="text-white font-medium">{event ? event.title : 'Bilinmeyen Etkinlik'}</h4>
+                               <div className="text-sm text-slate-400 mt-1">
+                                 Bilet X {order.quantity} • {order.totalPrice} ₺
+                               </div>
+                               {event?.startDate && (
+                                 <div className="text-xs text-slate-500 mt-1">
+                                   Tarih: {new Date(event.startDate).toLocaleDateString('tr-TR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                 </div>
+                               )}
+                             </div>
+                           </div>
+                           
+                           <div className="flex items-center gap-4">
+                             <span className="px-3 py-1 text-xs font-bold uppercase tracking-wider rounded-full border bg-blue-500/10 text-blue-400 border-blue-500/20">
+                               Kayıtlı
+                             </span>
+                           </div>
+                         </div>
+                       );
+                     })}
+                   </div>
+                 )}
+
+                 {rsvps.length > 0 && (
+                   <div className="space-y-4">
+                     <h3 className="text-lg font-semibold text-white">Katılım Durumlarım (RSVP)</h3>
+                     {rsvps.map(rsvp => {
+                       const event = events[rsvp.eventId];
+                       return (
+                         <div key={rsvp.id} className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
+                           <div className="flex items-center gap-4">
+                             <div className="w-12 h-12 bg-indigo-500/20 text-indigo-400 rounded-lg flex items-center justify-center">
+                               <Calendar className="w-6 h-6" />
+                             </div>
+                             <div>
+                               <h4 className="text-white font-medium">{event ? event.title : 'Bilinmeyen Etkinlik'}</h4>
+                               {event?.startDate && (
+                                 <div className="text-xs text-slate-500 mt-1">
+                                   Tarih: {new Date(event.startDate).toLocaleDateString('tr-TR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                 </div>
+                               )}
+                             </div>
+                           </div>
+                           
+                           <div className="flex items-center gap-4">
+                             <span className={`px-3 py-1 text-xs font-bold uppercase tracking-wider rounded-full border ${
+                               rsvp.status === 'attending' 
+                                 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                 : 'bg-red-500/10 text-red-400 border-red-500/20'
+                             }`}>
+                               {rsvp.status === 'attending' ? 'Katılıyorum' : 'Katılmıyorum'}
+                             </span>
+                           </div>
+                         </div>
+                       );
+                     })}
+                   </div>
+                 )}
+               </>
+             ) : (
+                <div className="text-center py-16 bg-slate-800 border border-slate-700 rounded-xl">
+                  <p className="text-slate-400">Henüz hiçbir etkinliğe katılmadınız veya bilet almadınız.</p>
+                </div>
+             )}
+           </div>
+        </div>
+      )}
+
+      {activeTab === 'Programlarım' && (
+        <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl border border-slate-800 p-8 shadow-xl space-y-6">
+           <h2 className="text-2xl font-bold text-white tracking-tight mb-6">Programlarım</h2>
+           
+           <div className="space-y-4">
+             {enrollments.length > 0 ? (
+               enrollments.map(enrollment => {
+                 const program = programs[enrollment.programId];
+                 return (
+                   <div key={enrollment.id} className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
+                     <div className="flex items-center gap-4 w-full md:w-auto">
+                       <div className="w-12 h-12 bg-amber-500/20 text-amber-400 rounded-lg flex items-center justify-center shrink-0">
+                         <BookOpen className="w-6 h-6" />
+                       </div>
+                       <div className="flex-1 min-w-0">
+                         <h4 className="text-white font-medium truncate">{program ? program.title : 'Bilinmeyen Program'}</h4>
+                         <div className="text-sm text-slate-400 mt-1">
+                           Kayıt: {new Date(enrollment.enrolledAt).toLocaleDateString('tr-TR')}
+                         </div>
+                       </div>
+                     </div>
+                     
+                     <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
+                       <div className="flex flex-col items-end">
+                         <span className="text-sm text-slate-400 mb-1">İlerleme: %{enrollment.progress}</span>
+                         <div className="w-32 h-2 bg-slate-700 rounded-full overflow-hidden">
+                           <div 
+                             className={`h-full rounded-full ${enrollment.progress === 100 ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                             style={{ width: `${enrollment.progress}%` }}
+                           />
+                         </div>
+                       </div>
+                       <span className={`px-3 py-1 text-xs font-bold uppercase tracking-wider rounded-full border ${
+                         enrollment.completed
+                           ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                           : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                       }`}>
+                         {enrollment.completed ? 'Tamamlandı' : 'Devam Ediyor'}
+                       </span>
+                     </div>
+                   </div>
+                 );
+               })
+             ) : (
+                <div className="text-center py-16 bg-slate-800 border border-slate-700 rounded-xl">
+                  <p className="text-slate-400">Henüz hiçbir online eğitime kayıt olmadınız.</p>
+                </div>
+             )}
+           </div>
+        </div>
+      )}
+
+      {activeTab === 'Ödüllerim' && (
+        <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl border border-slate-800 p-8 shadow-xl space-y-6">
+           <h2 className="text-2xl font-bold text-white tracking-tight mb-6">Ödüllerim ve Kuponlarım</h2>
+           
+           <div className="max-w-2xl mx-auto space-y-6">
+             <div className="text-center py-16 bg-slate-800 border border-slate-700 rounded-xl">
+                <div className="w-20 h-20 bg-slate-700/50 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Gift className="w-10 h-10 text-slate-400" />
+                </div>
+                <h3 className="text-xl font-medium text-white mb-2">Henüz Kuponunuz Yok</h3>
+                <p className="text-slate-400 mb-6 max-w-sm mx-auto">Şu anda hesabınıza tanımlanmış aktif bir indirim kuponu bulunmuyor. Arkadaşlarınızı davet ederek kupon kazanabilirsiniz.</p>
+                <button 
+                  onClick={() => window.location.href = '/panel/ogrenci/magaza'}
+                  className="px-6 py-3 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white rounded-xl font-medium transition"
+                >
+                  Mağazaya Göz At
+                </button>
+             </div>
+             
+             <div className="bg-slate-800/50 border border-white/5 rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-4 text-slate-300">
+                  <Info size={18} className="text-indigo-400" />
+                  <h4 className="font-bold">Kuponlar Nasıl Kullanılır?</h4>
+                </div>
+                <ul className="text-sm text-slate-400 space-y-2 list-disc list-inside ml-2">
+                   <li>Aktif kuponlarınızı sepet ödeme ekranında bulunan "İndirim / Davet Kuponu" alanına girerek kullanabilirsiniz.</li>
+                   <li>Davet kodları veya özel gün indirim kodları alışveriş toplamında anında indirim sağlar.</li>
+                   <li>Hediye çeki/kampanyalı kupon kodları da aynı alandan kullanılabilir.</li>
+                </ul>
+             </div>
+           </div>
+        </div>
+      )}
+
+      {activeTab !== 'Profil' && activeTab !== 'Cüzdanım' && activeTab !== 'Bildirimler' && activeTab !== 'Aboneliklerim' && activeTab !== 'Siparişlerim' && activeTab !== 'Randevularım' && activeTab !== 'Etkinlikler' && activeTab !== 'Programlarım' && activeTab !== 'Ödüllerim' && (
+        <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl border border-slate-800 p-16 text-center shadow-xl">
+           <h2 className="text-xl font-bold text-white mb-2">{activeTab}</h2>
+           <p className="text-slate-400">Bu bölüm çok yakında hizmetinize açılacak.</p>
+        </div>
+      )}
     </div>
   );
 }

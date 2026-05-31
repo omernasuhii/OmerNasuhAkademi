@@ -65,20 +65,22 @@ export default function Summary() {
 
   // Calculate subscription remaining days
   const calculateSubscriptionDays = () => {
-    if (!userData?.subscriptionStartDate || !userData?.subscriptionEndDate) return { remaining: 0, total: 0, percentage: 0 };
+    if (!userData?.subscriptionStartDate || !userData?.subscriptionEndDate) return { remaining: 0, total: 0, percentage: 0, daysExpired: -1 };
     const start = new Date(userData.subscriptionStartDate).getTime();
     const end = new Date(userData.subscriptionEndDate).getTime();
     const now = new Date().getTime();
     
     const totalDays = Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60 * 24)));
     const remainingDays = Math.max(0, Math.ceil((end - now) / (1000 * 60 * 60 * 24)));
+    const daysExpired = now > end ? Math.floor((now - end) / (1000 * 60 * 60 * 24)) : 0;
     const usedDays = totalDays - remainingDays;
     const percentage = Math.round((usedDays / totalDays) * 100);
     
-    return { remaining: remainingDays, total: totalDays, percentage: percentage > 100 ? 100 : percentage < 0 ? 0 : percentage };
+    return { remaining: remainingDays, total: totalDays, percentage: percentage > 100 ? 100 : percentage < 0 ? 0 : percentage, daysExpired };
   };
 
   const subStats = calculateSubscriptionDays();
+  const showSubscription = userData?.subscriptionPlan && (subStats.remaining > 0 || (subStats.daysExpired >= 0 && subStats.daysExpired <= 3));
 
   return (
     <div className="w-full max-w-7xl mx-auto space-y-8">
@@ -146,7 +148,7 @@ export default function Summary() {
         </div>
 
         {/* Abonelik Durumu & Çubuk */}
-        {userData?.subscriptionPlan ? (
+        {showSubscription ? (
           <div className="bg-gradient-to-r from-yellow-500/10 via-amber-500/5 to-transparent border border-yellow-500/20 p-5 md:p-6 rounded-2xl mt-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-4">
               <div className="flex items-center gap-4">

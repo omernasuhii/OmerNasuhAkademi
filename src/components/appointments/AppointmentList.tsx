@@ -24,9 +24,11 @@ interface AppointmentListProps {
   role: 'student' | 'coach' | 'admin';
   studentId?: string;
   onReschedule?: (booking: Booking) => void;
+  limit?: number;
+  statuses?: string[];
 }
 
-export default function AppointmentList({ role, studentId, onReschedule }: AppointmentListProps) {
+export default function AppointmentList({ role, studentId, onReschedule, limit, statuses }: AppointmentListProps) {
   const { user } = useAuth();
   const [appointments, setAppointments] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,7 +51,7 @@ export default function AppointmentList({ role, studentId, onReschedule }: Appoi
       const now = new Date();
       let hasUpdates = false;
 
-      const processedData = await Promise.all(data.map(async (app) => {
+      let processedData = await Promise.all(data.map(async (app) => {
         if (app.status === 'confirmed' && app.date && app.startTime) {
           try {
             // Compare date and time
@@ -65,6 +67,14 @@ export default function AppointmentList({ role, studentId, onReschedule }: Appoi
         }
         return app;
       }));
+      
+      if (statuses && statuses.length > 0) {
+        processedData = processedData.filter(app => statuses.includes(app.status));
+      }
+      
+      if (limit) {
+        processedData = processedData.slice(0, limit);
+      }
 
       setAppointments(processedData);
     } catch (err) {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Mail, Lock, User, Phone, LogIn, ChevronLeft, Loader2, AlertCircle } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'firebase/auth';
@@ -7,12 +7,23 @@ import { getAuth } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp, getFirestore } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { referralService, ReferralSettings } from '../services/referralService';
 
 export default function Register() {
   const location = useLocation();
   const navigate = useNavigate();
   const isCoach = location.pathname.includes('koc');
   const roleTitle = isCoach ? 'Koç' : 'Öğrenci';
+
+  const [settings, setSettings] = useState<ReferralSettings | null>(null);
+
+  useEffect(() => {
+    if (!isCoach) {
+      referralService.getSettings().then(data => {
+        if (data) setSettings(data);
+      });
+    }
+  }, [isCoach]);
 
   // Tailwind static class extraction for dynamic colors
   const roleColors = {
@@ -46,6 +57,7 @@ export default function Register() {
   const [parentEmail, setParentEmail] = useState('');
   const [parentPhone, setParentPhone] = useState('');
   const [ydtLanguage, setYdtLanguage] = useState('');
+  const [referralCode, setReferralCode] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,7 +88,9 @@ export default function Register() {
         userData.parentLastName = parentLastName;
         userData.parentEmail = parentEmail;
         userData.parentPhone = parentPhone;
+        userData.referredByCode = referralCode;
       }
+
 
       // 2. Auth Creation for Main User
       let user;
@@ -422,6 +436,31 @@ export default function Register() {
             </div>
           </div>
 
+
+          {!isCoach && (
+            <div className="mt-4">
+              <label className="block text-sm font-semibold tracking-wide text-slate-300 mb-2">Davet Kodu (Opsiyonel)</label>
+              <div className="relative">
+                <input 
+                  type="text" 
+                  disabled={loading}
+                  value={referralCode}
+                  onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                  className={`w-full bg-slate-950/50 border border-white/10 text-white rounded-xl py-3 px-4 focus:outline-none focus:ring-2 ${theme.outline} transition-all placeholder:text-slate-600 disabled:opacity-50 font-mono`}
+                  placeholder="FOCUS2026"
+                />
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1 italic">
+                {settings ? (
+                  <>
+                    Arkadaşının davet kodunu girerek ilk alışverişinde anında <strong className="text-white">{settings.rewardType === 'percent' ? `%${settings.refereeReward}` : `${settings.refereeReward} TL`} İndirim</strong> kazanabilirsin.
+                  </>
+                ) : (
+                  "Arkadaşının davet kodunu girerek indirim kazanabilirsin."
+                )}
+              </p>
+            </div>
+          )}
 
           <button 
             type="submit" 

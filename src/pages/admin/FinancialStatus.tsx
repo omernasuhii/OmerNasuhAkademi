@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Wallet, Info, Search, Plus, Loader2, ArrowUpRight, CheckCircle2, TrendingUp, Users, History, ArrowDownLeft, Clock } from 'lucide-react';
+import { Wallet, Info, Search, Plus, Loader2, ArrowUpRight, CheckCircle2, TrendingUp, Users, History, ArrowDownLeft, Clock, X } from 'lucide-react';
 import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp, getDoc, addDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
@@ -25,6 +25,7 @@ export default function FinancialStatus() {
 
   const [globalTransactions, setGlobalTransactions] = useState<any[]>([]);
   const [showGlobalHistory, setShowGlobalHistory] = useState(false);
+  const [selectedTx, setSelectedTx] = useState<any | null>(null);
 
   useEffect(() => {
     loadCoaches();
@@ -447,7 +448,11 @@ export default function FinancialStatus() {
                              let relatedName = isSystem ? 'Sistem' : (matchedStudent?.displayName || matchedStudent?.firstName || 'Öğrenci');
 
                              return (
-                               <div key={tx.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] transition-colors gap-4">
+                               <div 
+                                 key={tx.id} 
+                                 className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] transition-colors gap-4 ${dir === 'out' ? 'cursor-pointer' : ''}`}
+                                 onClick={() => dir === 'out' && setSelectedTx({...tx, dir, isSystem, relatedName})}
+                               >
                                   <div className="flex items-center gap-4">
                                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border ${
                                        category === 'system' ? 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400' : 
@@ -467,11 +472,11 @@ export default function FinancialStatus() {
                                   </div>
                                   <div className="text-right shrink-0">
                                     <p className={`text-lg font-black ${dir === 'in' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                      {dir === 'in' ? '+' : '-'}{tx.amount} ₺
+                                      {dir === 'in' ? '+' : '-'}{tx.amount.toFixed(2)} ₺
                                     </p>
                                     {tx.type === 'WITHDRAWAL' && tx.coachDeductionAmount !== undefined && tx.coachDeductionAmount !== tx.amount && (
                                        <p className="text-[10px] text-yellow-400 mt-0.5">
-                                         Sistem Kesintisi: -{tx.coachDeductionAmount} ₺
+                                         Sistem Kesintisi: -{tx.coachDeductionAmount.toFixed(2)} ₺
                                        </p>
                                     )}
                                   </div>
@@ -487,6 +492,74 @@ export default function FinancialStatus() {
                   </div>
                 </div>
 
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {selectedTx && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-900 border border-slate-700/50 rounded-3xl p-8 w-full max-w-sm shadow-2xl relative"
+            >
+              <button 
+                onClick={() => setSelectedTx(null)}
+                className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center bg-white/5 border border-white/10 rounded-full text-slate-400 hover:text-white transition-colors"
+              >
+                <X size={16} />
+              </button>
+              
+              <div className="flex flex-col items-center mb-6 mt-4">
+                 <div className={`w-16 h-16 rounded-2xl flex items-center justify-center border mb-4 ${
+                    selectedTx.dir === 'in' 
+                       ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                       : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                 }`}>
+                    {selectedTx.dir === 'in' ? <ArrowDownLeft size={32} strokeWidth={2.5}/> : <ArrowUpRight size={32} strokeWidth={2.5} />}
+                 </div>
+                 <h3 className="text-xl font-bold text-white text-center">İşlem Detayı</h3>
+                 <p className="text-slate-400 text-sm">{selectedTx.isSystem ? 'Sistem Yüklemesi' : `Öğrenci İşlemi - ${selectedTx.relatedName}`}</p>
+                 <div className={`mt-4 text-3xl font-black ${selectedTx.dir === 'in' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {selectedTx.dir === 'in' ? '+' : '-'}{selectedTx.amount.toFixed(2)} ₺
+                 </div>
+              </div>
+              
+              <div className="space-y-4 text-sm text-slate-300 bg-white/5 p-4 rounded-xl border border-white/10 mt-4 h-max overflow-y-auto max-h-[40vh]">
+                 <div>
+                    <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1">Açıklama</div>
+                    <div className="font-medium text-white">{selectedTx.description || 'Detay bulunmuyor'}</div>
+                 </div>
+                 <div>
+                    <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1">Tarih</div>
+                    <div className="font-medium text-white">{new Date(selectedTx.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+                 </div>
+                 {selectedTx.items && selectedTx.items.length > 0 && (
+                    <div>
+                       <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-3 mt-2">Harcanan Kalemler</div>
+                       <div className="space-y-3">
+                          {selectedTx.items.map((item: any, i: number) => (
+                             <div key={i} className="flex justify-between items-center bg-white/5 p-2 rounded-lg">
+                                <div className="flex flex-col">
+                                   <span className="font-medium text-slate-200">{item.title}</span>
+                                   <span className="text-xs text-slate-500">{item.quantity} Adet</span>
+                                </div>
+                                <span className="font-medium text-rose-400">{item.price} ₺</span>
+                             </div>
+                          ))}
+                       </div>
+                    </div>
+                 )}
+                 {selectedTx.type === 'WITHDRAWAL' && selectedTx.coachDeductionAmount !== undefined && selectedTx.coachDeductionAmount !== selectedTx.amount && (
+                    <div>
+                       <div className="text-yellow-500 text-xs font-bold uppercase tracking-widest mb-1 mt-2">Sistem Kesintisi</div>
+                       <div className="font-medium text-yellow-400">-{selectedTx.coachDeductionAmount.toFixed(2)} ₺</div>
+                    </div>
+                 )}
               </div>
             </motion.div>
           </div>

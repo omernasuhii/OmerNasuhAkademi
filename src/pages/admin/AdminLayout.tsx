@@ -189,6 +189,7 @@ export default function AdminLayout() {
             { title: 'Sadakat Programı', path: 'crm/sadakat' },
           ]
         },
+        { title: 'Referans Sistemi', path: 'referans', icon: Users },
         { title: 'Analizler', path: 'analizler', icon: Activity },
         { title: 'Otomasyonlar', path: 'otomasyonlar', icon: Zap },
       ]

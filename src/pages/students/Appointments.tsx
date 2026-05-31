@@ -90,6 +90,8 @@ export default function Appointments() {
         <AppointmentList 
           role="student" 
           onReschedule={handleReschedule}
+          limit={5}
+          statuses={['confirmed', 'completed']}
         />
       </div>
 

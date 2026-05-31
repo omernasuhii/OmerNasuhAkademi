@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-export type CartItemType = 'product' | 'event' | 'course';
+export type CartItemType = 'product' | 'event' | 'course' | 'subscription';
 
 export interface CartItem {
   id: string; // unique cart item id (can be same as itemId if 1 qty per item max)
@@ -41,14 +41,24 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addToCart = (item: Omit<CartItem, 'id'> & { quantity?: number }) => {
-    const existingIndex = items.findIndex(i => i.itemId === item.itemId && i.type === item.type);
+    let currentItems = [...items];
+    
+    // Eğer sepete abonelik ekleniyorsa, sepetteki diğer abonelikleri temizle (Sadece 1 tür abonelik paketi olabilir)
+    if (item.type === 'subscription') {
+      currentItems = currentItems.filter(i => i.type !== 'subscription' || i.itemId === item.itemId);
+    }
+    
+    const existingIndex = currentItems.findIndex(i => i.itemId === item.itemId && i.type === item.type);
     const qty = item.quantity || 1;
     if (existingIndex >= 0) {
-      const newItems = [...items];
-      newItems[existingIndex].quantity += qty;
-      saveCart(newItems);
+      if (item.type === 'subscription') {
+         // Aboneliklerin adeti artmaz, sadece var olmaya devam eder
+         return;
+      }
+      currentItems[existingIndex].quantity += qty;
+      saveCart(currentItems);
     } else {
-      saveCart([...items, { ...item, id: `${item.type}_${item.itemId}`, quantity: qty }]);
+      saveCart([...currentItems, { ...item, id: `${item.type}_${item.itemId}`, quantity: qty }]);
     }
   };
 

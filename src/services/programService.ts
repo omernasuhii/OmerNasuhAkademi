@@ -125,9 +125,13 @@ export const programService = {
       const programRef = doc(db, 'programs', programId);
       const programSnap = await getDoc(programRef);
       if (programSnap.exists()) {
-        await updateDoc(programRef, {
-          enrolledCount: (programSnap.data().enrolledCount || 0) + 1
-        });
+        try {
+          await updateDoc(programRef, {
+            enrolledCount: (programSnap.data().enrolledCount || 0) + 1
+          });
+        } catch (ignoredError) {
+          console.warn('Could not update enrolledCount', ignoredError);
+        }
       }
       return enrollment;
     } catch (error) {

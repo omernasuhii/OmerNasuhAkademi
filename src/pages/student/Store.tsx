@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Star, Tag, AlertCircle, CheckCircle2, ChevronRight, Package, Image as ImageIcon, Filter, Minus, Plus } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import { ShoppingBag, Star, Tag, AlertCircle, CheckCircle2, ChevronRight, ChevronLeft, Package, Image as ImageIcon, Filter, Minus, Plus, Gift, Info } from 'lucide-react';
 import { storeService, Product, Purchase } from '../../services/storeService';
 import { chocolateBankService, BankState } from '../../services/chocolateBankService';
 import { studentDataService } from '../../services/studentDataService';
+import { referralService } from '../../services/referralService';
 import { useAuth } from '../../lib/AuthContext';
 import { useCart } from '../../lib/CartContext';
 import { programService } from '../../services/programService';
@@ -11,17 +13,17 @@ import { motion, AnimatePresence } from 'motion/react';
 
 export default function Store() {
   const { user, userData } = useAuth();
-  const { items: cartItems, addToCart, removeFromCart, updateQuantity, clearCart, totalItems, totalPrice } = useCart();
+  const { addToCart } = useCart();
   const [products, setProducts] = useState<Product[]>([]);
-  const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'store' | 'inventory' | 'cart'>('store');
+  const [activeTab, setActiveTab] = useState<'store'>('store');
+
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [showCheckoutConfirm, setShowCheckoutConfirm] = useState(false);
   const [productToBuy, setProductToBuy] = useState<Product | null>(null);
   const [purchasing, setPurchasing] = useState<string | null>(null);
+
   const [filters, setFilters] = useState({
     examType: '',
     difficulty: '',
@@ -59,12 +61,8 @@ export default function Store() {
     try {
       setLoading(true);
       setError(null);
-      const [productsData, purchasesData] = await Promise.all([
-        storeService.getProducts('student'),
-        storeService.getPurchases(user.uid)
-      ]);
+      const productsData = await storeService.getProducts('student');
       setProducts(productsData);
-      setPurchases(purchasesData);
     } catch (err) {
       setError('Veriler yüklenirken bir sorun oluştu.');
       console.error(err);
@@ -85,73 +83,6 @@ export default function Store() {
     });
     setSuccessMessage(`"${product.title}" sepete eklendi.`);
     setTimeout(() => setSuccessMessage(null), 3000);
-  };
-
-  const executeCheckout = async () => {
-    setShowCheckoutConfirm(false);
-    try {
-      setPurchasing('checkout');
-      setError(null);
-
-      // 1. Öğrenci Cüzdan kontrolü
-      const walletBalance = userData?.walletBalance || 0;
-      if (walletBalance < totalPrice) {
-        throw new Error('Bakiyeniz yetersiz. Koçunuz üzerinden bakiye yükleyebilirsiniz.');
-      }
-
-      // 2. İşlem için Cüzdandan + Koçtan düşüm 
-      if (totalPrice > 0) {
-         const res = await studentDataService.addWalletTransaction(user!.uid, {
-            type: 'WITHDRAWAL',
-            amount: totalPrice,
-            description: `Sepet Alışverişi (${totalItems} Kalem)`
-         });
-         
-         if (!res.success) {
-           const errMsg = res.error || '';
-           if (errMsg.includes('Koç bulunamadı') || errMsg.includes('paket güncellemesi') || errMsg.includes('koçun')) {
-             throw new Error('Bu işlemi şuan gerçekleştiremiyoruz. Bu işlem için koçunuzla iletişime geçin.');
-           } else {
-             throw new Error('İşlem gerçekleştirilemedi: ' + errMsg);
-           }
-         }
-      }
-
-      // 3. Siparişleri gerçekleştir (sepeti onayla)
-      for (const item of cartItems) {
-        if (item.type === 'product') {
-          await storeService.purchaseProduct(user!.uid, item.itemId, item.quantity);
-        } else if (item.type === 'course') {
-          await programService.enrollStudent(user!.uid, item.itemId);
-        } else if (item.type === 'event') {
-           if (item.metadata?.ticketTypeId && item.metadata?.eventId) {
-              await eventService.buyTicket({
-                 eventId: item.metadata.eventId,
-                 studentId: user!.uid,
-                 studentName: userData ? `${userData.firstName} ${userData.lastName}` : 'Öğrenci',
-                 ticketTypeId: item.metadata.ticketTypeId,
-                 quantity: item.quantity,
-                 totalPrice: item.price * item.quantity
-              });
-           }
-        }
-      }
-      setSuccessMessage('Siparişiniz başarıyla tamamlandı!');
-      clearCart();
-      setActiveTab('inventory');
-      await loadData();
-      setTimeout(() => setSuccessMessage(null), 3000);
-    } catch (err: any) {
-      setError(err.message || 'Sipariş sırasında bir hata oluştu.');
-      setTimeout(() => setError(null), 5000);
-    } finally {
-      setPurchasing(null);
-    }
-  };
-
-  const handleCheckout = () => {
-    if (!user?.uid || cartItems.length === 0) return;
-    setShowCheckoutConfirm(true);
   };
 
   const executePurchase = async () => {
@@ -175,7 +106,13 @@ export default function Store() {
          const res = await studentDataService.addWalletTransaction(user!.uid, {
             type: 'WITHDRAWAL',
             amount: amount,
-            description: `Ürün Satın Alma: ${targetProduct.title}`
+            description: `Ürün Satın Alma: ${targetProduct.title}`,
+            items: [{
+               title: targetProduct.title,
+               quantity: 1,
+               price: amount,
+               type: 'product'
+            }]
          });
          
          if (!res.success) {
@@ -254,51 +191,7 @@ export default function Store() {
         )}
       </AnimatePresence>
 
-      {/* Tabs */}
-      <div className="flex gap-4 mb-6 border-b border-slate-800">
-        <button
-          onClick={() => setActiveTab('store')}
-          className={`pb-4 px-2 text-sm font-medium transition-colors border-b-2 ${
-            activeTab === 'store' 
-              ? 'border-indigo-500 text-white' 
-              : 'border-transparent text-slate-400 hover:text-slate-300'
-          }`}
-        >
-          Mağaza
-        </button>
-        <button
-          onClick={() => setActiveTab('inventory')}
-          className={`pb-4 px-2 text-sm font-medium transition-colors border-b-2 flex items-center gap-2 ${
-            activeTab === 'inventory' 
-              ? 'border-indigo-500 text-white' 
-              : 'border-transparent text-slate-400 hover:text-slate-300'
-          }`}
-        >
-          Aldıklarım
-          {purchases.length > 0 && (
-            <span className="bg-slate-800 text-xs py-0.5 px-2 rounded-full">
-              {purchases.length}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('cart')}
-          className={`pb-4 px-2 text-sm font-medium transition-colors border-b-2 flex items-center gap-2 ${
-            activeTab === 'cart' 
-              ? 'border-indigo-500 text-white' 
-              : 'border-transparent text-slate-400 hover:text-slate-300'
-          }`}
-        >
-          Sepetim
-          {totalItems > 0 && (
-            <span className="bg-indigo-500 text-white text-xs py-0.5 px-2 rounded-full">
-              {totalItems}
-            </span>
-          )}
-        </button>
-      </div>
-
-      {/* Tab Content: Store */}
+      {/* Main Content Area */}
       {activeTab === 'store' && selectedProduct ? (
         <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
           <div className="p-4 border-b border-slate-700">
@@ -581,205 +474,6 @@ export default function Store() {
         </div>
         </>
       )}
-
-      {/* Tab Content: Inventory */}
-      {activeTab === 'inventory' && (
-        <div className="space-y-4">
-          {purchases.map(purchase => (
-            <div key={purchase.id} className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-indigo-500/20 text-indigo-400 rounded-lg flex items-center justify-center">
-                  <Package className="w-6 h-6" />
-                </div>
-                <div>
-                  <h4 className="text-white font-medium">{purchase.productTitle}</h4>
-                  <div className="text-sm text-slate-400 mt-1">
-                    {new Date(purchase.purchasedAt).toLocaleDateString('tr-TR', {
-                      year: 'numeric', month: 'long', day: 'numeric',
-                      hour: '2-digit', minute: '2-digit'
-                    })}
-                  </div>
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-4">
-                <div className="text-right">
-                  <div className="text-sm text-slate-400">{purchase.quantity || 1} Adet x {purchase.cost} ₺</div>
-                  <div className="font-bold text-emerald-400">{purchase.totalCost || purchase.cost} ₺</div>
-                </div>
-                <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
-                  purchase.status === 'completed' || purchase.status === 'delivered'
-                    ? 'bg-green-500/10 text-green-400 border-green-500/20'
-                    : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                }`}>
-                  {purchase.status === 'completed' ? 'Tamamlandı' : 
-                   purchase.status === 'delivered' ? 'Teslim Edildi' : 'Bekliyor'}
-                </span>
-              </div>
-            </div>
-          ))}
-          {purchases.length === 0 && (
-             <div className="text-center py-16 bg-slate-800 border border-slate-700 rounded-xl">
-               <p className="text-slate-400">Henüz hiçbir ürün satın almadınız.</p>
-               <button 
-                 onClick={() => setActiveTab('store')}
-                 className="mt-4 text-indigo-400 hover:text-indigo-300 font-medium"
-               >
-                 Mağazaya Göz At
-               </button>
-             </div>
-          )}
-        </div>
-      )}
-
-      {/* Tab Content: Cart */}
-      {activeTab === 'cart' && (
-        <div className="space-y-6">
-          {cartItems.length > 0 ? (
-            <div className="flex flex-col lg:flex-row gap-6">
-              <div className="flex-1 space-y-4">
-                {cartItems.map((item) => (
-                  <div key={item.id} className="bg-slate-800 border border-slate-700 rounded-xl p-4 flex gap-4 items-center">
-                    {item.image ? (
-                      <img src={item.image} alt={item.title} className="w-20 h-20 rounded-lg object-cover" />
-                    ) : (
-                      <div className="w-20 h-20 bg-slate-700 rounded-lg flex items-center justify-center shrink-0">
-                        <Package className="w-8 h-8 text-slate-500" />
-                      </div>
-                    )}
-                    <div className="flex-1">
-                      <h4 className="text-lg font-medium text-white">{item.title}</h4>
-                      <div className="text-sm text-slate-400">
-                        {item.type === 'product' ? 'Ürün' : item.type === 'course' ? 'Online Eğitim' : 'Etkinlik'}
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-3 text-right">
-                      <div className="text-xl font-bold text-indigo-400">
-                        {item.price * item.quantity} ₺
-                      </div>
-                      
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden">
-                          <button
-                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                            className="p-1 px-2 text-slate-400 hover:text-white hover:bg-slate-800 transition"
-                          >
-                            <Minus size={14} />
-                          </button>
-                          <span className="w-8 text-center text-sm font-medium text-white">{item.quantity}</span>
-                          <button
-                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                            className="p-1 px-2 text-slate-400 hover:text-white hover:bg-slate-800 transition"
-                          >
-                            <Plus size={14} />
-                          </button>
-                        </div>
-
-                        <button
-                          onClick={() => removeFromCart(item.id)}
-                          className="text-sm px-2 py-1 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20 font-medium transition"
-                        >
-                          Kaldır
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="w-full lg:w-80 shrink-0">
-                <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 sticky top-6">
-                  <h3 className="text-xl font-bold text-white mb-4">Sipariş Özeti</h3>
-                  <div className="flex justify-between items-center mb-2 text-slate-300">
-                    <span>Toplam Ürün</span>
-                    <span>{totalItems} adet</span>
-                  </div>
-                  <div className="flex justify-between items-center mb-6 text-slate-300">
-                    <span>Toplam Tutar</span>
-                    <span className="text-2xl font-bold text-emerald-400">{totalPrice} ₺</span>
-                  </div>
-                  <button
-                    onClick={handleCheckout}
-                    disabled={purchasing === 'checkout'}
-                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-2"
-                  >
-                    {purchasing === 'checkout' ? (
-                      <>
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                        İşleniyor...
-                      </>
-                    ) : (
-                      <>Sepeti Onayla <ChevronRight className="w-5 h-5" /></>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
-             <div className="text-center py-16 bg-slate-800 border border-slate-700 rounded-xl">
-               <div className="w-20 h-20 bg-slate-700/50 rounded-full flex items-center justify-center mx-auto mb-4">
-                 <ShoppingBag className="w-10 h-10 text-slate-400" />
-               </div>
-               <h3 className="text-xl font-medium text-white mb-2">Sepetiniz Boş</h3>
-               <p className="text-slate-400 mb-6">İhtiyacınız olan ürünleri sepetinize ekleyebilirsiniz.</p>
-               <button 
-                 onClick={() => setActiveTab('store')}
-                 className="px-6 py-3 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white rounded-xl font-medium transition"
-               >
-                 Mağazaya Göz At
-               </button>
-             </div>
-          )}
-        </div>
-      )}
-
-      {/* Checkout Confirmation Modal */}
-      <AnimatePresence>
-        {showCheckoutConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-slate-900 border border-slate-700/50 rounded-2xl p-6 w-full max-w-md shadow-2xl relative"
-            >
-              <div className="flex flex-col items-center mb-6">
-                <div className="w-16 h-16 bg-indigo-500/10 text-indigo-400 rounded-full flex justify-center items-center mb-4">
-                  <ShoppingBag className="w-8 h-8" />
-                </div>
-                <h3 className="text-xl font-bold text-white text-center">Siparişi Onayla</h3>
-              </div>
-              <p className="text-slate-300 mb-8 text-center text-lg break-words">
-                Sepetinizdeki <span className="font-bold text-indigo-400">{totalItems} ürün/hizmet</span> için <span className="font-bold text-emerald-400">{totalPrice} ₺</span> tutarındaki siparişi onaylıyor musunuz?
-              </p>
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  disabled={purchasing === 'checkout'}
-                  onClick={() => setShowCheckoutConfirm(false)}
-                  className="px-5 py-3 bg-slate-800 text-slate-300 font-medium rounded-xl hover:bg-slate-700 hover:text-white transition"
-                >
-                  İptal
-                </button>
-                <button
-                  type="button"
-                  onClick={executeCheckout}
-                  disabled={purchasing === 'checkout'}
-                  className="px-6 py-3 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-500 transition shadow-lg shadow-indigo-600/20 disabled:opacity-50 flex items-center gap-2"
-                >
-                  {purchasing === 'checkout' ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Onaylanıyor...
-                    </>
-                  ) : (
-                    'Siparişi Onayla'
-                  )}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* Purchase Confirmation Modal */}
       <AnimatePresence>
