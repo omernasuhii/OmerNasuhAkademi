@@ -147,7 +147,10 @@ export default function StudentExams() {
      if (dateFilter === '3months') cutoffDate.setMonth(cutoffDate.getMonth() - 3);
      if (dateFilter === '6months') cutoffDate.setMonth(cutoffDate.getMonth() - 6);
      
-     filteredExams = filteredExams.filter(e => new Date(e.date) >= cutoffDate);
+     filteredExams = filteredExams.filter(e => {
+        const d = (activeExamType === 'AYT' || activeExamType === 'YDT') && e.examType === 'YKS' ? (e.aytDate || e.date) : e.date;
+        return new Date(d) >= cutoffDate;
+     });
   }
 
   // Count filter (last X exams)
@@ -241,10 +244,12 @@ export default function StudentExams() {
     });
   }
 
-  const activeBranch = (selectedStudent?.branch === 'SAYISAL' ? 'SAY' : 
-     selectedStudent?.branch === 'EŞİT AĞIRLIK' ? 'EA' : 
-     selectedStudent?.branch === 'SÖZEL' ? 'SÖZ' : 
-     selectedStudent?.branch === 'DİL' ? 'DİL' : 'SAY');
+  const activeBranch = ['9. Sınıf', '10. Sınıf', '11. Sınıf'].includes(selectedStudent?.grade || '')
+    ? selectedStudent?.grade as string
+    : (selectedStudent?.branch === 'SAYISAL' ? 'SAY' : 
+       selectedStudent?.branch === 'EŞİT AĞIRLIK' ? 'EA' : 
+       selectedStudent?.branch === 'SÖZEL' ? 'SÖZ' : 
+       selectedStudent?.branch === 'DİL' ? 'DİL' : 'SAY');
 
   const metricOptions: any[] = [
     { value: 'net', label: activeExamType === 'AYT' ? `Kendi Alanı (${activeBranch}) Toplam Net` : 'Toplam Net' },

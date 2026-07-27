@@ -15,9 +15,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Save,
-  AlertCircle
+  AlertCircle,
+  Search
 } from 'lucide-react';
-import { CURRICULUM } from '../../constants/curriculum';
+import { useCurriculum } from '../../lib/CurriculumContext';
 
 interface TopicGoal {
   subject: string;
@@ -28,12 +29,17 @@ interface TopicGoal {
 interface BookGoal {
   bookId: string;
   bookName: string;
+  subject?: string;
   targetDescription: string;
   progress: number;
   isCompleted: boolean;
+  startPage?: number;
+  endPage?: number;
+  currentPage?: number;
 }
 
 export default function StudentGoals() {
+  const { curriculum: CURRICULUM } = useCurriculum();
   const { selectedStudent } = useStudent();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -52,6 +58,14 @@ export default function StudentGoals() {
   const [newTopicName, setNewTopicName] = useState('');
   const [newBookId, setNewBookId] = useState('');
   const [newBookTarget, setNewBookTarget] = useState('');
+  
+  // Kitap sayfa hedefleri için yeni state'ler
+  const [newBookStartPage, setNewBookStartPage] = useState<string>('');
+  const [newBookEndPage, setNewBookEndPage] = useState<string>('');
+
+  // Hızlı konu seçimi için yeni state'ler
+  const [topicSearchQuery, setTopicSearchQuery] = useState('');
+  const [selectedTopicsToAdd, setSelectedTopicsToAdd] = useState<string[]>([]);
 
   useEffect(() => {
     if (selectedStudent) {
@@ -119,18 +133,81 @@ export default function StudentGoals() {
     setNewTopicName('');
   };
 
+  const addMultipleTopicGoals = () => {
+    if (!newTopicSubject || selectedTopicsToAdd.length === 0) return;
+    
+    const existingGoals = new Set(topicGoals.map(g => `${g.subject.trim().toLowerCase()}_${g.topic.trim().toLowerCase()}`));
+    const newGoalsToAdd: TopicGoal[] = [];
+    
+    selectedTopicsToAdd.forEach(topic => {
+      const key = `${newTopicSubject.trim().toLowerCase()}_${topic.trim().toLowerCase()}`;
+      if (!existingGoals.has(key)) {
+        newGoalsToAdd.push({ subject: newTopicSubject, topic, isCompleted: false });
+      }
+    });
+    
+    if (newGoalsToAdd.length > 0) {
+      setTopicGoals([...topicGoals, ...newGoalsToAdd]);
+    }
+    
+    setSelectedTopicsToAdd([]);
+    setTopicSearchQuery('');
+  };
+
+  const toggleTopicSelection = (topic: string) => {
+    setSelectedTopicsToAdd(prev => 
+      prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]
+    );
+  };
+
+  const handleSelectAllTopics = () => {
+    const topics = CURRICULUM[newTopicSubject as keyof typeof CURRICULUM] || [];
+    setSelectedTopicsToAdd(topics);
+  };
+
+  const handleClearAllTopics = () => {
+    setSelectedTopicsToAdd([]);
+  };
+
+  const filteredTopics = useMemo(() => {
+    if (!newTopicSubject) return [];
+    const topics = CURRICULUM[newTopicSubject as keyof typeof CURRICULUM] || [];
+    if (!topicSearchQuery) return topics;
+    return topics.filter((t: string) => t.toLowerCase().includes(topicSearchQuery.toLowerCase()));
+  }, [newTopicSubject, topicSearchQuery]);
+
   const addBookGoal = () => {
-    if (!newBookId || !newBookTarget) return;
+    if (!newBookId) return;
     const book = studentBooks.find(b => b.id === newBookId);
+    
+    const sPage = newBookStartPage ? parseInt(newBookStartPage, 10) : undefined;
+    const ePage = newBookEndPage ? parseInt(newBookEndPage, 10) : undefined;
+    
+    let targetDesc = newBookTarget;
+    if (sPage !== undefined && ePage !== undefined) {
+      targetDesc = `Sayfa ${sPage} - ${ePage}`;
+    }
+
+    if (!targetDesc) {
+      alert('Lütfen bir hedef tanımı girin veya başlangıç/bitiş sayfalarını belirtin.');
+      return;
+    }
+
     setBookGoals([...bookGoals, { 
       bookId: newBookId, 
       bookName: book?.bookName || 'Bilinmeyen Kitap', 
-      targetDescription: newBookTarget, 
+      subject: book?.subject,
+      targetDescription: targetDesc, 
       progress: 0, 
-      isCompleted: false 
+      isCompleted: false,
+      startPage: sPage,
+      endPage: ePage,
+      currentPage: sPage !== undefined ? sPage : undefined
     }]);
     setNewBookId('');
     setNewBookTarget('');
+    setNewBookStartPage('');
+    setNewBookEndPage('');
   };
 
   const toggleTopic = (index: number) => {
@@ -151,6 +228,26 @@ export default function StudentGoals() {
     const newGoals = [...bookGoals];
     newGoals[index].progress = Math.min(100, Math.max(0, val));
     newGoals[index].isCompleted = newGoals[index].progress === 100;
+    setBookGoals(newGoals);
+  };
+
+  const updateBookCurrentPage = (index: number, pageVal: number) => {
+    const newGoals = [...bookGoals];
+    const goal = newGoals[index];
+    if (goal.startPage !== undefined && goal.endPage !== undefined) {
+      const sp = goal.startPage;
+      const ep = goal.endPage;
+      const cp = Math.min(ep, Math.max(sp, pageVal));
+      goal.currentPage = cp;
+      
+      const totalPages = ep - sp;
+      if (totalPages > 0) {
+        goal.progress = Math.round(((cp - sp) / totalPages) * 100);
+      } else {
+        goal.progress = 100;
+      }
+      goal.isCompleted = cp === ep;
+    }
     setBookGoals(newGoals);
   };
 
@@ -253,6 +350,8 @@ export default function StudentGoals() {
                     onChange={(e) => {
                       setNewTopicSubject(e.target.value);
                       setNewTopicName('');
+                      setSelectedTopicsToAdd([]);
+                      setTopicSearchQuery('');
                     }}
                     className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500/50"
                   >
@@ -267,19 +366,104 @@ export default function StudentGoals() {
                     disabled={!newTopicSubject}
                     className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500/50 disabled:opacity-30"
                   >
-                    <option value="">Konu Seç...</option>
+                    <option value="">Tek Konu Seç...</option>
                     {(CURRICULUM[newTopicSubject as keyof typeof CURRICULUM] || []).map((t: string) => (
                       <option key={t} value={t}>{t}</option>
                     ))}
                   </select>
                 </div>
-                <button 
-                  onClick={addTopicGoal}
-                  disabled={!newTopicName}
-                  className="w-full bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-white font-bold py-2 rounded-xl transition-all flex items-center justify-center gap-2 text-xs"
-                >
-                  <Plus size={14} /> HEDEFE EKLE
-                </button>
+                
+                {newTopicName && (
+                  <button 
+                    onClick={addTopicGoal}
+                    className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2 rounded-xl transition-all flex items-center justify-center gap-2 text-xs"
+                  >
+                    <Plus size={14} /> BU KONUYU TEK OLARAK EKLE
+                  </button>
+                )}
+
+                {/* Hızlı Toplu Konu Seçim Sistemi */}
+                {newTopicSubject && (
+                  <div className="bg-slate-950/40 p-3 rounded-xl border border-white/5 space-y-3 mt-3">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold">
+                      <span>Hızlı Konu Seçimi ({filteredTopics.length} Konu)</span>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={handleSelectAllTopics}
+                          className="text-blue-400 hover:underline"
+                        >
+                          Hepsini Seç
+                        </button>
+                        <span>•</span>
+                        <button 
+                          onClick={handleClearAllTopics}
+                          className="text-slate-500 hover:underline"
+                        >
+                          Seçimi Temizle
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="relative">
+                      <Search className="absolute left-3 top-2 text-slate-500" size={14} />
+                      <input 
+                        type="text"
+                        value={topicSearchQuery}
+                        onChange={(e) => setTopicSearchQuery(e.target.value)}
+                        placeholder="Konu Ara..."
+                        className="w-full bg-slate-950 border border-white/10 rounded-lg pl-9 pr-3 py-1.5 text-xs text-white outline-none focus:border-blue-500/50"
+                      />
+                    </div>
+                    
+                    <div className="max-h-48 overflow-y-auto space-y-1 p-2 bg-slate-950/50 rounded-lg border border-white/5 scrollbar-thin scrollbar-thumb-white/10">
+                      {filteredTopics.length === 0 ? (
+                        <div className="text-center py-4 text-slate-600 text-xs italic">
+                          Aranan konu bulunamadı.
+                        </div>
+                      ) : (
+                        filteredTopics.map((topic: string) => {
+                          const isChecked = selectedTopicsToAdd.includes(topic);
+                          const isAlreadyAdded = topicGoals.some(tg => tg.subject === newTopicSubject && tg.topic === topic);
+                          return (
+                            <label 
+                              key={topic} 
+                              className={`flex items-center justify-between p-2 rounded-md text-xs cursor-pointer transition-all ${
+                                isAlreadyAdded 
+                                  ? 'bg-emerald-500/5 text-emerald-400/60 cursor-not-allowed' 
+                                  : isChecked 
+                                    ? 'bg-blue-500/10 text-white font-semibold' 
+                                    : 'hover:bg-white/5 text-slate-300'
+                              }`}
+                            >
+                              <span className="truncate pr-2">{topic}</span>
+                              <div className="flex items-center gap-1.5">
+                                {isAlreadyAdded ? (
+                                  <span className="text-[9px] bg-emerald-500/10 text-emerald-500 px-1 py-0.5 rounded">Zaten Ekli</span>
+                                ) : (
+                                  <input 
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    disabled={isAlreadyAdded}
+                                    onChange={() => toggleTopicSelection(topic)}
+                                    className="accent-blue-500 rounded cursor-pointer"
+                                  />
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                    
+                    <button 
+                      onClick={addMultipleTopicGoals}
+                      disabled={selectedTopicsToAdd.length === 0}
+                      className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white font-bold py-2 rounded-lg transition-all flex items-center justify-center gap-2 text-xs"
+                    >
+                      <Plus size={14} /> SEÇİLEN KONULARI HEDEFE EKLE ({selectedTopicsToAdd.length})
+                    </button>
+                  </div>
+                )}
               </div>
               
               <div className="space-y-3 flex-1">
@@ -332,7 +516,7 @@ export default function StudentGoals() {
 
               {/* Add Book Goal Form */}
               <div className="bg-white/5 p-4 rounded-2xl border border-white/5 mb-6 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <select 
                     value={newBookId}
                     onChange={(e) => setNewBookId(e.target.value)}
@@ -343,17 +527,40 @@ export default function StudentGoals() {
                       <option key={b.id} value={b.id}>{b.bookName} ({b.subject})</option>
                     ))}
                   </select>
-                  <input 
-                    type="text"
-                    value={newBookTarget}
-                    onChange={(e) => setNewBookTarget(e.target.value)}
-                    placeholder="Hedef (örn: Sayfa 40-120)"
-                    className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500/50"
-                  />
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <input 
+                      type="number"
+                      value={newBookStartPage}
+                      onChange={(e) => setNewBookStartPage(e.target.value)}
+                      placeholder="Başlangıç Sayfası"
+                      className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500/50"
+                    />
+                    <input 
+                      type="number"
+                      value={newBookEndPage}
+                      onChange={(e) => setNewBookEndPage(e.target.value)}
+                      placeholder="Bitiş Sayfası"
+                      className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500/50"
+                    />
+                  </div>
                 </div>
+
+                <div className="text-slate-500 text-[10px] italic">
+                  Veya sayfalar yerine özel bir hedef tanımı girmek isterseniz aşağıdaki alanı kullanın:
+                </div>
+
+                <input 
+                  type="text"
+                  value={newBookTarget}
+                  onChange={(e) => setNewBookTarget(e.target.value)}
+                  placeholder="Özel Hedef Tanımı (örn: İlk 5 Ünite)"
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500/50"
+                />
+
                 <button 
                   onClick={addBookGoal}
-                  disabled={!newBookId || !newBookTarget}
+                  disabled={!newBookId || (!newBookTarget && (!newBookStartPage || !newBookEndPage))}
                   className="w-full bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-white font-bold py-2 rounded-xl transition-all flex items-center justify-center gap-2 text-xs"
                 >
                   <Plus size={14} /> PROGRAMA EKLE
@@ -368,6 +575,9 @@ export default function StudentGoals() {
                 ) : (
                   sortedBookGoals.map((goal, i) => {
                     const originalIndex = bookGoals.findIndex(bg => bg.bookId === goal.bookId && bg.targetDescription === goal.targetDescription);
+                    const hasPageTracking = goal.startPage !== undefined && goal.endPage !== undefined;
+                    const bookInfo = studentBooks.find(b => b.id === goal.bookId);
+                    const subjectToShow = goal.subject || bookInfo?.subject;
                     return (
                       <div key={i} className="space-y-4 p-5 rounded-3xl bg-white/5 border border-white/5 relative group">
                         <button 
@@ -379,8 +589,20 @@ export default function StudentGoals() {
 
                         <div className="flex justify-between items-start">
                           <div>
+                            {subjectToShow && (
+                              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest block mb-1">
+                                {subjectToShow}
+                              </span>
+                            )}
                             <h4 className="text-sm font-bold text-slate-200">{goal.bookName}</h4>
-                            <p className="text-xs text-slate-500 mt-1">Hedef: {goal.targetDescription}</p>
+                            {hasPageTracking ? (
+                              <div className="text-xs text-slate-400 mt-1 flex flex-col gap-0.5">
+                                <span>Hedef: Sayfa {goal.startPage} - {goal.endPage}</span>
+                                <span className="text-amber-500 font-semibold">Mevcut Sayfa: {goal.currentPage ?? goal.startPage} / {goal.endPage}</span>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-slate-500 mt-1">Hedef: {goal.targetDescription}</p>
+                            )}
                           </div>
                           <div className="flex flex-col items-end gap-1">
                             <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${goal.isCompleted ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
@@ -396,15 +618,32 @@ export default function StudentGoals() {
                               style={{ width: `${goal.progress}%` }} 
                             />
                           </div>
-                          <input 
-                            type="range" 
-                            min="0" 
-                            max="100" 
-                            step="5"
-                            value={goal.progress}
-                            onChange={(e) => updateBookProgress(originalIndex, parseInt(e.target.value))}
-                            className="w-full accent-amber-500 opacity-30 hover:opacity-100 transition-opacity cursor-pointer"
-                          />
+                          
+                          {hasPageTracking ? (
+                            <div className="flex items-center gap-3 mt-1">
+                              <span className="text-[10px] text-slate-500 font-mono">Sf {goal.startPage}</span>
+                              <input 
+                                type="range" 
+                                min={goal.startPage} 
+                                max={goal.endPage} 
+                                step="1"
+                                value={goal.currentPage ?? goal.startPage}
+                                onChange={(e) => updateBookCurrentPage(originalIndex, parseInt(e.target.value, 10))}
+                                className="flex-1 accent-amber-500 opacity-70 hover:opacity-100 transition-opacity cursor-pointer"
+                              />
+                              <span className="text-[10px] text-slate-500 font-mono">Sf {goal.endPage}</span>
+                            </div>
+                          ) : (
+                            <input 
+                              type="range" 
+                              min="0" 
+                              max="100" 
+                              step="5"
+                              value={goal.progress}
+                              onChange={(e) => updateBookProgress(originalIndex, parseInt(e.target.value))}
+                              className="w-full accent-amber-500 opacity-30 hover:opacity-100 transition-opacity cursor-pointer"
+                            />
+                          )}
                         </div>
                       </div>
                     );

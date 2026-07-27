@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../lib/AuthContext';
-import { db } from '../lib/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { auth, db } from '../lib/firebase';
+import { sendPasswordResetEmail, RecaptchaVerifier, linkWithPhoneNumber } from 'firebase/auth';
+import { doc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { Camera, Save, User, UserCircle, Globe, Shield, Lock, Bell, Loader2, CheckCircle2, Copy, ChevronDown, Star, Package, Calendar, BookOpen, Gift, Info } from 'lucide-react';
 import Wallet from './students/Wallet';
 import { ResponsiveTabs } from '../components/ui/ResponsiveTabs';
@@ -12,22 +13,46 @@ import AppointmentList from '../components/appointments/AppointmentList';
 import { eventService, EventData, TicketOrder, EventRSVP } from '../services/eventService';
 import { programService, Program, ProgramEnrollment } from '../services/programService';
 
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 export default function CommunityProfile() {
   const { userData, user } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(location.state?.activeTab || 'Profil');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [userCoupons, setUserCoupons] = useState<any[]>([]);
+
+  // Phone verification states
+  const [phoneOtpSent, setPhoneOtpSent] = useState(false);
+  const [phoneOtpCode, setPhoneOtpCode] = useState('');
+  const [phoneSending, setPhoneSending] = useState(false);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [phoneSuccess, setPhoneSuccess] = useState<string | null>(null);
+  const [phoneVerificationResult, setPhoneVerificationResult] = useState<any>(null);
+  const [phoneVerifiedState, setPhoneVerifiedState] = useState(false);
 
   useEffect(() => {
     if (location.state?.activeTab) {
       setActiveTab(location.state.activeTab);
     }
   }, [location.state]);
+
+  useEffect(() => {
+    if (user && activeTab === 'Ödüllerim') {
+      import('firebase/firestore').then(async ({ collection, query, where, getDocs }) => {
+        const { db } = await import('../lib/firebase');
+        const q = query(collection(db, 'coupons'), where('ownerId', '==', user!.uid));
+        const snap = await getDocs(q);
+        setUserCoupons(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      }).catch(err => {
+        console.error("Kuponlar yüklenirken hata:", err);
+      });
+    }
+  }, [user, activeTab]);
   const [showMoreTabs, setShowMoreTabs] = useState(false);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [ticketOrders, setTicketOrders] = useState<TicketOrder[]>([]);
@@ -44,8 +69,120 @@ export default function CommunityProfile() {
     firstName: '',
     lastName: '',
     phone: '',
+    username: '',
     isPrivate: false
   });
+
+  const [copied, setCopied] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
+
+  const handleCancel = () => {
+    if (userData) {
+      setFormData({
+        nickname: userData.nickname || userData.firstName || '',
+        title: userData.title || '',
+        firstName: userData.firstName || '',
+        lastName: userData.lastName || '',
+        phone: userData.phone || '',
+        username: userData.username || '',
+        isPrivate: userData.isPrivate || false
+      });
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!userData?.email) return;
+    setResetLoading(true);
+    setError(null);
+    try {
+      await sendPasswordResetEmail(auth, userData.email);
+      setResetSuccess(true);
+      setTimeout(() => setResetSuccess(false), 5000);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Şifre sıfırlama e-postası gönderilemedi.");
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  const handleCopyUrl = () => {
+    const profileUrl = `https://omernasuhakademi.com/topluluk/us/${formData.username || user?.uid}`;
+    navigator.clipboard.writeText(profileUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 3000);
+  };
+
+  const setupProfileRecaptcha = () => {
+    if (!window.recaptchaVerifier) {
+      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container-profile', {
+        'size': 'invisible',
+        'callback': () => {}
+      });
+    }
+  };
+
+  const handleSendProfileOTP = async () => {
+    if (!formData.phone) {
+      setPhoneError('Lütfen geçerli bir telefon numarası giriniz.');
+      return;
+    }
+    
+    setPhoneSending(true);
+    setPhoneError(null);
+    setPhoneSuccess(null);
+
+    try {
+      setupProfileRecaptcha();
+      const appVerifier = window.recaptchaVerifier;
+      const rawPhone = formData.phone.replace(/\D/g, ''); // Remove non-numeric
+      if (rawPhone.length < 10) {
+        setPhoneError('Telefon numarası en az 10 haneli olmalıdır.');
+        setPhoneSending(false);
+        return;
+      }
+      const formattedPhone = rawPhone.startsWith('90') ? `+${rawPhone}` : `+90${rawPhone.replace(/^0+/, '')}`;
+
+      const confirmationResult = await linkWithPhoneNumber(user!, formattedPhone, appVerifier);
+      setPhoneVerificationResult(confirmationResult);
+      setPhoneOtpSent(true);
+      setPhoneSuccess(`Doğrulama kodu ${formattedPhone} numaralı telefona gönderildi.`);
+    } catch (err: any) {
+      console.error(err);
+      if (err.code === 'auth/credential-already-in-use') {
+        setPhoneError('Bu telefon numarası başka bir hesaba zaten bağlanmış.');
+      } else if (err.code === 'auth/invalid-phone-number') {
+        setPhoneError('Geçersiz telefon numarası formatı. Lütfen numaranızı kontrol edin.');
+      } else if (err.code === 'auth/too-many-requests') {
+        setPhoneError('Çok fazla SMS gönderildi. Lütfen daha sonra tekrar deneyiniz.');
+      } else {
+        setPhoneError('SMS gönderilemedi. Lütfen daha sonra tekrar deneyiniz: ' + (err.message || ''));
+      }
+    } finally {
+      setPhoneSending(false);
+    }
+  };
+
+  const handleVerifyProfileOTP = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!phoneOtpCode || phoneOtpCode.length < 6) return;
+    
+    setPhoneSending(true);
+    setPhoneError(null);
+    
+    try {
+      await phoneVerificationResult.confirm(phoneOtpCode);
+      setPhoneVerifiedState(true);
+      setPhoneOtpSent(false);
+      setPhoneSuccess('Telefon numaranız başarıyla doğrulandı!');
+    } catch (err: any) {
+      console.error(err);
+      setPhoneError('Hatalı veya süresi dolmuş doğrulama kodu girdiniz.');
+    } finally {
+      setPhoneSending(false);
+    }
+  };
 
   useEffect(() => {
     if (userData) {
@@ -55,6 +192,7 @@ export default function CommunityProfile() {
         firstName: userData.firstName || '',
         lastName: userData.lastName || '',
         phone: userData.phone || '',
+        username: userData.username || '',
         isPrivate: userData.isPrivate || false
       });
     }
@@ -106,15 +244,52 @@ export default function CommunityProfile() {
     setSaving(true);
     setError(null);
     try {
-      await updateDoc(doc(db, 'users', user!.uid), {
+      const rawCurrentPhone = (userData.phone || '').replace(/\D/g, '');
+      const rawNewPhone = formData.phone.replace(/\D/g, '');
+      
+      if (rawNewPhone !== rawCurrentPhone && !phoneVerifiedState) {
+        setError("Değiştirdiğiniz telefon numarasını henüz doğrulamadınız. Lütfen önce numaranızı SMS ile doğrulayın.");
+        setSaving(false);
+        return;
+      }
+
+      let cleanUsername = formData.username.trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '');
+      if (cleanUsername && cleanUsername !== (userData.username || '')) {
+        if (cleanUsername.length < 3) {
+          setError("Kullanıcı adı en az 3 karakter olmalıdır.");
+          setSaving(false);
+          return;
+        }
+        if (cleanUsername.length > 25) {
+          setError("Kullanıcı adı en fazla 25 karakter olmalıdır.");
+          setSaving(false);
+          return;
+        }
+        const qUsername = query(collection(db, 'users'), where('username', '==', cleanUsername));
+        const querySnapshot = await getDocs(qUsername);
+        if (!querySnapshot.empty) {
+          setError("Bu kullanıcı adı başka bir üye tarafından kullanılmaktadır. Lütfen farklı bir kullanıcı adı seçin.");
+          setSaving(false);
+          return;
+        }
+      }
+
+      const updateData: any = {
         nickname: formData.nickname,
         title: formData.title,
         firstName: formData.firstName,
         lastName: formData.lastName,
         phone: formData.phone,
+        username: cleanUsername,
         isPrivate: formData.isPrivate,
         updatedAt: new Date()
-      });
+      };
+
+      if (rawNewPhone !== rawCurrentPhone && phoneVerifiedState) {
+        updateData.phoneVerified = true;
+      }
+
+      await updateDoc(doc(db, 'users', user!.uid), updateData);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
@@ -128,27 +303,74 @@ export default function CommunityProfile() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 200 * 1024) {
-      setError("Profil fotoğrafı çok büyük. (Maksimum 200KB)");
-      return;
-    }
-
     setLoading(true);
     setError(null);
     
     try {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = async () => {
-        const base64 = reader.result as string;
-        await updateDoc(doc(db, 'users', user!.uid), {
-          photoURL: base64
+      let finalBase64 = "";
+
+      if (file.size > 200 * 1024) {
+        // Otomatik küçültme
+        finalBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(file);
+          reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target?.result as string;
+            img.onload = () => {
+              let width = img.width;
+              let height = img.height;
+              const maxDimension = 500; // Profil için yeterli
+
+              if (width > maxDimension || height > maxDimension) {
+                if (width > height) {
+                  height = Math.round((height * maxDimension) / width);
+                  width = maxDimension;
+                } else {
+                  width = Math.round((width * maxDimension) / height);
+                  height = maxDimension;
+                }
+              }
+
+              const canvas = document.createElement('canvas');
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              if (!ctx) return reject("Canvas ctx error");
+              
+              ctx.drawImage(img, 0, 0, width, height);
+              
+              let quality = 0.9;
+              let dataUrl = canvas.toDataURL('image/jpeg', quality);
+              
+              const getB64Size = (b64: string) => b64.length * (3/4) - (b64.indexOf('=') > 0 ? (b64.length - b64.indexOf('=')) : 0);
+
+              while (getB64Size(dataUrl) > 200 * 1024 && quality > 0.1) {
+                quality -= 0.1;
+                dataUrl = canvas.toDataURL('image/jpeg', quality);
+              }
+              resolve(dataUrl);
+            };
+            img.onerror = (err) => reject(err);
+          };
+          reader.onerror = (err) => reject(err);
         });
-        setLoading(false);
-      };
+      } else {
+        finalBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(file);
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = (err) => reject(err);
+        });
+      }
+
+      await updateDoc(doc(db, 'users', user!.uid), {
+        photoURL: finalBase64
+      });
+      setLoading(false);
     } catch (err) {
       console.error(err);
-      setError("Fotoğraf yüklenemedi.");
+      setError("Fotoğraf yüklenemedi veya küçültülemedi.");
       setLoading(false);
     }
   };
@@ -216,7 +438,12 @@ export default function CommunityProfile() {
             <p className="text-slate-400 text-sm mt-1">Kişisel bilgilerinizi aşağıda görüntüleyin ve düzenleyin.</p>
           </div>
           <div className="mt-4 md:mt-0 flex gap-3">
-            <button className="bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors border border-slate-700">İptal</button>
+            <button 
+              onClick={handleCancel}
+              className="bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors border border-slate-700"
+            >
+              İptal
+            </button>
             <button 
               onClick={handleUpdate}
               disabled={saving}
@@ -232,6 +459,13 @@ export default function CommunityProfile() {
           <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-3 text-emerald-400">
             <CheckCircle2 size={20} />
             <p className="text-sm font-medium">Profiliniz başarıyla güncellendi.</p>
+          </div>
+        )}
+
+        {resetSuccess && (
+          <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-3 text-emerald-400">
+            <CheckCircle2 size={20} />
+            <p className="text-sm font-medium">Şifre sıfırlama e-postası başarıyla gönderildi ({userData.email}).</p>
           </div>
         )}
 
@@ -265,6 +499,23 @@ export default function CommunityProfile() {
                    />
                  </div>
                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">Benzersiz Kullanıcı Adı <span className="text-red-400">*</span></label>
+                    <div className="relative flex items-center">
+                      <span className="absolute left-4 text-slate-500 text-sm select-none font-bold">@</span>
+                      <input 
+                        type="text" 
+                        value={formData.username}
+                        onChange={(e) => {
+                          const val = e.target.value.toLowerCase().replace(/[^a-z0-9_.-]/g, '');
+                          setFormData({...formData, username: val});
+                        }}
+                        placeholder="kullanici_adi"
+                        className="w-full bg-slate-950 border border-slate-700/50 rounded-xl pl-9 pr-4 py-3 text-white focus:border-blue-500 outline-none transition-colors"
+                      />
+                    </div>
+                    <p className="text-slate-500 text-[11px] mt-1 mb-3">Sadece küçük harfler, sayılar, alt çizgi (_), tire (-) ve nokta (.) içerebilir.</p>
+                  </div>
+                  <div>
                    <label className="block text-sm font-medium text-slate-300 mb-2">Başlık / Unvan</label>
                    <input 
                      type="text" 
@@ -331,14 +582,113 @@ export default function CommunityProfile() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2 flex items-center gap-2">Telefon <Lock size={12} className="text-slate-500" /></label>
-                <input 
-                  type="tel" 
-                  value={formData.phone}
-                  onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                  className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none transition-colors"
-                  placeholder="5XX XXX XX XX"
-                />
+                <label className="block text-sm font-medium text-slate-300 mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-2">Telefon <Lock size={12} className="text-slate-500" /></span>
+                  {(() => {
+                    const isChanged = formData.phone.replace(/\D/g, '') !== (userData?.phone || '').replace(/\D/g, '');
+                    if (!isChanged) {
+                      return userData?.phoneVerified ? (
+                        <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
+                          <CheckCircle2 size={12} /> Doğrulanmış
+                        </span>
+                      ) : (
+                        <span className="text-xs text-amber-400 font-semibold flex items-center gap-1">
+                          ⚠️ Doğrulanmamış
+                        </span>
+                      );
+                    } else {
+                      return phoneVerifiedState ? (
+                        <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
+                          <CheckCircle2 size={12} /> Yeni Numara Doğrulandı
+                        </span>
+                      ) : (
+                        <span className="text-xs text-amber-400 font-semibold flex items-center gap-1">
+                          ⚠️ Doğrulama Bekliyor
+                        </span>
+                      );
+                    }
+                  })()}
+                </label>
+                <div className="relative">
+                  <input 
+                    type="tel" 
+                    value={formData.phone}
+                    onChange={(e) => {
+                      setFormData({...formData, phone: e.target.value});
+                      if (e.target.value.replace(/\D/g, '') === (userData?.phone || '').replace(/\D/g, '')) {
+                        setPhoneVerifiedState(false);
+                      }
+                    }}
+                    disabled={phoneOtpSent}
+                    className="w-full bg-slate-950 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none transition-colors disabled:opacity-60"
+                    placeholder="5XX XXX XX XX"
+                  />
+                </div>
+
+                {/* Verification UI */}
+                {(() => {
+                  const isChanged = formData.phone.replace(/\D/g, '') !== (userData?.phone || '').replace(/\D/g, '');
+                  if (isChanged && !phoneVerifiedState) {
+                    return (
+                      <div className="mt-3 p-4 bg-slate-900/50 border border-amber-500/20 rounded-xl space-y-3">
+                        <p className="text-xs text-slate-400">
+                          Telefon numaranızı değiştirdiniz. Profilinizi kaydedebilmek için lütfen yeni numaranızı doğrulayın.
+                        </p>
+                        
+                        {phoneError && (
+                          <p className="text-xs text-red-400 font-medium">{phoneError}</p>
+                        )}
+                        {phoneSuccess && (
+                          <p className="text-xs text-emerald-400 font-medium">{phoneSuccess}</p>
+                        )}
+
+                        <div id="recaptcha-container-profile" className="hidden"></div>
+
+                        {!phoneOtpSent ? (
+                          <button
+                            type="button"
+                            onClick={handleSendProfileOTP}
+                            disabled={phoneSending}
+                            className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                          >
+                            {phoneSending && <Loader2 size={12} className="animate-spin" />}
+                            <span>Kodu Gönder (SMS)</span>
+                          </button>
+                        ) : (
+                          <div className="space-y-3">
+                            <input
+                              type="text"
+                              value={phoneOtpCode}
+                              onChange={(e) => setPhoneOtpCode(e.target.value.replace(/\D/g, ''))}
+                              maxLength={6}
+                              placeholder="6 Haneli Doğrulama Kodu"
+                              className="w-full bg-slate-950 border border-slate-700/50 rounded-lg px-3 py-2 text-white text-center text-sm tracking-widest outline-none focus:border-blue-500"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setPhoneOtpSent(false)}
+                                className="flex-1 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition-colors"
+                              >
+                                Vazgeç
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleVerifyProfileOTP}
+                                disabled={phoneSending || phoneOtpCode.length < 6}
+                                className="flex-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors disabled:opacity-50"
+                              >
+                                {phoneSending && <Loader2 size={12} className="animate-spin" />}
+                                <span>Kodu Doğrula</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             </div>
           </section>
@@ -365,7 +715,15 @@ export default function CommunityProfile() {
                 <p className="text-sm font-medium text-slate-300 mb-1">Şifre:</p>
                 <p className="text-white font-medium tracking-widest">••••••••</p>
                 <p className="text-xs text-slate-500 mt-1 mb-2">Hesap güvenliğiniz için şifrelerinizi düzenli olarak değiştirin.</p>
-                <button className="text-blue-400 text-sm font-medium hover:text-blue-300 underline">Şifremi Sıfırla</button>
+                <button 
+                  type="button"
+                  onClick={handlePasswordReset}
+                  disabled={resetLoading}
+                  className="text-blue-400 text-sm font-medium hover:text-blue-300 underline disabled:opacity-50 flex items-center gap-1"
+                >
+                  {resetLoading && <Loader2 size={12} className="animate-spin" />}
+                  <span>{resetLoading ? 'Gönderiliyor...' : 'Şifremi Sıfırla'}</span>
+                </button>
               </div>
             </div>
           </section>
@@ -386,10 +744,21 @@ export default function CommunityProfile() {
               <div className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-slate-950 rounded-xl border border-slate-800">
                  <div>
                    <p className="text-white font-medium text-sm">Profil URL'si</p>
-                   <p className="text-slate-500 text-xs mt-1">https://app.omernasuhakademi.com/topluluk/us/{user.uid.substring(0, 8)}</p>
+                   <p className="text-slate-500 text-xs mt-1">https://omernasuhakademi.com/topluluk/us/{formData.username || user.uid}</p>
                  </div>
-                 <button className="mt-3 md:mt-0 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-sm flex items-center justify-center gap-2 transition-colors">
-                   <Copy size={14} /> Kopyala
+                 <button 
+                   onClick={handleCopyUrl}
+                   className="mt-3 md:mt-0 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-sm flex items-center justify-center gap-2 transition-colors min-w-[120px]"
+                 >
+                   {copied ? (
+                     <>
+                       <CheckCircle2 size={14} className="text-emerald-400" /> Kopyalandı!
+                     </>
+                   ) : (
+                     <>
+                       <Copy size={14} /> Kopyala
+                     </>
+                   )}
                  </button>
               </div>
 
@@ -499,7 +868,7 @@ export default function CommunityProfile() {
                          <Star className="w-10 h-10 text-slate-500" />
                        </div>
                        <p className="text-slate-400 mb-4">Mevcut veya geçmiş bir aboneliğiniz bulunmamaktadır.</p>
-                       <button onClick={() => window.location.href = '/abonelik'} className="px-6 py-3 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white rounded-xl font-medium transition">
+                       <button onClick={() => navigate('/abonelik')} className="px-6 py-3 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white rounded-xl font-medium transition">
                          Paketleri İncele
                        </button>
                      </div>
@@ -550,7 +919,7 @@ export default function CommunityProfile() {
                 <div className="text-center py-16 bg-slate-800 border border-slate-700 rounded-xl">
                   <p className="text-slate-400">Henüz hiçbir ürün satın almadınız.</p>
                   <button 
-                    onClick={() => window.location.href = '/panel/ogrenci/magaza'}
+                    onClick={() => navigate('/panel/ogrenci/magaza')}
                     className="mt-4 text-indigo-400 hover:text-indigo-300 font-medium"
                   >
                     Mağazaya Göz At
@@ -712,19 +1081,68 @@ export default function CommunityProfile() {
            <h2 className="text-2xl font-bold text-white tracking-tight mb-6">Ödüllerim ve Kuponlarım</h2>
            
            <div className="max-w-2xl mx-auto space-y-6">
-             <div className="text-center py-16 bg-slate-800 border border-slate-700 rounded-xl">
-                <div className="w-20 h-20 bg-slate-700/50 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Gift className="w-10 h-10 text-slate-400" />
-                </div>
-                <h3 className="text-xl font-medium text-white mb-2">Henüz Kuponunuz Yok</h3>
-                <p className="text-slate-400 mb-6 max-w-sm mx-auto">Şu anda hesabınıza tanımlanmış aktif bir indirim kuponu bulunmuyor. Arkadaşlarınızı davet ederek kupon kazanabilirsiniz.</p>
-                <button 
-                  onClick={() => window.location.href = '/panel/ogrenci/magaza'}
-                  className="px-6 py-3 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white rounded-xl font-medium transition"
-                >
-                  Mağazaya Göz At
-                </button>
-             </div>
+             {userCoupons.length === 0 ? (
+               <div className="text-center py-16 bg-slate-800 border border-slate-700 rounded-xl">
+                  <div className="w-20 h-20 bg-slate-700/50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Gift className="w-10 h-10 text-slate-400" />
+                  </div>
+                  <h3 className="text-xl font-medium text-white mb-2">Henüz Kuponunuz Yok</h3>
+                  <p className="text-slate-400 mb-6 max-w-sm mx-auto">Şu anda hesabınıza tanımlanmış aktif bir indirim kuponu bulunmuyor. Arkadaşlarınızı davet ederek kupon kazanabilirsiniz.</p>
+                  <button 
+                    onClick={() => navigate('/panel/ogrenci/magaza')}
+                    className="px-6 py-3 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white rounded-xl font-medium transition"
+                  >
+                    Mağazaya Göz At
+                  </button>
+               </div>
+             ) : (
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {userCoupons.map((coupon, idx) => {
+                    const isExpired = coupon.endDate && new Date(coupon.endDate) < new Date();
+                    const isDepleted = coupon.limitUsage && coupon.currentUsage >= coupon.maxUsage;
+                    const isPending = coupon.status === 'pending';
+                    const isUsed = coupon.status === 'used' || isDepleted;
+                    const active = !isExpired && !isUsed && !isPending && coupon.status !== 'expired';
+                    
+                    return (
+                      <div key={coupon.id || idx} className={`flex items-center justify-between p-5 bg-white/[0.02] border rounded-2xl transition-all ${active ? 'border-indigo-500/20 shadow-[0_4px_24px_rgba(99,102,241,0.05)]' : 'border-white/5 opacity-60'}`}>
+                         <div className="flex items-center gap-4">
+                            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center border ${active ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400' : isPending ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>
+                               <Gift size={24} />
+                            </div>
+                            <div>
+                              <h4 className="text-base font-bold text-white mb-1 flex items-center gap-2">
+                                 {coupon.name}
+                                 {isPending && <span className="text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded uppercase tracking-widest leading-none">Bekliyor</span>}
+                                 {isUsed && <span className="text-[10px] bg-red-500/10 text-red-400 px-2 py-0.5 rounded uppercase tracking-widest leading-none">Kullanıldı</span>}
+                                 {!active && !isUsed && !isPending && <span className="text-[10px] bg-slate-500/10 text-slate-400 px-2 py-0.5 rounded uppercase tracking-widest leading-none">Geçersiz</span>}
+                              </h4>
+                              {coupon.onlyForSubscriptions && (
+                                <p className="text-[11px] text-indigo-400 mb-2 font-medium">Sadece abonelik alımlarında geçerlidir</p>
+                              )}
+                              <div className="flex gap-4 items-center">
+                                 <div className="bg-slate-900 border border-slate-700 px-2 py-0.5 rounded text-xs font-mono font-medium text-slate-300 select-all cursor-text py-1 border-dashed">
+                                   {coupon.code}
+                                 </div>
+                                 {coupon.endDate && (
+                                   <span className="text-[11px] font-medium text-slate-500">
+                                     S.K.T: {new Date(coupon.endDate).toLocaleDateString('tr-TR')}
+                                   </span>
+                                 )}
+                              </div>
+                            </div>
+                         </div>
+                         <div className="text-right shrink-0">
+                            <p className={`text-2xl font-black ${active ? 'text-indigo-400' : isPending ? 'text-amber-400' : 'text-slate-500'}`}>
+                               {coupon.type === 'percentage' ? `%${coupon.discount}` : `${coupon.discount} ₺`}
+                            </p>
+                            <span className="text-[10px] text-slate-400 font-medium">İndirim</span>
+                         </div>
+                      </div>
+                    );
+                  })}
+               </div>
+             )}
              
              <div className="bg-slate-800/50 border border-white/5 rounded-2xl p-6">
                 <div className="flex items-center gap-2 mb-4 text-slate-300">

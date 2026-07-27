@@ -13,6 +13,7 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
+import { notificationService } from './notificationService';
 
 export enum OperationType {
   CREATE = 'create',
@@ -41,10 +42,15 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  if (!auth.currentUser) {
+    console.warn('Ignored Firestore error because user is not authenticated:', error);
+    return;
+  }
+
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
+      userId: auth.currentUser?.uid || 'AUTH_CURRENT_USER_WAS_NULL_OR_NOT_FOUND',
       email: auth.currentUser?.email,
       emailVerified: auth.currentUser?.emailVerified,
       isAnonymous: auth.currentUser?.isAnonymous,
@@ -58,7 +64,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
 }
 
 export interface TimeSlot {
@@ -113,6 +118,8 @@ export interface Room {
 export interface Booking {
   id?: string;
   studentId: string;
+  requesterId?: string;
+  requesterRole?: 'student' | 'parent';
   studentName: string;
   serviceId: string;
   serviceType: ServiceType;
@@ -123,7 +130,7 @@ export interface Booking {
   date: string;
   startTime: string;
   endTime?: string;
-  status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'missed';
   paymentStatus: 'unpaid' | 'paid';
   paymentMethod?: 'cash' | 'subscription';
   isOnline: boolean;
@@ -315,6 +322,32 @@ export const appointmentService = {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
+      
+      const currentUserUid = auth.currentUser?.uid;
+      
+      // Notify Coach if Student booked
+      if (currentUserUid === data.studentId && data.coachId) {
+          try {
+             await notificationService.addNotification(data.coachId, {
+                title: 'Yeni Randevu Talebi',
+                message: `Öğrenciniz '${data.studentName}' ${data.date} tarihinde saat ${data.startTime} için bir randevu talep etti.`,
+                type: 'appointment',
+                link: '/panel/koc/randevular'
+             });
+          } catch(e) {}
+      }
+      // Notify Student if Coach booked
+      else if (currentUserUid === data.coachId) {
+          try {
+             await notificationService.addNotification(data.studentId, {
+                title: 'Yeni Randevu Atandı',
+                message: `Koçun sana ${data.date} tarihi saat ${data.startTime} için yeni bir randevu atadı.`,
+                type: 'appointment',
+                link: '/panel/ogrenci/randevular'
+             });
+          } catch(e) {}
+      }
+
       return docRef.id;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'appointments');
@@ -323,6 +356,8 @@ export const appointmentService = {
   },
 
   async getAppointments(userId: string, role: 'student' | 'coach' | 'admin') {
+    if (!auth.currentUser) return [];
+    
     let q;
     const colRef = collection(db, 'appointments');
     
@@ -344,6 +379,11 @@ export const appointmentService = {
   },
 
   onAppointmentsChange(role: 'admin' | 'coach' | 'student', userId: string, callback: (appointments: Booking[]) => void) {
+    if (!auth.currentUser) {
+      callback([]);
+      return () => {};
+    }
+
     let q;
     const colRef = collection(db, 'appointments');
     
@@ -366,10 +406,45 @@ export const appointmentService = {
   async updateAppointmentStatus(appointmentId: string, status: Booking['status']) {
     try {
       const docRef = doc(db, 'appointments', appointmentId);
+      const appSnap = await getDoc(docRef);
       await updateDoc(docRef, { 
         status, 
         updatedAt: serverTimestamp() 
       });
+      
+      if (appSnap.exists()) {
+         const data = appSnap.data() as Booking;
+         const currentUserUid = auth.currentUser?.uid;
+         
+         if (currentUserUid === data.coachId) {
+             if (status === 'confirmed') {
+                 await notificationService.addNotification(data.studentId, {
+                     title: 'Randevu Onaylandı',
+                     message: `Harika! ${data.date} saat ${data.startTime} için olan randevun koçun tarafından onaylandı.`,
+                     type: 'appointment',
+                     link: '/panel/ogrenci/randevular'
+                 });
+             } else if (status === 'cancelled') {
+                 await notificationService.addNotification(data.studentId, {
+                     title: 'Randevu İptal Edildi',
+                     message: `Maalesef ${data.date} saat ${data.startTime} için olan randevun koçun tarafından iptal edildi. Lütfen yeni bir randevu al.`,
+                     type: 'appointment',
+                     link: '/panel/ogrenci/randevular'
+                 });
+             }
+         } else if (currentUserUid === data.studentId) {
+             if (status === 'cancelled') {
+                 if (data.coachId) {
+                     await notificationService.addNotification(data.coachId, {
+                         title: 'Randevu İptal Edildi',
+                         message: `Öğrenciniz '${data.studentName}', ${data.date} saat ${data.startTime} için olan randevusunu iptal etti.`,
+                         type: 'appointment',
+                         link: '/panel/koc/randevular'
+                     });
+                 }
+             }
+         }
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `appointments/${appointmentId}`);
       throw error;
@@ -380,10 +455,32 @@ export const appointmentService = {
     try {
       const { id: _, ...cleanData } = data as any;
       const docRef = doc(db, 'appointments', appointmentId);
+      const appSnap = await getDoc(docRef);
       await updateDoc(docRef, {
         ...cleanData,
         updatedAt: serverTimestamp()
       });
+      
+      if (appSnap.exists()) {
+          const oldData = appSnap.data() as Booking;
+          const currentUserUid = auth.currentUser?.uid;
+          
+          if (currentUserUid === oldData.studentId && oldData.coachId) {
+             await notificationService.addNotification(oldData.coachId, {
+                 title: 'Randevu Güncellendi',
+                 message: `Öğrenciniz '${oldData.studentName}', randevusunu ${data.date || oldData.date} tarihi saat ${data.startTime || oldData.startTime} olarak güncelledi.`,
+                 type: 'appointment',
+                 link: '/panel/koc/randevular'
+             });
+          } else if (currentUserUid === oldData.coachId) {
+             await notificationService.addNotification(oldData.studentId, {
+                 title: 'Randevu Güncellendi',
+                 message: `Koçun, randevunu ${data.date || oldData.date} tarihi saat ${data.startTime || oldData.startTime} olarak güncelledi.`,
+                 type: 'appointment',
+                 link: '/panel/ogrenci/randevular'
+             });
+          }
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `appointments/${appointmentId}`);
       throw error;

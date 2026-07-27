@@ -5,9 +5,7 @@ import ActivitiesOverview from '../components/home/ActivitiesOverview';
 import Services from '../components/home/Services';
 import Programs from '../components/home/Programs';
 import Community from '../components/home/Community';
-import Events from '../components/home/Events';
 import Pricing from '../components/home/Pricing';
-import GiftCard from '../components/home/GiftCard';
 
 export default function Home() {
   return (
@@ -19,9 +17,7 @@ export default function Home() {
       <ActivitiesOverview />
       <Programs />
       <Community />
-      <Events />
       <Pricing />
-      <GiftCard />
     </>
   );
 }

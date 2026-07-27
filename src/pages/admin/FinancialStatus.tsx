@@ -4,10 +4,14 @@ import { Wallet, Info, Search, Plus, Loader2, ArrowUpRight, CheckCircle2, Trendi
 import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp, getDoc, addDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
+import { notificationService } from '../../services/notificationService';
+import { referralService } from '../../services/referralService';
 
 export default function FinancialStatus() {
   const { user } = useAuth();
   const [coaches, setCoaches] = useState<any[]>([]);
+  const [students, setStudents] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'coaches' | 'students'>('coaches');
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -29,15 +33,27 @@ export default function FinancialStatus() {
 
   useEffect(() => {
     loadCoaches();
+    loadStudents();
     loadGlobalTransactions();
   }, []);
 
+  const loadStudents = async () => {
+    try {
+      const q = query(collection(db, 'users'), where('role', '==', 'student'));
+      const snap = await getDocs(q);
+      const studentData = snap.docs.map(doc => ({
+        uid: doc.id,
+        ...doc.data()
+      }));
+      setStudents(studentData);
+    } catch (err) {
+      console.error("Öğrenciler yüklenirken hata:", err);
+    }
+  };
+
   const loadGlobalTransactions = async () => {
     try {
-      const q = query(
-        collection(db, 'wallet_transactions'), 
-        where('coachId', '==', 'SYSTEM')
-      );
+      const q = query(collection(db, 'wallet_transactions'));
       const snap = await getDocs(q);
       const txs = snap.docs.map(doc => ({
         id: doc.id,
@@ -134,6 +150,17 @@ export default function FinancialStatus() {
         createdAt: serverTimestamp()
       });
 
+      // Send bakiye yüklendi notification directly to the coach authoritatively
+      await notificationService.addNotification(selectedCoach.uid, {
+        title: 'Bakiye Yüklendi',
+        message: `💰 Bakiye Yüklendi: Cüzdanınıza ${numAmount} ₺ tutarında yükleme yapıldı. Güncel bakiyeniz: ${currentSystemBalance + numAmount} ₺. Bol kazançlar!`,
+        type: 'system',
+        link: '/panel/koc/cuzdan'
+      });
+
+      // Process coach referral deposit gift and inviter bonus
+      referralService.processCoachDepositReferral(selectedCoach.uid, numAmount).catch(console.error);
+
       setSuccess(true);
       loadTransactions();
       loadGlobalTransactions();
@@ -156,9 +183,21 @@ export default function FinancialStatus() {
            c.email?.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
-  const totalEarnings = transactions
+  const filteredStudents = students.filter(s => {
+    const name = s.displayName || (s.firstName && s.lastName ? `${s.firstName} ${s.lastName}` : s.firstName || '');
+    return name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+           s.email?.toLowerCase().includes(searchTerm.toLowerCase());
+  });
+
+  const totalEarningsCollected = transactions
     .filter(tx => tx.type === 'DEPOSIT' && tx.coachId !== 'SYSTEM' && tx.coachId === selectedCoach?.uid)
     .reduce((sum, tx) => sum + tx.amount, 0);
+
+  const totalEarningsDeducted = transactions
+    .filter(tx => tx.type === 'WITHDRAWAL' && tx.coachId !== 'SYSTEM' && tx.coachId === selectedCoach?.uid)
+    .reduce((sum, tx) => sum + (tx.coachDeductionAmount !== undefined ? tx.coachDeductionAmount : tx.amount), 0);
+
+  const totalEarnings = totalEarningsCollected - totalEarningsDeducted;
 
   const filteredTxs = transactions.filter(tx => {
     if (txFilter === 'all') return true;
@@ -172,6 +211,36 @@ export default function FinancialStatus() {
     }
     return true;
   });
+
+  // --- OVERVIEW CALCULATIONS ---
+  const currentMonthStr = new Date().toISOString().substring(0, 7);
+  
+  // Sistemin Toplam Kazancı
+  const totalSystemEarnings = globalTransactions
+    .filter(tx => tx.coachId === 'SYSTEM' && tx.type === 'DEPOSIT')
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  const monthlySystemEarnings = globalTransactions
+    .filter(tx => tx.coachId === 'SYSTEM' && tx.type === 'DEPOSIT' && tx.date.startsWith(currentMonthStr))
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  // Toplam Koç Kredileri
+  const totalCoachCredits = coaches.reduce((sum, c) => sum + (c.systemBalance || 0), 0);
+
+  // Toplam Öğrenci Kredileri
+  const totalStudentCredits = students.reduce((sum, s) => sum + (s.walletBalance || 0), 0);
+
+  // Toplam Koç Kazançları
+  const totalCoachCollected = globalTransactions
+    .filter(tx => tx.type === 'DEPOSIT' && tx.coachId !== 'SYSTEM')
+    .reduce((sum, tx) => sum + tx.amount, 0);
+    
+  const totalCoachDeducted = globalTransactions
+    .filter(tx => tx.type === 'WITHDRAWAL' && tx.coachId !== 'SYSTEM')
+    .reduce((sum, tx) => sum + (tx.coachDeductionAmount !== undefined ? tx.coachDeductionAmount : tx.amount), 0);
+    
+  const totalCoachEarningsSummary = totalCoachCollected - totalCoachDeducted;
+  // -----------------------------
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
@@ -240,13 +309,127 @@ export default function FinancialStatus() {
         </motion.div>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Sistemin Toplam Kazancı */}
+        <motion.div
+           initial={{ opacity: 0, y: 20 }}
+           animate={{ opacity: 1, y: 0 }}
+           transition={{ delay: 0.1 }}
+           className="bg-emerald-500/10 backdrop-blur-md border border-emerald-500/20 rounded-[32px] p-6 relative overflow-hidden flex flex-col justify-between"
+        >
+           <div className="absolute -right-10 -top-10 w-40 h-40 bg-emerald-500/20 blur-3xl rounded-full" />
+           <div>
+             <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mb-4 border border-emerald-500/20">
+               <TrendingUp size={24} strokeWidth={2.5} />
+             </div>
+             <p className="text-xs font-bold text-emerald-300 uppercase tracking-widest mb-2">Sistemin Toplam Kazancı</p>
+             <div className="flex items-baseline gap-2 mb-2">
+               <h2 className="text-3xl font-black text-white">₺{totalSystemEarnings.toLocaleString('tr-TR')}</h2>
+             </div>
+           </div>
+           <p className="text-xs text-emerald-200/70 inline-flex items-center gap-1 font-medium bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/10 mt-4 w-fit">
+              <ArrowUpRight size={14} className="text-emerald-400" />
+              Bu ay ₺{monthlySystemEarnings.toLocaleString('tr-TR')} tahsilat
+           </p>
+        </motion.div>
+
+        {/* Toplam Koç Kazançları */}
+        <motion.div
+           initial={{ opacity: 0, y: 20 }}
+           animate={{ opacity: 1, y: 0 }}
+           transition={{ delay: 0.2 }}
+           className="bg-indigo-500/10 backdrop-blur-md border border-indigo-500/20 rounded-[32px] p-6 relative overflow-hidden flex flex-col justify-between"
+        >
+           <div className="absolute -right-10 -top-10 w-40 h-40 bg-indigo-500/20 blur-3xl rounded-full" />
+           <div>
+             <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center mb-4 border border-indigo-500/20">
+               <TrendingUp size={24} strokeWidth={2.5} />
+             </div>
+             <p className="text-xs font-bold text-indigo-300 uppercase tracking-widest mb-2">Toplam Koç Kazançları</p>
+             <div className="flex items-baseline gap-2 mb-2">
+               <h2 className="text-3xl font-black text-white">₺{totalCoachEarningsSummary.toLocaleString('tr-TR')}</h2>
+             </div>
+           </div>
+           <p className="text-xs text-indigo-200/70 inline-flex items-center gap-1 font-medium mt-auto">
+              Toplam koçların net tahsilatı
+           </p>
+        </motion.div>
+
+        {/* Toplam Koç Kredisi */}
+        <motion.div
+           initial={{ opacity: 0, y: 20 }}
+           animate={{ opacity: 1, y: 0 }}
+           transition={{ delay: 0.3 }}
+           className="bg-amber-500/10 backdrop-blur-md border border-amber-500/20 rounded-[32px] p-6 relative overflow-hidden flex flex-col justify-between"
+        >
+           <div className="absolute -right-10 -top-10 w-40 h-40 bg-amber-500/20 blur-3xl rounded-full" />
+           <div>
+             <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mb-4 border border-amber-500/20">
+               <Wallet size={24} strokeWidth={2.5} />
+             </div>
+             <p className="text-xs font-bold text-amber-300 uppercase tracking-widest mb-2">Koç Sistem Kredisi</p>
+             <div className="flex items-baseline gap-2 mb-2">
+               <h2 className="text-3xl font-black text-white">₺{totalCoachCredits.toLocaleString('tr-TR')}</h2>
+             </div>
+           </div>
+           <p className="text-xs text-amber-200/70 inline-flex items-center gap-1 font-medium mt-auto">
+              Sistemdeki toplam koç bakiyesi
+           </p>
+        </motion.div>
+
+        {/* Toplam Öğrenci Kredisi */}
+        <motion.div
+           initial={{ opacity: 0, y: 20 }}
+           animate={{ opacity: 1, y: 0 }}
+           transition={{ delay: 0.4 }}
+           className="bg-blue-500/10 backdrop-blur-md border border-blue-500/20 rounded-[32px] p-6 relative overflow-hidden flex flex-col justify-between"
+        >
+           <div className="absolute -right-10 -top-10 w-40 h-40 bg-blue-500/20 blur-3xl rounded-full" />
+           <div>
+             <div className="w-12 h-12 rounded-2xl bg-blue-500/20 text-blue-400 flex items-center justify-center mb-4 border border-blue-500/20">
+               <Users size={24} strokeWidth={2.5} />
+             </div>
+             <p className="text-xs font-bold text-blue-300 uppercase tracking-widest mb-2">Öğrenci Kredisi</p>
+             <div className="flex items-baseline gap-2 mb-2">
+               <h2 className="text-3xl font-black text-white">₺{totalStudentCredits.toLocaleString('tr-TR')}</h2>
+             </div>
+           </div>
+           <p className="text-xs text-blue-200/70 inline-flex items-center gap-1 font-medium mt-auto">
+              Sistemdeki toplam öğrenci bakiyesi
+           </p>
+        </motion.div>
+      </div>
+
+      <div className="flex bg-slate-900/50 p-1.5 rounded-2xl w-fit border border-white/5">
+        <button
+          onClick={() => setActiveTab('coaches')}
+          className={`px-6 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all ${
+            activeTab === 'coaches' 
+            ? 'bg-emerald-600 text-white shadow-lg' 
+            : 'text-slate-500 hover:text-white'
+          }`}
+        >
+          Koçlar
+        </button>
+        <button
+          onClick={() => setActiveTab('students')}
+          className={`px-6 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all ${
+            activeTab === 'students' 
+            ? 'bg-emerald-600 text-white shadow-lg' 
+            : 'text-slate-500 hover:text-white'
+          }`}
+        >
+          Öğrenciler
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 gap-8">
          <div className="space-y-6">
             <div className="bg-[#070b14] border border-white/5 rounded-[32px] p-4 flex items-center">
                <Search className="text-slate-500 ml-4 mr-3" size={20} />
                <input 
                  type="text" 
-                 placeholder="Koç adı veya e-posta ara..." 
+                 placeholder={activeTab === 'coaches' ? "Koç adı veya e-posta ara..." : "Öğrenci adı veya e-posta ara..."}
                  value={searchTerm}
                  onChange={(e) => setSearchTerm(e.target.value)}
                  className="flex-1 bg-transparent border-none text-white outline-none placeholder:text-slate-500 font-medium text-sm"
@@ -257,42 +440,79 @@ export default function FinancialStatus() {
               {loading ? (
                  <div className="p-10 text-center flex flex-col items-center gap-3">
                     <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
-                    <span className="text-slate-400 font-medium">Koçlar yükleniyor...</span>
+                    <span className="text-slate-400 font-medium">Veriler yükleniyor...</span>
                  </div>
-              ) : filteredCoaches.length > 0 ? (
-                 filteredCoaches.map((coach) => (
-                   <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      key={coach.uid}
-                      className={`flex flex-col sm:flex-row sm:items-center justify-between p-6 rounded-3xl border transition-all cursor-pointer ${selectedCoach?.uid === coach.uid && !showCoachModal ? 'bg-emerald-500/10 border-emerald-500/30 shadow-lg shadow-emerald-500/10' : 'bg-white/[0.02] border-white/5 hover:border-white/10 hover:bg-white/[0.04]'}`}
-                      onClick={() => { setSelectedCoach(coach); setShowCoachModal(true); }}
-                   >
-                     <div className="flex items-center gap-4 mb-4 sm:mb-0">
-                       <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-slate-400 font-black text-lg uppercase">
-                         {(coach.displayName || coach.firstName || coach.email)?.charAt(0)}
+              ) : activeTab === 'coaches' ? (
+                 filteredCoaches.length > 0 ? (
+                   filteredCoaches.map((coach) => (
+                     <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        key={coach.uid}
+                        className={`flex flex-col sm:flex-row sm:items-center justify-between p-6 rounded-3xl border transition-all cursor-pointer ${selectedCoach?.uid === coach.uid && !showCoachModal ? 'bg-emerald-500/10 border-emerald-500/30 shadow-lg shadow-emerald-500/10' : 'bg-white/[0.02] border-white/5 hover:border-white/10 hover:bg-white/[0.04]'}`}
+                        onClick={() => { setSelectedCoach(coach); setShowCoachModal(true); }}
+                     >
+                       <div className="flex items-center gap-4 mb-4 sm:mb-0">
+                         <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-slate-400 font-black text-lg uppercase">
+                           {(coach.displayName || coach.firstName || coach.email)?.charAt(0)}
+                         </div>
+                         <div>
+                           <h3 className="font-bold text-white text-lg">
+                             {coach.displayName || (coach.firstName && coach.lastName ? `${coach.firstName} ${coach.lastName}` : (coach.firstName || coach.email?.split('@')[0] || 'Bilinmiyor'))}
+                           </h3>
+                           <p className="text-xs font-medium text-slate-500">{coach.email}</p>
+                         </div>
                        </div>
-                       <div>
-                         <h3 className="font-bold text-white text-lg">
-                           {coach.displayName || (coach.firstName && coach.lastName ? `${coach.firstName} ${coach.lastName}` : (coach.firstName || coach.email?.split('@')[0] || 'Bilinmiyor'))}
-                         </h3>
-                         <p className="text-xs font-medium text-slate-500">{coach.email}</p>
+                       <div className="flex items-center justify-between sm:justify-end gap-6 w-full sm:w-auto">
+                          <div className="text-left sm:text-right">
+                             <p className="text-[10px] uppercase tracking-widest font-bold text-slate-500 mb-1">Cari / Sistem Bakiyesi</p>
+                             <p className={`text-xl font-black ${(coach.systemBalance || 0) < 500 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                               ₺{(coach.systemBalance || 0).toLocaleString('tr-TR')}
+                             </p>
+                          </div>
                        </div>
-                     </div>
-                     <div className="flex items-center justify-between sm:justify-end gap-6 w-full sm:w-auto">
-                        <div className="text-left sm:text-right">
-                           <p className="text-[10px] uppercase tracking-widest font-bold text-slate-500 mb-1">Cari / Sistem Bakiyesi</p>
-                           <p className={`text-xl font-black ${(coach.systemBalance || 0) < 500 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                             ₺{(coach.systemBalance || 0).toLocaleString('tr-TR')}
-                           </p>
-                        </div>
-                     </div>
-                   </motion.div>
-                 ))
+                     </motion.div>
+                   ))
+                 ) : (
+                    <div className="p-10 text-center text-slate-500 font-medium italic">
+                       Eşleşen koç bulunamadı.
+                    </div>
+                 )
               ) : (
-                 <div className="p-10 text-center text-slate-500 font-medium italic">
-                    Eşleşen kayıt bulunamadı.
-                 </div>
+                 filteredStudents.length > 0 ? (
+                   filteredStudents.map((student) => (
+                     <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        key={student.uid}
+                        className={`flex flex-col sm:flex-row sm:items-center justify-between p-6 rounded-3xl border transition-all bg-white/[0.02] border-white/5`}
+                     >
+                       <div className="flex items-center gap-4 mb-4 sm:mb-0">
+                         <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-slate-400 font-black text-lg uppercase">
+                           {(student.displayName || student.firstName || student.email)?.charAt(0)}
+                         </div>
+                         <div>
+                           <h3 className="font-bold text-white text-lg">
+                             {student.displayName || (student.firstName && student.lastName ? `${student.firstName} ${student.lastName}` : (student.firstName || student.email?.split('@')[0] || 'Bilinmiyor'))}
+                           </h3>
+                           <p className="text-xs font-medium text-slate-500">{student.email}</p>
+                         </div>
+                       </div>
+                       <div className="flex items-center justify-between sm:justify-end gap-6 w-full sm:w-auto">
+                          <div className="text-left sm:text-right">
+                             <p className="text-[10px] uppercase tracking-widest font-bold text-slate-500 mb-1">TL Bakiyesi</p>
+                             <p className={`text-xl font-black ${(student.walletBalance || 0) < 100 ? 'text-amber-400' : 'text-blue-400'}`}>
+                               ₺{(student.walletBalance || 0).toLocaleString('tr-TR')}
+                             </p>
+                          </div>
+                       </div>
+                     </motion.div>
+                   ))
+                 ) : (
+                    <div className="p-10 text-center text-slate-500 font-medium italic">
+                       Eşleşen öğrenci bulunamadı.
+                    </div>
+                 )
               )}
             </div>
          </div>
@@ -305,7 +525,7 @@ export default function FinancialStatus() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#0b101b] border border-white/10 rounded-[32px] w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden"
+              className="bg-[#0b101b] border border-white/10 sm:rounded-[32px] w-full max-w-5xl h-full sm:h-[90vh] flex flex-col overflow-hidden"
             >
               {/* Header */}
               <div className="p-6 border-b border-white/5 flex items-center justify-between shrink-0 bg-white/[0.02]">
@@ -505,7 +725,7 @@ export default function FinancialStatus() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-slate-900 border border-slate-700/50 rounded-3xl p-8 w-full max-w-sm shadow-2xl relative"
+              className="bg-slate-900 border border-slate-700/50 sm:rounded-3xl p-8 w-full h-full sm:h-auto sm:max-h-[90vh] max-w-sm shadow-2xl relative flex flex-col"
             >
               <button 
                 onClick={() => setSelectedTx(null)}
@@ -574,7 +794,7 @@ export default function FinancialStatus() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-slate-900 border border-white/10 rounded-[32px] p-6 sm:p-8 max-w-2xl w-full max-h-[85vh] flex flex-col"
+              className="bg-slate-900 border border-white/10 sm:rounded-[32px] p-6 sm:p-8 max-w-2xl w-full h-full sm:h-auto sm:max-h-[85vh] flex flex-col"
             >
               <div className="flex items-center justify-between mb-6">
                 <div>

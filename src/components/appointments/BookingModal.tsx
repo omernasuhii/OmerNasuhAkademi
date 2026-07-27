@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   User, 
@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import { appointmentService, Booking, CoachSchedule, Service } from '../../services/appointmentService';
 import { useAuth } from '../../lib/AuthContext';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 
 interface BookingModalProps {
   isOpen: boolean;
@@ -28,7 +30,7 @@ interface BookingModalProps {
 
 export default function BookingModal({ isOpen, onClose, initialBooking }: BookingModalProps) {
   const { user, userData } = useAuth();
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(3); // Start at step 3 (coach selection)
   const [services, setServices] = useState<Service[]>([]);
   const [selectedType, setSelectedType] = useState<'one-on-one' | 'lesson' | 'course' | null>(null);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
@@ -39,6 +41,7 @@ export default function BookingModal({ isOpen, onClose, initialBooking }: Bookin
   const [participantCount, setParticipantCount] = useState(1);
   const [isOnline, setIsOnline] = useState(false);
   
+  const dateInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [booking, setBooking] = useState(false);
   const [coachSchedule, setCoachSchedule] = useState<CoachSchedule | null>(null);
@@ -46,72 +49,97 @@ export default function BookingModal({ isOpen, onClose, initialBooking }: Bookin
 
   useEffect(() => {
     if (isOpen) {
-      loadServices();
-      
       if (initialBooking) {
         setSelectedType(initialBooking.serviceType);
         setSelectedDate(initialBooking.date);
         setParticipantCount(initialBooking.participantCount);
         setIsOnline(initialBooking.isOnline);
-        setStep(initialBooking.serviceType === 'one-on-one' ? 3 : 2); // Skip type selection
+        
+        // Reconstruct the service
+        const defaultService = {
+          id: initialBooking.serviceId,
+          title: 'Görüşme',
+          type: initialBooking.serviceType,
+          duration: 45,
+          bufferTime: 15,
+          multipleRequestsPerSession: false,
+          maxParticipants: 1,
+          approvalType: 'manual',
+          basePrice: 0,
+          assignedCoachIds: [] as string[]
+        } as Service;
+        setSelectedService(defaultService);
+        
+        loadCoaches(defaultService, initialBooking.coachId);
       } else {
-        setStep(1);
-        setSelectedType(null);
-        setSelectedService(null);
+        const defaultService = {
+          id: 'default-booking',
+          title: 'Birebir Görüşme',
+          type: 'one-on-one',
+          duration: 45,
+          bufferTime: 15,
+          multipleRequestsPerSession: false,
+          maxParticipants: 1,
+          approvalType: 'manual',
+          basePrice: 0,
+          assignedCoachIds: [] as string[]
+        } as Service;
+        setSelectedType('one-on-one');
+        setSelectedService(defaultService);
+        setStep(3); // Go straight to coach selection
+        
         setSelectedCoach(null);
         setSelectedSlot(null);
         setParticipantCount(1);
         setSelectedDate('');
         setIsOnline(false);
+        
+        loadCoaches(defaultService);
       }
     }
   }, [isOpen, initialBooking]);
 
-  const loadServices = async () => {
+  const loadCoaches = async (currentService: Service, initialCoachId?: string) => {
     setLoading(true);
     try {
-      const data = await appointmentService.getServices();
-      setServices(data);
+      let data = await appointmentService.getCoaches();
       
-      if (initialBooking) {
-        const service = data.find(s => s.id === initialBooking.serviceId);
-        if (service) {
-          setSelectedService(service);
-          // If service is loaded, load coaches for this service
-          const coachesData = await appointmentService.getCoaches();
-          const filtered = service.assignedCoachIds.length > 0 
-            ? coachesData.filter(c => service.assignedCoachIds.includes(c.uid))
-            : coachesData;
-          setCoaches(filtered);
-          
-          if (initialBooking.coachId) {
-            const coach = filtered.find(c => c.uid === initialBooking.coachId);
-            if (coach) {
-              setSelectedCoach(coach);
-              setStep(4); // Go straight to calendar
-              loadAvailability(coach.uid, initialBooking.date);
-            }
+      // Filter logic: students only see their coach
+      if (userData?.role === 'student' && userData.coachId) {
+        data = data.filter(c => c.uid === userData.coachId);
+      }
+      
+      // Filter logic: parents only see their student's coach
+      if (userData?.role === 'parent' && userData.studentUid) {
+         const studentDoc = await getDoc(doc(db, 'users', userData.studentUid));
+         if (studentDoc.exists() && studentDoc.data().coachId) {
+             data = data.filter(c => c.uid === studentDoc.data().coachId);
+         } else {
+             data = []; // No coach assigned to student
+         }
+      }
+
+      setCoaches(data);
+      
+      if (initialCoachId) {
+        const coach = data.find(c => c.uid === initialCoachId);
+        if (coach) {
+          setSelectedCoach(coach);
+          setStep(4);
+          if (initialBooking?.date) {
+             loadAvailability(coach.uid, initialBooking.date);
           }
         }
+      } else if (data.length === 1) {
+        // Automatically select if there's only 1 coach (common for students/parents)
+        setSelectedCoach(data[0]);
+        setStep(4);
       }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadCoaches = async () => {
-    try {
-      const data = await appointmentService.getCoaches();
-      // Filter coaches assigned to this service if applicable
-      if (selectedService && selectedService.assignedCoachIds.length > 0) {
-        setCoaches(data.filter(c => selectedService.assignedCoachIds.includes(c.uid)));
-      } else {
-        setCoaches(data);
-      }
+      
     } catch (err) {
       console.error("Load coaches error:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -141,7 +169,7 @@ export default function BookingModal({ isOpen, onClose, initialBooking }: Bookin
   const handleSelectService = (service: Service) => {
     setSelectedService(service);
     setIsOnline(false);
-    loadCoaches();
+    loadCoaches(service);
     setStep(3);
   };
 
@@ -280,8 +308,10 @@ export default function BookingModal({ isOpen, onClose, initialBooking }: Bookin
         alert("Randevunuz başarıyla güncellendi.");
       } else {
         await appointmentService.bookAppointment({
-          studentId: user.uid,
-          studentName: `${userData.firstName} ${userData.lastName}`,
+          studentId: userData.role === 'parent' ? userData.studentUid : user.uid,
+          requesterId: user.uid,
+          requesterRole: userData.role,
+          studentName: userData.role === 'parent' ? `${userData.firstName} ${userData.lastName}` : `${userData.firstName} ${userData.lastName}`,
           serviceId: selectedService.id!,
           serviceType: selectedService.type,
           coachId: selectedCoach?.uid,
@@ -310,13 +340,13 @@ export default function BookingModal({ isOpen, onClose, initialBooking }: Bookin
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={onClose}></div>
       
-      <div className="bg-slate-900 border border-white/10 w-full max-w-2xl rounded-[40px] shadow-2xl relative z-10 overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-slate-900 border border-white/10 w-full max-w-2xl sm:rounded-[40px] shadow-2xl relative z-10 overflow-hidden flex flex-col h-full sm:h-auto sm:max-h-[90vh]">
         {/* Header */}
         <div className="p-8 border-b border-white/5 flex items-center justify-between shrink-0">
           <div>
             <h2 className="text-2xl font-black text-white tracking-tight uppercase">{initialBooking ? 'Tarih Değiştir' : 'Yeni Randevu'}</h2>
             <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mt-1">
-              {initialBooking ? 'Yeni bir zaman dilimi seçin' : `Adım ${step} / 4`}
+              {step === 3 ? 'Eğitmen Seçimi' : 'Zaman Seçimi'}
             </p>
           </div>
           <button onClick={onClose} className="bg-slate-950 p-3 rounded-2xl text-slate-500 hover:text-white transition-all border border-white/5">
@@ -326,56 +356,8 @@ export default function BookingModal({ isOpen, onClose, initialBooking }: Bookin
 
         {/* Content */}
         <div className="p-8 overflow-y-auto no-scrollbar flex-1">
-          {step === 1 && (
-            <div className="grid grid-cols-1 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-               {[
-                 { id: 'one-on-one', label: 'Birebir Randevu', icon: User, desc: 'Özel birebir görüşmeler' },
-                 { id: 'lesson', label: 'Ders / Grup', icon: Users, desc: 'Gruplara yönelik ortak seanslar' },
-                 { id: 'course', label: 'Kurs / Paket', icon: Repeat, desc: 'Program bazlı seans setleri' }
-               ].map((type) => (
-                 <button 
-                   key={type.id}
-                   onClick={() => handleSelectType(type.id)}
-                   className="flex items-center gap-6 p-6 bg-slate-950/40 border border-white/5 rounded-[32px] hover:bg-white/[0.04] hover:border-blue-500/30 transition-all group text-left"
-                 >
-                   <div className="w-16 h-16 rounded-2xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
-                      <type.icon size={28} />
-                   </div>
-                   <div>
-                      <h4 className="font-bold text-white text-lg tracking-tight">{type.label}</h4>
-                      <p className="text-slate-500 text-sm font-medium">{type.desc}</p>
-                   </div>
-                   <ChevronRight className="ml-auto text-slate-700 group-hover:text-blue-400 transition-all" />
-                 </button>
-               ))}
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-500">
-               <button onClick={() => setStep(1)} className="text-xs font-bold text-blue-400 hover:underline mb-2">← Geri Dön</button>
-               <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-4">Hizmet Seçin</h3>
-               <div className="grid grid-cols-1 gap-3">
-                 {services.filter(s => s.type === selectedType).map(service => (
-                   <button 
-                     key={service.id}
-                     onClick={() => handleSelectService(service)}
-                     className="w-full bg-slate-950/50 border border-white/5 p-5 rounded-2xl flex items-center justify-between hover:bg-white/5 transition-all group"
-                   >
-                     <div className="text-left">
-                       <h4 className="font-bold text-white">{service.title}</h4>
-                       <p className="text-xs text-slate-500 mt-1">{service.duration} Dakika • {service.basePrice} ₺</p>
-                     </div>
-                     <ChevronRight size={18} className="text-slate-700 group-hover:text-white" />
-                   </button>
-                 ))}
-               </div>
-            </div>
-          )}
-
           {step === 3 && (
             <div className="space-y-6 animate-in fade-in duration-500">
-               <button onClick={() => setStep(2)} className="text-xs font-bold text-blue-400 hover:underline mb-2">← Geri Dön</button>
                <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-4">Eğitmen / Koç Seçin</h3>
                <div className="grid grid-cols-1 gap-3">
                  {coaches.map(coach => (
@@ -398,12 +380,18 @@ export default function BookingModal({ isOpen, onClose, initialBooking }: Bookin
                        <ChevronRight className="text-slate-700 group-hover:text-white" />
                     </button>
                  ))}
+                 {coaches.length === 0 && !loading && (
+                    <p className="text-amber-500 text-sm p-4 bg-amber-500/10 rounded-2xl border border-amber-500/20">Size atanmış bir koç bulunamadı.</p>
+                 )}
                </div>
             </div>
           )}
 
           {step === 4 && (
             <div className="space-y-8 animate-in fade-in duration-500">
+               {coaches.length > 1 && (
+                 <button onClick={() => setStep(3)} className="text-xs font-bold text-blue-400 hover:underline mb-2 -mt-4 block">← Koç Seçimine Dön</button>
+               )}
                <div className="bg-blue-600/10 border border-blue-500/20 p-6 rounded-3xl">
                   <div className="flex items-center gap-4 mb-4">
                     <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-black text-xl">
@@ -431,11 +419,15 @@ export default function BookingModal({ isOpen, onClose, initialBooking }: Bookin
                  <div>
                     <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 px-1">Tarih Seçin</label>
                     <input 
+                      ref={dateInputRef}
                       type="date" 
                       min={new Date().toISOString().split('T')[0]}
                       value={selectedDate}
+                      // showPicker is blocked in cross-origin iframes
+                      onClick={() => {}}
                       onChange={(e) => handleDateChange(e.target.value)}
                       className="w-full bg-slate-950/50 border border-white/10 rounded-2xl py-4 px-6 text-white font-bold appearance-none outline-none focus:ring-2 focus:ring-blue-500/50"
+                      style={{ colorScheme: 'dark' }}
                     />
                  </div>
 

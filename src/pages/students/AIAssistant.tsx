@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import { appointmentService, Service } from '../../services/appointmentService';
 import { studentDataService } from '../../services/studentDataService';
 import { analysisService } from '../../services/analysisService';
+import { safeStorage } from '../../lib/localStorage';
 
 interface Message {
   id: string;
@@ -52,6 +53,34 @@ export default function AIAssistant() {
   const [wizardState, setWizardState] = useState<WizardState>({
     isActive: false, step: 0, availableServices: [], availableCoaches: []
   });
+
+  useEffect(() => {
+    // Load history
+    if (user?.uid) {
+        studentDataService.getAIAssistantChatHistory(user.uid).then(history => {
+            if (Array.isArray(history) && history.length > 0) {
+                setMessages(history);
+            }
+        }).catch(err => console.error("Failed to load chat history", err));
+    }
+  }, [user?.uid]);
+
+  // Save history whenever messages change and are interesting enough
+  useEffect(() => {
+    if (user?.uid && messages.length > 1) {
+        const cleanMessages = messages.map(m => {
+           const c = {...m};
+           if (c.interactiveOptions === undefined) delete c.interactiveOptions;
+           if (c.functionCalls === undefined) delete c.functionCalls;
+           if (c.functionResponse === undefined) delete c.functionResponse;
+           if (c.name === undefined) delete c.name;
+           if (c.content === undefined) delete c.content;
+           if (c.interactiveAnswered === undefined) delete c.interactiveAnswered;
+           return c;
+        });
+        studentDataService.saveAIAssistantChatHistory(user.uid, cleanMessages);
+    }
+  }, [messages, user?.uid]);
 
   useEffect(() => {
     // Scroll automatically feature disabled by user request
@@ -313,7 +342,8 @@ export default function AIAssistant() {
     try {
       if (name === 'get_appointments') {
         const apps = await appointmentService.getAppointments(user!.uid, 'student');
-        return { success: true, appointments: apps };
+        const studentApps = apps.filter(app => app.requesterRole !== 'parent');
+        return { success: true, appointments: studentApps };
       }
       if (name === 'get_coach_schedule') {
         const coachIdToUse = args.coachId || userData?.coachId || userData?.assignedCoachId;
@@ -352,28 +382,90 @@ export default function AIAssistant() {
       }
       if (name === 'get_student_academic_data') {
         const uid = user!.uid;
-        // Fetch all possible data to analyze
-        const [dailyPrograms, routines, bookTracking, examResults, personalityAnalyses] = await Promise.all([
-          studentDataService.getAllDailyPrograms(uid),
-          studentDataService.getRoutines(uid),
-          studentDataService.getBookTracking(uid),
-          studentDataService.getExamResults(uid),
-          analysisService.getResults(uid)
+        const dataTypes = (args?.dataTypes || []) as string[];
+        const timeRangeDays = args?.timeRangeDays ? Number(args.timeRangeDays) : null;
+        const limitCount = args?.limit ? Number(args.limit) : null;
+
+        // Determine which types we should fetch (if dataTypes is provided, otherwise fetch all)
+        const fetchAll = dataTypes.length === 0;
+        const shouldFetchPrograms = fetchAll || dataTypes.includes('programs');
+        const shouldFetchBooks = fetchAll || dataTypes.includes('books');
+        const shouldFetchExams = fetchAll || dataTypes.includes('exams');
+        const shouldFetchPersonality = fetchAll || dataTypes.includes('personality');
+        const shouldFetchCaba = fetchAll || dataTypes.includes('caba');
+
+        // Setup filter by date helper
+        const cutoffDate = timeRangeDays ? new Date() : null;
+        if (cutoffDate && timeRangeDays) {
+          cutoffDate.setDate(cutoffDate.getDate() - timeRangeDays);
+        }
+
+        const isWithinTimeRange = (dateStr: any) => {
+          if (!cutoffDate || !dateStr) return true;
+          try {
+            const date = new Date(dateStr);
+            return date >= cutoffDate;
+          } catch {
+            return true;
+          }
+        };
+
+        // Fetch concurrently, only fetching what is requested
+        const [dailyProgramsRaw, routinesRaw, bookTrackingRaw, examResultsRaw, personalityAnalysesRaw, cabaTestResultRaw] = await Promise.all([
+          shouldFetchPrograms ? studentDataService.getAllDailyPrograms(uid) : Promise.resolve([]),
+          shouldFetchPrograms ? studentDataService.getRoutines(uid) : Promise.resolve(null),
+          shouldFetchBooks ? studentDataService.getBookTracking(uid) : Promise.resolve([]),
+          shouldFetchExams ? studentDataService.getExamResults(uid) : Promise.resolve([]),
+          shouldFetchPersonality ? analysisService.getResults(uid).then(res => res.filter((r: any) => !['PARENT_REPORT', 'COACH_REPORT'].includes(r.analysisType))) : Promise.resolve([]),
+          shouldFetchCaba ? studentDataService.getCabaTestResult(uid) : Promise.resolve(null)
         ]);
 
-        // Fetch analyses for each exam to get subject-by-subject error types
-        const examAnalyses = await Promise.all(
-          examResults.map(exam => studentDataService.getExamAnalysis(exam.id))
-        );
+        // 1. Filter and Limit dailyPrograms
+        let dailyPrograms = dailyProgramsRaw || [];
+        if (cutoffDate) {
+          dailyPrograms = dailyPrograms.filter((p: any) => isWithinTimeRange(p.date || p.createdAt));
+        }
+        if (limitCount !== null) {
+          dailyPrograms = dailyPrograms.slice(0, limitCount);
+        }
+
+        // 2. Filter and Limit bookTracking
+        let bookTracking = bookTrackingRaw || [];
+        if (cutoffDate) {
+          bookTracking = bookTracking.filter((b: any) => isWithinTimeRange(b.updatedAt || b.createdAt));
+        }
+        if (limitCount !== null) {
+          bookTracking = bookTracking.slice(0, limitCount);
+        }
+
+        // 3. Filter and Limit examResults & Fetch their analyses
+        let examResults = examResultsRaw || [];
+        if (cutoffDate) {
+          examResults = examResults.filter((e: any) => isWithinTimeRange(e.date));
+        }
+        if (limitCount !== null) {
+          examResults = examResults.slice(0, limitCount);
+        }
+
+        const examAnalyses = shouldFetchExams ? await Promise.all(
+          examResults.map((exam: any) => studentDataService.getExamAnalysis(exam.id))
+        ) : [];
+
+        // 4. Limit personalityAnalyses
+        let personalityAnalyses = personalityAnalysesRaw || [];
+        if (limitCount !== null) {
+          personalityAnalyses = personalityAnalyses.slice(0, limitCount);
+        }
 
         return {
           success: true,
-          dailyPrograms,
-          routines,
-          bookTracking,
-          examResults,
-          examAnalyses: examAnalyses.filter(Boolean), // Filter out nulls
-          personalityAnalyses // Added cognitive and behavioural analyses (stress, form info etc.)
+          dailyPrograms: shouldFetchPrograms ? dailyPrograms : undefined,
+          routines: shouldFetchPrograms ? routinesRaw : undefined,
+          bookTracking: shouldFetchBooks ? bookTracking : undefined,
+          examResults: shouldFetchExams ? examResults : undefined,
+          examAnalyses: shouldFetchExams ? examAnalyses.filter(Boolean) : undefined,
+          personalityAnalyses: shouldFetchPersonality ? personalityAnalyses : undefined,
+          cabaTestResult: shouldFetchCaba ? cabaTestResultRaw : undefined
         };
       }
       return { success: false, error: "Bilinmeyen fonksiyon: " + name };
@@ -428,7 +520,7 @@ export default function AIAssistant() {
           if (fc.name === 'start_booking_wizard') hasWizard = true;
           const result = await executeFunction(fc.name, fc.args);
           updatedHistory.push({
-            id: fc.id,
+            id: fc.id || generateId(),
             role: 'function' as const,
             name: fc.name,
             functionResponse: result
@@ -479,6 +571,19 @@ export default function AIAssistant() {
     setInput('');
     setIsLoading(true);
 
+    if (userData?.uid) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const updatePayload: any = {};
+        if (userData.streakInfo?.lastAssistantDate !== todayStr) {
+            updatePayload['streakInfo.lastAssistantDate'] = todayStr;
+        }
+        if (Object.keys(updatePayload).length > 0) {
+            studentDataService.updateStudentProfile(userData.uid, updatePayload).catch(console.error);
+        }
+        
+        studentDataService.awardXP(userData.uid, 2, 'Yapay Zeka Asistanı Kullanımı').catch(console.error);
+    }
+
     try {
       await processResponse(newMessages);
     } finally {
@@ -511,11 +616,11 @@ export default function AIAssistant() {
 
       {/* Chat Area */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar relative">
-        {messages.filter(m => m.role !== 'function' && (m.content || m.functionCalls || m.interactiveOptions)).map((message) => (
+        {messages.filter(m => m.role !== 'function' && (m.content || m.functionCalls || m.interactiveOptions)).map((message, idx) => (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            key={message.id}
+            key={message.id ? `${message.id}-${idx}` : `msg-${idx}`}
             className={`flex gap-4 max-w-4xl mx-auto ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
           >
             {/* Avatar */}
@@ -537,12 +642,6 @@ export default function AIAssistant() {
                  <div className="prose prose-invert prose-p:leading-relaxed prose-pre:bg-slate-900 prose-pre:border prose-pre:border-white/10 prose-sm max-w-none">
                    {message.content && <ReactMarkdown>{message.content}</ReactMarkdown>}
                    
-                   {message.functionCalls && message.functionCalls.length > 0 && !message.content && (
-                     <div className="text-xs text-indigo-300 flex items-center gap-2">
-                       <Loader2 className="animate-spin" size={12} />
-                       Sistem ile iletişim kuruluyor...
-                     </div>
-                   )}
 
                    {/* Interactive Options */}
                    {message.interactiveOptions && message.interactiveOptions.length > 0 && (

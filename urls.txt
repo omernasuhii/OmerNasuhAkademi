@@ -1,0 +1,99 @@
+src/pages/coach/StudentSummary.tsx:338:                  <img src={selectedStudent?.photoURL || `https://ui-avatars.com/api/?name=${selectedStudent?.displayName}&background=070b14&color=fff&size=128&bold=true`} alt={selectedStudent?.displayName} className="w-full h-full object-cover" />
+src/pages/coach/StudentProgram.tsx:675:            <script src="https://cdn.tailwindcss.com"></script>
+src/pages/coach/StudentProgram.tsx:676:            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+src/pages/students/YokAtlas.tsx:8:      url: "https://yokatlas.yok.gov.tr/lisans-anasayfa.php",
+src/pages/students/YokAtlas.tsx:16:      url: "https://yokatlas.yok.gov.tr/onlisans-anasayfa.php",
+src/pages/students/YokAtlas.tsx:24:      url: "https://yokatlas.yok.gov.tr/netler.php",
+src/pages/students/YokAtlas.tsx:32:      url: "https://yokatlas.yok.gov.tr/meslek-anasayfa.php",
+src/pages/students/YokAtlas.tsx:40:      url: "https://yokatlas.yok.gov.tr/tercih-sihirbazi-t4-tablo.php",
+src/pages/students/YokAtlas.tsx:48:      url: "https://yokatlas.yok.gov.tr/universite.php",
+src/pages/students/KykDorms.tsx:8:      url: "https://www.turkiye.gov.tr/gsb-yurt-basvurusu",
+src/pages/students/KykDorms.tsx:16:      url: "https://www.turkiye.gov.tr/gsb-yurt-basvuru-sonucu-sorgulama",
+src/pages/students/KykDorms.tsx:24:      url: "https://kygm.gsb.gov.tr/YurtMudurlukleri",
+src/pages/students/KykDorms.tsx:32:      url: "https://www.turkiye.gov.tr/kyk-krediburs-basvurusu",
+src/pages/students/KykDorms.tsx:40:      url: "https://www.turkiye.gov.tr/genclik-ve-spor-burs-ogrenim-kredisi-basvuru-sonucu-sorgulama",
+src/pages/students/KykDorms.tsx:48:      url: "https://kygm.gsb.gov.tr/Sayfalar/2678/3200/sikca-sorulan-sorular-yurt.aspx",
+src/pages/students/OgmMaterial.tsx:8:      url: "https://ogmmateryal.eba.gov.tr/etkilesimli-kitap",
+src/pages/students/OgmMaterial.tsx:16:      url: "https://ogmmateryal.eba.gov.tr/soru-bankasi",
+src/pages/students/OgmMaterial.tsx:24:      url: "https://ogmmateryal.eba.gov.tr/konu-ozetleri",
+src/pages/students/OgmMaterial.tsx:32:      url: "https://ogmmateryal.eba.gov.tr/3d-modeller",
+src/pages/students/OgmMaterial.tsx:40:      url: "https://ogmmateryal.eba.gov.tr/yks-hazirlik-kitaplari",
+src/pages/students/OgmMaterial.tsx:48:      url: "https://ogmmateryal.eba.gov.tr/canli-ders-videolari",
+src/pages/students/ExamMetronomeApp.tsx:109:        'lofi': 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf581.mp3?filename=lofi-study-112191.mp3',
+src/pages/students/ExamMetronomeApp.tsx:110:        'cafe': 'https://cdn.pixabay.com/download/audio/2023/10/24/audio_dc395cfb61.mp3?filename=ambience-cafe-24151.mp3',
+src/pages/students/ExamMetronomeApp.tsx:111:        'library': 'https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0a13f69d2.mp3?filename=classroom-6977.mp3'
+src/pages/students/JobGuide.tsx:85:                href="https://esube.iskur.gov.tr/Meslek/MeslekleriTaniyalim.aspx" 
+src/pages/students/JobGuide.tsx:100:              <a href="https://esube.iskur.gov.tr/Meslek/MeslekleriTaniyalim.aspx" target="_blank" rel="noopener noreferrer" className="text-teal-400 hover:underline flex items-center gap-1">Yeni Sekmede Aç <ExternalLink size={12}/></a>
+src/pages/students/JobGuide.tsx:103:             src="https://esube.iskur.gov.tr/Meslek/MeslekleriTaniyalim.aspx"
+src/pages/students/ChannelRecommendations.tsx:45:        channelUrl: 'https://www.youtube.com/@RustuHoca',
+src/pages/students/ChannelRecommendations.tsx:55:        channelUrl: 'https://www.youtube.com/@benimhocam',
+src/pages/students/ChannelRecommendations.tsx:73:        channelUrl: 'https://www.youtube.com/@RehberMatematik',
+src/pages/students/ChannelRecommendations.tsx:83:        channelUrl: 'https://www.youtube.com/@merthoca',
+src/pages/students/ChannelRecommendations.tsx:93:        channelUrl: 'https://www.youtube.com/@EyupB',
+src/pages/students/ChannelRecommendations.tsx:103:        channelUrl: 'https://www.youtube.com/@benimhocam',
+src/pages/students/ChannelRecommendations.tsx:121:        channelUrl: 'https://www.youtube.com/@KenanKara',
+src/pages/students/ChannelRecommendations.tsx:131:        channelUrl: 'https://www.youtube.com/@merthoca',
+src/pages/students/ChannelRecommendations.tsx:149:        channelUrl: 'https://www.youtube.com/@VIPFizik',
+src/pages/students/ChannelRecommendations.tsx:159:        channelUrl: 'https://www.youtube.com/@FizikleBaris',
+src/pages/students/ChannelRecommendations.tsx:169:        channelUrl: 'https://www.youtube.com/@ozcanaykin',
+src/pages/students/ChannelRecommendations.tsx:179:        channelUrl: 'https://www.youtube.com/@AltunFizik',
+src/pages/students/ChannelRecommendations.tsx:197:        channelUrl: 'https://www.youtube.com/@gorkemsahin',
+src/pages/students/ChannelRecommendations.tsx:207:        channelUrl: 'https://www.youtube.com/@KimyaAdasi',
+src/pages/students/ChannelRecommendations.tsx:217:        channelUrl: 'https://www.youtube.com/@FerrumKimya',
+src/pages/students/ChannelRecommendations.tsx:227:        channelUrl: 'https://www.youtube.com/@ParaksilenKimya',
+src/pages/students/ChannelRecommendations.tsx:245:        channelUrl: 'https://www.youtube.com/@SelinHoca',
+src/pages/students/ChannelRecommendations.tsx:255:        channelUrl: 'https://www.youtube.com/@FundamentalsBiyoloji',
+src/pages/students/ChannelRecommendations.tsx:265:        channelUrl: 'https://www.youtube.com/@DrBiyoloji',
+src/pages/students/ChannelRecommendations.tsx:275:        channelUrl: 'https://www.youtube.com/@biyosem',
+src/pages/students/ChannelRecommendations.tsx:293:        channelUrl: 'https://www.youtube.com/@benimhocam',
+src/pages/students/ChannelRecommendations.tsx:303:        channelUrl: 'https://www.youtube.com/@SosyalKale',
+src/pages/students/ChannelRecommendations.tsx:313:        channelUrl: 'https://www.youtube.com/@SadettinAkyay',
+src/pages/students/ChannelRecommendations.tsx:331:        channelUrl: 'https://www.youtube.com/@YavuzTuna',
+src/pages/students/ChannelRecommendations.tsx:341:        channelUrl: 'https://www.youtube.com/@benimhocam',
+src/pages/students/ChannelRecommendations.tsx:351:        channelUrl: 'https://www.youtube.com/@CografyaninKodlari',
+src/pages/students/ChannelRecommendations.tsx:468:                  src={`https://www.youtube.com/embed/${rec.videoId}`}
+src/pages/students/MebiPlatform.tsx:8:      url: "https://mebi.eba.gov.tr/",
+src/pages/students/MebiPlatform.tsx:16:      url: "https://mebi.eba.gov.tr/",
+src/pages/students/MebiPlatform.tsx:24:      url: "https://mebi.eba.gov.tr/",
+src/pages/students/MebiPlatform.tsx:32:      url: "https://mebi.eba.gov.tr/",
+src/pages/students/MebiPlatform.tsx:40:      url: "https://mebi.eba.gov.tr/",
+src/pages/students/MebiPlatform.tsx:48:      url: "https://mebi.eba.gov.tr/",
+src/pages/students/MebCurriculum.tsx:8:      url: "https://tymm.meb.gov.tr/ogretim-programlari/ortaogretim",
+src/pages/students/MebCurriculum.tsx:16:      url: "https://tymm.meb.gov.tr/ogrenci-profili",
+src/pages/students/MebCurriculum.tsx:24:      url: "https://tymm.meb.gov.tr/",
+src/pages/students/MebCurriculum.tsx:32:      url: "https://tymm.meb.gov.tr/",
+src/pages/students/MebCurriculum.tsx:40:      url: "https://tymm.meb.gov.tr/temel-yaklasim",
+src/pages/students/MebCurriculum.tsx:48:      url: "https://tymm.meb.gov.tr/taslak-cerceve-planlari",
+src/pages/students/EbaAcademicSupport.tsx:8:      url: "https://akademikdestek.eba.gov.tr/",
+src/pages/students/EbaAcademicSupport.tsx:16:      url: "https://akademikdestek.eba.gov.tr/",
+src/pages/students/EbaAcademicSupport.tsx:24:      url: "https://akademikdestek.eba.gov.tr/",
+src/pages/students/EbaAcademicSupport.tsx:32:      url: "https://akademikdestek.eba.gov.tr/",
+src/pages/students/EbaAcademicSupport.tsx:40:      url: "https://akademikdestek.eba.gov.tr/",
+src/pages/students/EbaAcademicSupport.tsx:48:      url: "https://akademikdestek.eba.gov.tr/",
+src/pages/admin/AdminEvents.tsx:395:                          placeholder={event.locationType === 'online' ? "https://..." : "Açık adres..."}
+src/pages/admin/ProductsManagement.tsx:331:                placeholder="https://..."
+src/pages/admin/AdminPrograms.tsx:271:                      placeholder="https://..."
+src/pages/admin/AdminAcademicExams.tsx:816:                              placeholder="https://drive.google.com/..."
+src/pages/admin/GoogleDrive.tsx:73:      let url = 'https://www.googleapis.com/drive/v3/files?fields=files(id,name,mimeType,webViewLink,iconLink)&orderBy=modifiedTime desc&pageSize=50';
+src/pages/admin/ReferralSettings.tsx:238:            <div className="absolute top-0 right-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.03] pointer-events-none"></div>
+src/pages/CommunityProfile.tsx:404:                   <p className="text-slate-500 text-xs mt-1">https://app.omernasuhakademi.com/topluluk/us/{user.uid.substring(0, 8)}</p>
+src/pages/Contact.tsx:22:      link: "https://www.google.com/maps/dir//Tam+Akademi,+Ta%C5%9Fpazar+Mahallesi+809.+Sokak+G%C3%B6kta%C5%9F+Apt,+68100+Aksaray+Merkez%2FAksaray/@41.0812416,28.934144,11z/data=!4m8!4m7!1m0!1m5!1m1!1s0x14d671fc7370acb5:0xecf69130f785e83f!2m2!1d34.0267406!2d38.3675344!5m1!1e1?entry=ttu&g_ep=EgoyMDI2MDUyNy4wIKXMDSoASAFQAw%3D%3D"
+src/pages/Staff.tsx:10:    avatar: "https://drive.google.com/thumbnail?id=1BQqADIxhN7h0vRrPFrAcvIHTG6LGpIMx&sz=w500",
+src/pages/Staff.tsx:18:    avatar: "https://images.unsplash.com/photo-1574701148212-8518049c7b2c?q=80&w=300&h=300&auto=format&fit=crop",
+src/pages/Staff.tsx:26:    avatar: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?q=80&w=300&h=300&auto=format&fit=crop",
+src/pages/Staff.tsx:34:    avatar: "https://images.unsplash.com/photo-1580489944761-15a19d654956?q=80&w=300&h=300&auto=format&fit=crop",
+src/pages/Staff.tsx:42:    avatar: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?q=80&w=300&h=300&auto=format&fit=crop",
+src/pages/Staff.tsx:50:    avatar: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?q=80&w=300&h=300&auto=format&fit=crop",
+src/components/home/ActivitiesOverview.tsx:14:      image: "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&q=80&w=1200",
+src/components/home/ActivitiesOverview.tsx:24:      image: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&q=80&w=800",
+src/components/home/ActivitiesOverview.tsx:34:      image: "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&q=80&w=800",
+src/components/home/ActivitiesOverview.tsx:44:      image: "https://images.unsplash.com/photo-1507413245164-6160d8298b31?auto=format&fit=crop&q=80&w=800",
+src/components/home/ActivitiesOverview.tsx:54:      image: "https://images.pexels.com/photos/5563404/pexels-photo-5563404.jpeg?auto=compress&cs=tinysrgb&h=650&w=940",
+src/components/home/Pricing.tsx:11:      image: "https://drive.google.com/thumbnail?id=11GU6GF_X4FCgsiD3bY51VuLPhyuDHDab&sz=q80&w500",
+src/components/home/Pricing.tsx:33:      image: "https://drive.google.com/thumbnail?id=1JNToCLAubXGCaCG0aVDVrnAWfeqveb6L&sz=q80&w500",
+src/components/home/Pricing.tsx:55:      image: "https://drive.google.com/thumbnail?id=1cnmbj2QLHjOBFNO2qjr7ASLEXzMTocrX&sz=q80&w500",
+src/components/layout/Navbar.tsx:123:              <a href="https://tymm.meb.gov.tr/ders-kitaplari/ortaogretim" target="_blank" rel="noopener noreferrer" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors flex items-center justify-between gap-2">Lise MEB Kitapları PDF <ExternalLink size={14} className="opacity-50" /></a>
+src/components/layout/Navbar.tsx:397:                  <a href="https://tymm.meb.gov.tr/ders-kitaplari/ortaogretim" target="_blank" rel="noopener noreferrer" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg flex items-center gap-2">Lise MEB Kitapları PDF <ExternalLink size={14} className="opacity-50" /></a>
+src/lib/workspaceAuth.ts:5:provider.addScope('https://www.googleapis.com/auth/drive');
+src/lib/formatDriveUrl.ts:6:    return `https://drive.google.com/uc?export=view&id=${match1[1]}`;
+src/lib/formatDriveUrl.ts:12:    return `https://drive.google.com/uc?export=view&id=${match2[1]}`;

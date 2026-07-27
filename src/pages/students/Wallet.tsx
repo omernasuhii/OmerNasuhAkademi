@@ -4,7 +4,10 @@ import { Wallet as WalletIcon, History, ArrowDownLeft, ArrowUpRight, Loader2, Gi
 import { useAuth } from '../../lib/AuthContext';
 import { studentDataService } from '../../services/studentDataService';
 import { referralService, ReferralSettings } from '../../services/referralService';
+import { checkAndRenewSubscription } from '../../services/subscriptionService';
 import { AnimatePresence } from 'motion/react';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 
 export default function Wallet() {
   const { userData, user } = useAuth();
@@ -14,6 +17,7 @@ export default function Wallet() {
   const [copied, setCopied] = useState(false);
   const [settings, setSettings] = useState<ReferralSettings | null>(null);
   const [showInfoModal, setShowInfoModal] = useState(false);
+  const [dynamicRefCount, setDynamicRefCount] = useState(0);
 
   useEffect(() => {
     if (user) {
@@ -24,12 +28,21 @@ export default function Wallet() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [txs, refSettings] = await Promise.all([
+      if (userData && user) {
+        checkAndRenewSubscription(userData, user.uid).catch(console.error);
+      }
+      const [txs, refSettings, usersSnap] = await Promise.all([
         studentDataService.getWalletTransactions(user!.uid),
-        referralService.getSettings()
+        referralService.getSettings(),
+        getDocs(query(collection(db, 'users'), where('referredByCode', '==', userData?.referralCode || 'FOCUS' + (userData?.uid?.substring(0,4).toUpperCase()))))
       ]);
       setTransactions(txs);
       setSettings(refSettings);
+      
+      // Compute dynamic referrals
+      if (!usersSnap.empty) {
+         setDynamicRefCount(usersSnap.docs.length);
+      }
     } catch (err) {
       console.error("Cüzdan/Referans bilgileri yüklenirken hata:", err);
     } finally {
@@ -40,7 +53,7 @@ export default function Wallet() {
   const currentBalance = userData?.walletBalance || 0;
   const refCode = userData?.referralCode || 'FOCUS' + (userData?.uid?.substring(0,4).toUpperCase() || '2026');
   const myEarnings = userData?.referralEarnings || 0;
-  const myRefCount = userData?.referralCount || 0;
+  const myRefCount = dynamicRefCount || userData?.referralCount || 0;
 
   const rewardTypeStr = settings?.rewardType === 'percent' ? '%' : 'TL';
   const rewardAmount = settings?.referrerReward || 10;
@@ -84,6 +97,23 @@ export default function Wallet() {
           </p>
         </motion.div>
       </div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+        className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex items-start gap-3"
+      >
+        <div className="mt-0.5">
+           <svg className="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        </div>
+        <div>
+          <h4 className="text-sm font-bold text-amber-500 mb-1">Cüzdan Kuralları & İade Politikası</h4>
+          <p className="text-xs text-amber-400/80 leading-relaxed font-medium">
+            Platforma yüklenen tüm TL bakiyeleri ve referans sistemi aracılığıyla kazanılan ödüller, <strong>sadece uygulama içi harcamalarda (hizmet satın alımları, abonelik ödemeleri, test vb.)</strong> geçerlidir. Bakiyeler hiçbir koşulda banka hesaplarına aktarılamaz, nakit olarak çekilemez veya nakden iade edilemez. Tüm mali değerler yalnızca platformda eğitim yatırımı olarak kullanılabilir.
+          </p>
+        </div>
+      </motion.div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <motion.div
@@ -217,7 +247,7 @@ export default function Wallet() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-slate-900 border border-slate-700/50 rounded-3xl p-8 w-full max-w-sm shadow-2xl relative"
+              className="bg-slate-900 border border-slate-700/50 sm:rounded-3xl p-8 w-full max-w-sm h-full sm:h-auto max-h-screen sm:max-h-[90vh] overflow-y-auto shadow-2xl relative"
             >
               <button 
                 onClick={() => setSelectedTx(null)}
@@ -282,7 +312,7 @@ export default function Wallet() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-slate-900 border border-slate-700/50 rounded-3xl p-8 w-full max-w-lg shadow-2xl relative"
+              className="bg-slate-900 border border-slate-700/50 sm:rounded-3xl p-8 w-full max-w-lg h-full sm:h-auto max-h-screen sm:max-h-[90vh] overflow-y-auto shadow-2xl relative"
             >
               <button 
                 onClick={() => setShowInfoModal(false)}

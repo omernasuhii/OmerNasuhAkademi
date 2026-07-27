@@ -27,8 +27,8 @@ export default function Footer() {
         <div className="md:col-span-4">
           <h3 className="font-bold text-white tracking-wide uppercase text-sm mb-6">Koşullar ve Sözleşmeler</h3>
           <ul className="space-y-4 text-sm text-slate-400">
-            <li><a href="#" className="hover:text-blue-400 transition-colors">Kullanım Koşulları</a></li>
-            <li><a href="#" className="hover:text-blue-400 transition-colors">Gizlilik Sözleşmesi</a></li>
+            <li><Link to="/kullanim-kosullari" className="hover:text-blue-400 transition-colors">Kullanım Koşulları</Link></li>
+            <li><Link to="/gizlilik-politikasi" className="hover:text-blue-400 transition-colors">Gizlilik Sözleşmesi</Link></li>
             <li><a href="#" className="hover:text-blue-400 transition-colors">Üyelik Sözleşmesi</a></li>
             <li><a href="#" className="hover:text-blue-400 transition-colors">Mesafeli Satış Sözleşmesi</a></li>
             <li><a href="#" className="hover:text-blue-400 transition-colors">Teslimat ve İade Koşulları</a></li>

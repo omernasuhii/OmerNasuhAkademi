@@ -21,7 +21,7 @@ export default function AnalysisResults({ searchTerm = '', selectedCategory = 'T
   const loadResults = async () => {
     try {
       const data = await analysisService.getResults(user!.uid);
-      setResults(data);
+      setResults(data.filter((r: any) => !['PARENT_REPORT', 'COACH_REPORT'].includes(r.analysisType)));
     } catch (err) {
       console.error(err);
     } finally {

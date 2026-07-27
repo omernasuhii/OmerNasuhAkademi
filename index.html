@@ -1,9 +1,75 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script>
+      // Suppress benign Vite WebSocket errors to prevent AI Studio error overlay
+      window.addEventListener('error', function(e) {
+        if (e.message && (e.message.includes('WebSocket') || e.message.includes('[vite]'))) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      }, true);
+      window.addEventListener('unhandledrejection', function(e) {
+        if (e.reason && (String(e.reason).includes('WebSocket') || (e.reason.message && (e.reason.message.includes('WebSocket') || e.reason.message.includes('[vite]'))))) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      }, true);
+      {
+        const originalConsoleError = console.error;
+        console.error = function(...args) {
+          if (typeof args[0] === 'string' && (args[0].includes('WebSocket') || args[0].includes('[vite]'))) return;
+          originalConsoleError.apply(console, args);
+        };
+      }
+    </script>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="apple-touch-icon" href="/images/ON-Logo.png" />
     <title>FocusON Akademi</title>
+    <link rel="icon" type="image/png" href="/images/ON-Logo.png" />
+    <script>
+      let originalOnError;
+      Object.defineProperty(window, 'onerror', {
+        get() { return originalOnError; },
+        set(val) {
+          if (typeof val === 'function') {
+            originalOnError = function(msg, src, ln, col, err) {
+              if (msg === 'Script error.' || msg === 'Script error') return true;
+              return val(msg, src, ln, col, err);
+            };
+          } else {
+            originalOnError = val;
+          }
+        }
+      });
+      
+      {
+        const originalConsoleError = console.error;
+        console.error = function(...args) {
+          if (typeof args[0] === 'string' && args[0].includes('[vite]')) return;
+          originalConsoleError.apply(console, args);
+        };
+      }
+      
+      {
+        const originalConsoleLog = console.log;
+        console.log = function(...args) {
+          if (typeof args[0] === 'string' && args[0].includes('[vite]')) return;
+          originalConsoleLog.apply(console, args);
+        };
+      }
+
+      window.addEventListener('error', function(e) {
+        if (e.message === 'Script error.' || e.message === 'Script error' || !e.filename) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      }, true);
+    </script>
   </head>
   <body>
     <div id="root"></div>

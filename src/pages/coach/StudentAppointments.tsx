@@ -18,7 +18,7 @@ export default function StudentAppointments() {
       </div>
 
       <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
-        <AppointmentList studentId={selectedStudent?.uid} role="coach" />
+        <AppointmentList studentIds={[selectedStudent?.uid, selectedStudent?.parentUid].filter(Boolean) as string[]} role="coach" />
       </div>
     </div>
   );

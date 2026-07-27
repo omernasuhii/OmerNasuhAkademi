@@ -1,0 +1,376 @@
+src/pages/student/analyses/CikolataAnaliz.tsx:46:  { id: 'weekly_goal', label: 'Haftalık Hedef %100 (Bonus)', cp: 500, icon: Zap },
+src/pages/student/analyses/ZsOdoAnaliz.tsx:41:      { id: 11, text: "Ben \"sayısalcı kafasına\" sahip değilim, o yüzden asla yapamam." },
+src/pages/student/analyses/AddeAnaliz.tsx:209:              animate={{ width: `${progress}%` }}
+src/pages/student/analyses/AddeAnaliz.tsx:238:              { label: 'Katılmıyorum', value: 2, color: 'hover:bg-orange-500/20 hover:border-orange-500/30' },
+src/pages/student/analyses/ImOmAnaliz.tsx:78:    else if (totalScore >= 25) { category = 'Marş Basmıyor (İteklemek Lazım)'; categoryColor = 'text-orange-400'; }
+src/pages/student/analyses/ImOmAnaliz.tsx:112:             <div className="bg-gradient-to-br from-rose-500/5 to-orange-500/5 border border-white/10 rounded-[32px] p-8 md:p-10 shadow-2xl">
+src/pages/student/analyses/Gts36Analiz.tsx:390:                    <p className="text-[10px] text-slate-400">Sıralamanın üstündeki %10'luk dilim (Gelmez ama ya gelirse dediğin yerler).</p>
+src/pages/student/analyses/BavoAnaliz.tsx:26:  { id: 'labeling', name: 'Etiketleme (Malware)', description: '"Ben aptalım", "Ben tembelim", "Ben başarısızım".', color: 'text-orange-400' },
+src/pages/student/analyses/DartAnaliz.tsx:169:                        <CalendarDays size={16} className="text-orange-400" />
+src/pages/student/analyses/AsEqAnaliz.tsx:223:                  style={{ width: `${progressPercent}%` }}
+src/pages/student/analyses/MercekAnaliz.tsx:78:        color: 'text-orange-400',
+src/pages/student/analyses/MercekAnaliz.tsx:404:                <div className="h-full bg-indigo-500 transition-all duration-500" style={{width: `${progress}%`}} />
+src/pages/student/analyses/Cz8Analiz.tsx:187:                              style={{ width: `${(score / 15) * 100}%` }}
+src/pages/student/analyses/Cz8Analiz.tsx:342:              animate={{ width: `${progress}%` }}
+src/pages/student/analyses/Cz8Analiz.tsx:371:              { label: '2 - Biraz Bana Uygun', value: 2, color: 'hover:bg-orange-500/20 hover:border-orange-500/30 text-orange-100' },
+src/pages/student/analyses/HiratAnaliz.tsx:120:                    Haftalık çalışma performansını sayısal verilere dökerek, hedeften sapma oranını hesaplar. "Çalışıyorum ama yetişmiyor" kaygısını somut verilere dönüştürür.
+src/pages/student/analyses/HiratAnaliz.tsx:147:                    <span className="text-xs font-bold text-slate-300">%90 - %100: Hedef Tuttu (Yeşil)</span>
+src/pages/student/analyses/HiratAnaliz.tsx:151:                    <span className="text-xs font-bold text-slate-300">%70 - %89: Sinyal Modu (Sarı)</span>
+src/pages/student/analyses/HiratAnaliz.tsx:155:                    <span className="text-xs font-bold text-slate-300">%0 - %69: Kritik Risk (Kırmızı)</span>
+src/pages/student/analyses/HiratAnaliz.tsx:166:                  Haftalık çalışma planındaki hedeflerini (Soru, Dakika vb.) ilgili alanlara gir. Haftanın sonunda gerçekleşen rakamları ve kaliteni (Doğru %) dürüstçe yaz.
+src/pages/student/analyses/HiratAnaliz.tsx:218:              <th className="text-center py-6 px-4 text-xs font-black text-slate-500 uppercase tracking-widest w-40">KALİTE (Doğru %)</th>
+src/pages/student/analyses/HiratAnaliz.tsx:219:              <th className="text-center py-6 px-4 text-xs font-black text-slate-500 uppercase tracking-widest w-32">BAŞARI %</th>
+src/pages/student/analyses/HiratAnaliz.tsx:265:                                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-600 font-black">%</span>
+src/pages/student/analyses/HiratAnaliz.tsx:274:                                {Math.round(successRate)}%
+src/pages/student/analyses/OtiAnaliz.tsx:60:    behaviorAnswers: Array(10).fill(3),
+src/pages/student/analyses/OtiAnaliz.tsx:89:      return formData.behaviorAnswers.reduce((a, b) => a + b, 0);
+src/pages/student/analyses/OtiAnaliz.tsx:168:                                <div className="h-full bg-emerald-500" style={{width: `${formData.academic.importance * 10}%`}} />
+src/pages/student/analyses/OtiAnaliz.tsx:446:      const progress = ((formData.behaviorAnswers.filter(a => a !== 0).length) / 10) * 100;
+src/pages/student/analyses/OtiAnaliz.tsx:465:                                        const newA = [...formData.behaviorAnswers];
+src/pages/student/analyses/OtiAnaliz.tsx:467:                                        setFormData({...formData, behaviorAnswers: newA});
+src/pages/student/analyses/OtiAnaliz.tsx:470:                                        formData.behaviorAnswers[qIdx] === val 
+src/pages/student/analyses/AyceAnaliz.tsx:126:          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[10px] font-black uppercase tracking-widest">
+src/pages/student/analyses/AyceAnaliz.tsx:136:              <div className="w-12 h-12 rounded-2xl bg-orange-500/20 flex items-center justify-center text-orange-400 shrink-0">
+src/pages/student/analyses/AyceAnaliz.tsx:172:              className="w-full md:w-auto px-12 py-5 bg-orange-600 hover:bg-orange-500 text-white rounded-3xl font-black text-lg transition-all hover:scale-105 shadow-xl shadow-orange-600/20 flex items-center justify-center gap-3"
+src/pages/student/analyses/AyceAnaliz.tsx:209:              <span className="text-orange-400">{answeredCount} / {questions.length} Tamamlandı</span>
+src/pages/student/analyses/AyceAnaliz.tsx:213:                  className="h-full bg-orange-500 rounded-full transition-all duration-300 shadow-[0_0_10px_rgba(249,115,22,0.5)]"
+src/pages/student/analyses/AyceAnaliz.tsx:214:                  style={{ width: `${progressPercent}%` }}
+src/pages/student/analyses/AyceAnaliz.tsx:226:             <div key={q.id} className="bg-slate-900/50 backdrop-blur-xl border border-white/5 rounded-[32px] p-6 md:p-8 space-y-6 hover:border-orange-500/30 transition-colors">
+src/pages/student/analyses/AyceAnaliz.tsx:229:                        <span className="text-orange-500 font-black mr-2">{q.id}.</span>
+src/pages/student/analyses/AyceAnaliz.tsx:243:                                  ? 'bg-orange-600 border-orange-500 text-white shadow-lg shadow-orange-600/20' 
+src/pages/student/analyses/KolbAnaliz.tsx:408:                style={{ width: `${progress}%` }}
+src/pages/student/analyses/AidYAnaliz.tsx:9:  { id: 'detection', title: 'Aşama 1: İnanç Tespiti', subtitle: 'Sanık Sandalyesi', icon: Scale, color: 'text-orange-400' },
+src/pages/student/analyses/AidYAnaliz.tsx:91:                <div className="w-12 h-12 rounded-2xl bg-orange-500/20 flex items-center justify-center text-orange-400 shrink-0">
+src/pages/student/analyses/AidYAnaliz.tsx:132:              className="w-full md:w-auto px-12 py-5 bg-orange-600 hover:bg-orange-500 text-white rounded-3xl font-black text-lg transition-all hover:scale-105 shadow-xl shadow-orange-600/20 flex items-center justify-center gap-3"
+src/pages/student/analyses/AidYAnaliz.tsx:156:          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[10px] font-black uppercase tracking-widest">
+src/pages/student/analyses/AidYAnaliz.tsx:169:              idx <= currentStep ? 'bg-orange-500' : 'bg-white/5'
+src/pages/student/analyses/AidYAnaliz.tsx:201:                        className="w-full bg-slate-800/50 border border-white/10 rounded-2xl p-4 text-white font-medium focus:outline-none focus:border-orange-500/50 min-h-[120px]"
+src/pages/student/analyses/AidYAnaliz.tsx:214:                            className="flex-1 h-2 bg-white/5 rounded-full appearance-none cursor-pointer accent-orange-500"
+src/pages/student/analyses/AidYAnaliz.tsx:216:                        <span className="text-2xl font-black text-orange-400 w-10 text-center">{formData.initialIntensity}</span>
+src/pages/student/analyses/AidYAnaliz.tsx:311:                  className="flex items-center gap-2 px-8 py-4 bg-orange-600 hover:bg-orange-500 text-white rounded-2xl font-bold shadow-lg shadow-orange-600/20 transition-all hover:scale-105"
+src/pages/student/StudentOnlinePrograms.tsx:98:                          <p className="text-2xl font-black text-white">{enr.progress}%</p>
+src/pages/student/StudentOnlinePrograms.tsx:101:                           <div className="h-full bg-indigo-500 transition-all duration-1000" style={{ width: `${enr.progress}%` }} />
+src/pages/student/StudentOnlinePrograms.tsx:238:                           <div className="h-full bg-indigo-500 transition-all duration-1000" style={{ width: `${enr.progress}%` }} />
+src/pages/student/StudentOnlinePrograms.tsx:240:                        <span className="text-[10px] font-bold text-slate-500 mt-1">% {enr.progress} Tamamlandı</span>
+src/pages/student/ExamAnalysis.tsx:67:    'Köklü İfadeler', 'Çarpanlara Ayırma', 'Oran-Orantı', 'Denklem Çözme', 
+src/pages/student/ExamAnalysis.tsx:216:  { id: 'kalip', label: 'KALIP', color: 'bg-orange-500', light: 'bg-orange-500/10', text: 'text-orange-500' },
+src/pages/student/AnalysisDetail.tsx:59:        - Gerçekleşme oranları düşükse "Backlog / Borçlanma" ve "Kök Neden" analizi yap.
+src/pages/student/AnalysisDetail.tsx:60:        - Eğer HPP çok yüksekse (%110+) "Tükenmişlik (Burnout)" uyarısı yap.`;
+src/pages/student/AnalysisDetail.tsx:355:        return "Sayın Veli, Öğrencimizin öğrenme stilini analiz ettik. Çocuğunuzun bilgiyi en iyi nasıl kavradığını (Görsel, İşitsel veya Kinestetik) artık biliyoruz. Evdeki çalışma ortamını bu stile göre (örn: Görselse renkli notlar, işitselse anlatma) düzenlemeniz başarısını %40'a varan oranda artırabilir.";
+src/pages/student/AnalysisDetail.tsx:393:        return `Sayın Veli, Bu haftaki raporu incelediğimizde öğrencilerimizin hedeflerinde sapma olduğunu (%${Math.round(hpp)} başarı) görüyoruz. Bu durum konu yığılmasına neden olabilir. Bu hafta odaklanmamız gereken nokta 'Neden çalışılmadı?' değil, 'Önümüzdeki engelleri nasıl kaldırırız?' olmalıdır.`;
+src/pages/student/AnalysisDetail.tsx:395:      return `Sayın Veli, Öğrencimiz bu haftayı %${Math.round(hpp)} başarı ile tamamlamıştır. Planlı ilerlemesi sistemli bir başarıyı getirecektir.`;
+src/pages/student/AnalysisDetail.tsx:470:        return "Sayın Veli, Öğrencimizle yaptığımız 'Ders Tutum Analizi'nde; genel bir başarısızlık değil, 'Noktasal Dirençler' tespit ettik. Bazı derslerde 'öğrenilmiş çaresizlik' yaşıyor. Bu derslerde ona 'Daha çok çalış' demek yerine, 'Yapabilirim' inancını tazeleyecek küçük başarı adımları planlıyoruz. Bu hafta bu derslerdeki küçük ilerlemelerini bile alkışlamanız motivasyonunu ciddi oranda artıracaktır.";
+src/pages/student/AnalysisDetail.tsx:494:        return "Sayın Veli, Öğrencimizle birlikte akademik rotasını belirlediğimiz 'DART Hedef Çalışması'nı tamamladık. Artık sadece 'ders çalış' demiyoruz; 'Bugün hedeflerinin %85'ini tamamla' diyoruz. Süreçte sizden ricamız, çocuğunuza 'Sınavı kazanacak mısın?' gibi makro (uzak) sorular sormamanızdır. Bunun yerine 'Bugünkü planını tamamlayabildin mi?' gibi mikro (yönetilebilir) sorular sormanız, kaygısını azaltıp odaklanmasını artıracaktır.";
+src/pages/student/AnalysisDetail.tsx:691:                                    <div className={`h-full ${item.color}`} style={{ width: `${(item.value / 15) * 100}%` }} />
+src/pages/student/AnalysisDetail.tsx:720:                                    <div className={`h-full ${item.color}`} style={{ width: `${(item.value / item.max) * 100}%` }} />
+src/pages/student/AnalysisDetail.tsx:768:                            <div className="h-full bg-blue-500" style={{ width: `${val * 10}%` }} />
+src/pages/student/AnalysisDetail.tsx:844:                        <p className="text-4xl font-black text-white">%{Math.round(result.data.hpp)}</p>
+src/pages/student/AnalysisDetail.tsx:870:                                        <div className="text-sm font-black text-white">%{Math.round(success)}</div>
+src/pages/student/AnalysisDetail.tsx:872:                                            Doğru: %{cat.quality}
+src/pages/student/AnalysisDetail.tsx:885:                    <div className="bg-orange-500/5 border border-orange-500/10 rounded-[32px] p-8 space-y-6">
+src/pages/student/AnalysisDetail.tsx:888:                                <Scale className="text-orange-400" size={20} />
+src/pages/student/AnalysisDetail.tsx:967:                                    style={{ width: `${(result.data.scores.total / 60) * 100}%` }}
+src/pages/student/AnalysisDetail.tsx:980:                                ? "Kritik Skor: Dikkat performansı akademik hedefleri ciddi oranda etkiliyor olabilir. Uzman görüşü şarttır."
+src/pages/student/AnalysisDetail.tsx:1028:                                            style={{ width: `${(result.data.scores[item.id] / 50) * 100}%` }}
+src/pages/student/AnalysisDetail.tsx:1055:                                        Bu durum potansiyelinizi %{Math.round((val / 50) * 100)} oranında kısıtlıyor olabilir. Odaklanmanız gereken ilk alan budur.
+src/pages/student/AnalysisDetail.tsx:1102:                                            style={{ width: `${(result.data.scores[item.id] / 40) * 100}%` }}
+src/pages/student/AnalysisDetail.tsx:1204:                                            style={{ width: `${(result.data.scores[key] / 25) * 100}%` }}
+src/pages/student/AnalysisDetail.tsx:1221:                    <div className="bg-orange-500/5 border border-orange-500/10 rounded-[40px] p-6 sm:p-8 space-y-8">
+src/pages/student/AnalysisDetail.tsx:1224:                                <div className="p-2 bg-orange-500/20 rounded-xl">
+src/pages/student/AnalysisDetail.tsx:1225:                                    <BookOpen className="text-orange-400" size={22} />
+src/pages/student/AnalysisDetail.tsx:1262:                                            className="h-full bg-orange-500 rounded-full transition-all duration-1000 shadow-[0_0_10px_rgba(249,115,22,0.5)]"
+src/pages/student/AnalysisDetail.tsx:1263:                                            style={{ width: `${(result.data.scores[key] / 25) * 100}%` }}
+src/pages/student/AnalysisDetail.tsx:1361:                                        style={{ width: `${(result.data.scores.emotional / 50) * 100}%` }}
+src/pages/student/AnalysisDetail.tsx:1374:                                        style={{ width: `${(result.data.scores.academic / 50) * 100}%` }}
+src/pages/student/AnalysisDetail.tsx:1612:                                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">Değişim Oranı</span>
+src/pages/student/AnalysisDetail.tsx:1613:                                <span className="text-xl font-black text-violet-400">%{Math.round(((result.data.answers.preScore - result.data.answers.postScore) / 10) * 100)}</span>
+src/pages/student/AnalysisDetail.tsx:1742:                                            style={{ width: `${(score / 50) * 100}%` }}
+src/pages/student/AnalysisDetail.tsx:1853:                                        <span className="text-rose-400 font-bold shrink-0">Uçuş (%10):</span>
+src/pages/student/AnalysisDetail.tsx:1857:                                        <span className="text-blue-400 font-bold shrink-0">Gerçekçi (%50):</span>
+src/pages/student/AnalysisDetail.tsx:1861:                                        <span className="text-emerald-400 font-bold shrink-0">Güvenlik (%40):</span>
+src/pages/student/AnalysisDetail.tsx:2180:                                        <div className="h-full bg-rose-500" style={{ width: `${(item.value / item.max) * 100}%` }} />
+src/pages/student/Analyses.tsx:181:    description: 'Haftalık çalışma performansını verilerle analiz et, hedeften sapma oranını ve risklerini belirle.',
+src/pages/student/Analyses.tsx:191:    color: 'bg-orange-500',
+src/pages/student/Analyses.tsx:239:    color: 'bg-orange-500',
+src/pages/student/Analyses.tsx:569:                    transition={{ delay: (idx % 10) * 0.05 }}
+src/pages/student/Exams.tsx:530:                    <th className="px-6 py-4">Yüzdelik Dilim</th>
+src/pages/student/Exams.tsx:580:                                  <span className="text-orange-400">AYT SÖZ</span>
+src/pages/student/Exams.tsx:581:                                  <span className="text-white bg-orange-500/10 px-1 rounded">{calculateAYTBranchScores(mappedScores).soz}</span>
+src/pages/student/Exams.tsx:606:                             <span className="text-emerald-400 font-bold text-sm bg-emerald-500/10 px-2 py-1 rounded-md border border-emerald-500/20">%{exam.percentile}</span>
+src/pages/student/Exams.tsx:687:                                     <div className="bg-orange-500/10 border border-orange-500/20 px-3 py-1.5 rounded-xl">
+src/pages/student/Exams.tsx:688:                                       <p className="text-[10px] font-black text-orange-400 uppercase">AYT SÖZ</p>
+src/pages/student/Exams.tsx:980:                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Hesaplanan Yüzdelik</p>
+src/pages/student/Exams.tsx:982:                        %{calculatePercentile(parseInt(newResult.rank), parseInt(newResult.participantCount))}
+src/pages/student/Cart.tsx:45:           ? `%${res.discountPercent} indirim uygulandı!` 
+src/pages/student/Cart.tsx:342:                     <span>İndirim (%{discountPercent})</span>
+src/pages/student/Coaching.tsx:400:                                      const tColor = task.type === 'YouTube Video' ? 'red' : task.type === 'Konu Çalışması' ? 'orange' : 'indigo';
+src/pages/student/Coaching.tsx:403:                                          orange: 'bg-orange-500/10 text-orange-100 border-orange-500/30 hover:border-orange-500/50',
+src/pages/student/BookTrackingDetail.tsx:121:                  <div className={`flex items-center justify-center p-3 rounded-2xl w-12 h-12 ${book.resourceType === 'youtube' ? 'bg-red-500/10 text-red-500' : book.resourceType === 'konu' ? 'bg-orange-500/10 text-orange-500' : 'bg-indigo-500/10 text-indigo-400'}`}>
+src/pages/student/BookTrackingDetail.tsx:128:                      <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${book.resourceType === 'youtube' ? 'bg-red-500/10 text-red-500' : book.resourceType === 'konu' ? 'bg-orange-500/10 text-orange-500' : 'bg-slate-500/10 text-slate-400'}`}>
+src/pages/student/BookTrackingDetail.tsx:145:                          style={{ width: `${book.completionPercentage || 0}%` }}
+src/pages/student/BookTrackingDetail.tsx:148:                      <span className="text-xl font-black text-white">%{book.completionPercentage || 0}</span>
+src/pages/students/Wallet.tsx:54:  const rewardTypeStr = settings?.rewardType === 'percent' ? '%' : 'TL';
+src/pages/students/YokAtlas.tsx:33:      icon: <Map className="text-orange-400" size={32} />,
+src/pages/students/YokAtlas.tsx:34:      gradient: "from-orange-600/20 to-orange-900/20",
+src/pages/students/YokAtlas.tsx:35:      borderHover: "hover:border-orange-500/50"
+src/pages/students/Profile.tsx:303:               <p className="text-2xl font-black text-orange-400 flex items-center justify-center gap-2">
+src/pages/students/Profile.tsx:304:                 <Flame size={20} className="fill-orange-400 drop-shadow-[0_0_8px_rgba(251,146,60,0.5)]" /> {userData.streak || 14} <span className="text-sm text-slate-400 ml-1">Gün</span>
+src/pages/students/Profile.tsx:503:                    <div className="bg-gradient-to-br from-orange-500/10 to-transparent border border-orange-500/20 rounded-3xl p-6 relative overflow-hidden group">
+src/pages/students/Profile.tsx:504:                       <Flame className="absolute -right-4 -bottom-4 w-24 h-24 text-orange-500/10 transform group-hover:scale-110 transition-transform duration-500" />
+src/pages/students/Profile.tsx:505:                       <h4 className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-1 relative z-10">Sınav Stresi</h4>
+src/pages/students/Profile.tsx:528:                         <ResponsiveContainer width="100%" height="100%">
+src/pages/students/Profile.tsx:529:                            <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarDataPersonality}>
+src/pages/students/Profile.tsx:562:                           <ResponsiveContainer width="100%" height="100%">
+src/pages/students/Profile.tsx:566:                                  cx="50%"
+src/pages/students/Profile.tsx:567:                                  cy="50%"
+src/pages/students/Profile.tsx:589:                               <span className="text-xs text-slate-300 font-bold">{item.name} <span className="text-slate-500 ml-1">%{item.value}</span></span>
+src/pages/students/Profile.tsx:608:                         <ResponsiveContainer width="100%" height="100%">
+src/pages/students/Profile.tsx:657:                              <span className="text-orange-400 font-bold">Fark: {(parseInt(academicInfo.targetTyt) - (lastTyt.totalNet || 0)).toFixed(1)}</span>
+src/pages/students/Profile.tsx:678:                              <span className="text-orange-400 font-bold">Fark: {(parseInt(academicInfo.targetAyt) - sonAytNet).toFixed(1)}</span>
+src/pages/students/Profile.tsx:686:                    <div className="bg-slate-900/50 backdrop-blur-xl border border-orange-500/20 rounded-3xl p-5 lg:p-6 shadow-xl relative overflow-hidden group">
+src/pages/students/Profile.tsx:687:                       <div className="absolute top-0 right-0 w-24 h-24 bg-orange-500/10 blur-[40px] rounded-full pointer-events-none group-hover:bg-orange-500/20 transition-colors"></div>
+src/pages/students/Profile.tsx:688:                       <h4 className="text-[10px] text-orange-400 font-black uppercase tracking-widest flex items-center gap-2 mb-2"><Target size={16}/> Sınav Katılımı</h4>
+src/pages/students/Profile.tsx:710:                      <ResponsiveContainer width="100%" height="100%">
+src/pages/students/Profile.tsx:714:                              <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
+src/pages/students/Profile.tsx:715:                              <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+src/pages/students/Profile.tsx:741:                         <ResponsiveContainer width="100%" height="100%">
+src/pages/students/Profile.tsx:742:                           <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarDataTYT}>
+src/pages/students/Profile.tsx:769:                         <ResponsiveContainer width="100%" height="100%">
+src/pages/students/Profile.tsx:781:                                  <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#a855f7' : '#c084fc'} />
+src/pages/students/ChannelRecommendations.tsx:365:    <div className="px-[5%] sm:px-[8%] md:px-[12%] lg:px-[15%] max-w-[2000px] mx-auto py-12 space-y-12">
+src/pages/students/EbaAcademicSupport.tsx:33:      icon: <Target className="text-orange-400" size={32} />,
+src/pages/students/EbaAcademicSupport.tsx:34:      gradient: "from-orange-600/20 to-orange-900/20",
+src/pages/students/EbaAcademicSupport.tsx:35:      borderHover: "hover:border-orange-500/50"
+src/pages/students/QuestionAnalysis.tsx:297:          name: "Oran Orantı",
+src/pages/students/QuestionAnalysis.tsx:4322:    <div className="px-[5%] sm:px-[8%] md:px-[12%] lg:px-[15%] max-w-[2000px] mx-auto py-12 space-y-12">
+src/pages/students/QuestionAnalysis.tsx:4356:              <p className="text-slate-500 text-xs">Yıllara göre değişim oranları.</p>
+src/pages/students/QuestionAnalysis.tsx:4498:              Ortalaması yüksek olan konular sınavın iskeletini oluşturur. Örneğin Matematik için "Problemler" her yıl sınavın yaklaşık %30'unu oluşturur. Çalışma saatlerini bu dağılıma göre orantıla.
+src/pages/students/Summary.tsx:90:    while (days.length % 7 !== 0) {
+src/pages/students/Summary.tsx:174:                             if (sCount % 7 === 0) fRights = Math.min(3, fRights + 1);
+src/pages/students/Summary.tsx:435:    const remainingHrs = Math.floor(remainingHoursTotal % 24);
+src/pages/students/Summary.tsx:436:    const remainingMins = Math.floor(remainingMinutesTotal % 60);
+src/pages/students/Summary.tsx:557:              <div className="h-full bg-gradient-to-r from-yellow-500 to-amber-500 rounded-full relative transition-all duration-1000" style={{ width: `${subStats.percentage}%` }}>
+src/pages/students/Summary.tsx:558:                <div className="absolute inset-0 bg-white/20 w-full h-full" style={{ backgroundImage: 'linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent)', backgroundSize: '1rem 1rem' }}></div>
+src/pages/students/Summary.tsx:562:              <span>Kullanılan %{subStats.percentageFormatted}</span>
+src/pages/students/Summary.tsx:639:                            style={{ height: `${height}%` }}
+src/pages/students/Summary.tsx:711:                      <span className="text-sm font-black text-blue-400 shrink-0">%{book.completionPercentage || 0}</span>
+src/pages/students/Summary.tsx:716:                        style={{ width: `${book.completionPercentage || 0}%` }}
+src/pages/students/Summary.tsx:718:                        <div className="absolute inset-0 bg-white/20 w-full h-full" style={{ backgroundImage: 'linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent)', backgroundSize: '1rem 1rem' }}></div>
+src/pages/students/Summary.tsx:769:              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Bugün Başarı Oranı</p>
+src/pages/students/Summary.tsx:771:                {dailyTotalTasks > 0 ? Math.round((dailyCompletedTasks / dailyTotalTasks) * 100) : 0}<span className="text-base font-medium text-slate-500">%</span>
+src/pages/students/Summary.tsx:808:                   Renkler eforuna göre değişir. Günlük görevlerinin %85 ve fazlasını tamamlayarak <strong>serini koruduğun günler alev renginde görünür.</strong> Hiç efor sarf etmediğin veya çok düşük efor gösterdiğin günler ise sönük kalır.
+src/pages/students/Summary.tsx:824:                            if (idx % 7 === 0) {
+src/pages/students/Summary.tsx:853:                               if (level === 1) bgColor = 'bg-orange-500/20';
+src/pages/students/Summary.tsx:854:                               else if (level === 2) bgColor = 'bg-orange-500/50';
+src/pages/students/Summary.tsx:879:                      <div className="w-3 h-3 rounded-sm bg-orange-500/20"></div>
+src/pages/students/Summary.tsx:880:                      <div className="w-3 h-3 rounded-sm bg-orange-500/50"></div>
+src/pages/students/Summary.tsx:985:                  Günlük koçluk programının <span className="font-bold text-white">%85'ini veya daha fazlasını</span> tamamladığında serin o gün için korunur ve 1 gün artar. Eğer limitin altında kalırsan serin sıfırlanır.
+src/pages/students/OgmMaterial.tsx:33:      icon: <Lightbulb className="text-orange-400" size={32} />,
+src/pages/students/OgmMaterial.tsx:34:      gradient: "from-orange-600/20 to-orange-900/20",
+src/pages/students/OgmMaterial.tsx:35:      borderHover: "hover:border-orange-500/50"
+src/pages/students/AIAssistant.tsx:227:               const m = (startMins % 60).toString().padStart(2, '0');
+src/pages/students/MebiPlatform.tsx:41:      icon: <FileText className="text-orange-400" size={32} />,
+src/pages/students/MebiPlatform.tsx:42:      gradient: "from-orange-600/20 to-orange-900/20",
+src/pages/students/MebiPlatform.tsx:43:      borderHover: "hover:border-orange-500/50"
+src/pages/students/KykDorms.tsx:25:      icon: <MapPin className="text-orange-400" size={32} />,
+src/pages/students/KykDorms.tsx:26:      gradient: "from-orange-600/20 to-orange-900/20",
+src/pages/students/KykDorms.tsx:27:      borderHover: "hover:border-orange-500/50"
+src/pages/students/MebCurriculum.tsx:49:      icon: <Footprints className="text-orange-400" size={32} />,
+src/pages/students/MebCurriculum.tsx:50:      gradient: "from-orange-600/20 to-orange-900/20",
+src/pages/students/MebCurriculum.tsx:51:      borderHover: "hover:border-orange-500/50"
+src/pages/students/MebCurriculum.tsx:61:        <h1 className="text-4xl md:text-5xl font-extrabold bg-gradient-to-r from-amber-400 via-orange-400 to-red-400 bg-clip-text text-transparent leading-tight">
+src/pages/students/ExamMetronomeApp.tsx:290:        const isMacroTick = (elapsedSeconds % MACRO_INTERVAL === 0);
+src/pages/students/ExamMetronomeApp.tsx:291:        const isMicroTick = (elapsedSeconds % MODES[currentMode].tickInterval === 0);
+src/pages/students/ExamMetronomeApp.tsx:391:    const h = Math.floor(totalSecs / 3600) % 24;
+src/pages/students/ExamMetronomeApp.tsx:392:    const m = Math.floor((totalSecs % 3600) / 60);
+src/pages/students/ExamMetronomeApp.tsx:393:    const s = totalSecs % 60;
+src/pages/students/Subscription.tsx:50:    badgeBg: "bg-orange-600/20 text-orange-400 border border-orange-500/30",
+src/pages/students/Subscription.tsx:51:    borderColor: "border-orange-500/20",
+src/pages/students/Subscription.tsx:52:    shadowColor: "shadow-orange-500/5",
+src/pages/students/Subscription.tsx:53:    stripColor: "from-orange-400 to-orange-600",
+src/pages/students/Subscription.tsx:54:    buttonClass: "bg-orange-600/10 hover:bg-orange-600 border border-orange-500/30 text-orange-200 hover:text-white",
+src/pages/students/Subscription.tsx:55:    iconColor: "text-orange-400",
+src/pages/students/Subscription.tsx:496:                  animate={{ width: `${Math.min(100, (daysRemaining / 28) * 100)}%` }}
+src/pages/students/Subscription.tsx:644:                          isBronzeWrap ? "flex items-center gap-3 text-sm bg-gradient-to-r from-orange-600/10 to-transparent border border-orange-500/20 p-2.5 rounded-xl mb-4" :
+src/pages/students/Subscription.tsx:649:                            isBronzeWrap ? "p-1 rounded-full shrink-0 border bg-orange-500/20 border-orange-500/40 text-orange-400" :
+src/pages/students/Subscription.tsx:656:                            isBronzeWrap ? "text-orange-200 font-bold uppercase tracking-wide text-[10px]" :
+src/pages/students/YksTopics.tsx:90:      { title: 'Oran-Orantı' },
+src/pages/students/YksTopics.tsx:92:      { title: 'Problemler (Sayı, Kesir, Yaş, İşçi, Karışım, Yüzde, Hareket, Grafik)' },
+src/pages/students/YksTopics.tsx:332:    <div className="px-[5%] sm:px-[8%] md:px-[12%] lg:px-[15%] max-w-[2000px] mx-auto py-12 space-y-12">
+src/pages/admin/AdminCoupons.tsx:257:                    {coupon.type === 'amount' ? `₺${coupon.discount}` : `%${coupon.discount}`}
+src/pages/admin/AdminCoupons.tsx:332:                      className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-2 border-2 transition-all ${couponType === 'amount' ? 'bg-orange-500 text-white border-orange-500 shadow-lg shadow-orange-500/20' : 'bg-slate-800 text-slate-300 border-transparent hover:border-slate-700'}`}
+src/pages/admin/AdminCoupons.tsx:342:                       <span className="font-bold">% İndirim</span>
+src/pages/admin/AdminCoupons.tsx:371:                 <label className="text-sm font-medium text-slate-400 block mb-2">İndirim Miktarı ({couponType === 'amount' ? '₺' : '%'}) <span className="text-red-400">*</span></label>
+src/pages/admin/PayrollManagement.tsx:56:      // Total calculation logic (could be more complex like % based)
+src/pages/admin/AdminDashboard.tsx:62:    { label: 'Toplam Kullanıcı', value: stats.totalUsers, icon: Users, color: 'text-blue-400', trend: '+12%', up: true },
+src/pages/admin/AdminDashboard.tsx:63:    { label: 'Aktif Öğrenciler', value: stats.totalStudents, icon: GraduationCap, color: 'text-indigo-400', trend: '+18%', up: true },
+src/pages/admin/AdminDashboard.tsx:64:    { label: 'Eğitmen Koçlar', value: stats.totalCoaches, icon: Briefcase, color: 'text-emerald-400', trend: '+5%', up: true },
+src/pages/admin/AdminDashboard.tsx:65:    { label: 'Bekleyen Onaylar', value: stats.pendingCoaches, icon: Clock, color: 'text-amber-400', trend: '-2%', up: false },
+src/pages/admin/AdminDashboard.tsx:114:            <ResponsiveContainer width="100%" height="100%">
+src/pages/admin/AdminDashboard.tsx:118:                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
+src/pages/admin/AdminDashboard.tsx:119:                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+src/pages/admin/ReferralSettings.tsx:108:                    Yüzde (%)
+src/pages/admin/ReferralSettings.tsx:144:                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-500">{settings.rewardType === 'percent' ? '%' : 'TL'}</span>
+src/pages/admin/ReferralSettings.tsx:161:                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-500">{settings.rewardType === 'percent' ? '%' : 'TL'}</span>
+src/pages/admin/ReferralSettings.tsx:176:                  <option value="proportional">Orantılı (İndirim oranı kadar koçun komisyonu da düşer)</option>
+src/pages/admin/ReferralSettings.tsx:248:                Arkadaşını davet et, arkadaşın {settings.minUsageThreshold > 0 ? "kaydolup abonelik aldığında" : "sisteme katıldığında"} sen <strong className="text-white">{settings.referrerReward} {settings.rewardType === 'percent' ? '%' : 'TL'}</strong> kazan, o da anında <strong className="text-white">{settings.refereeReward} {settings.rewardType === 'percent' ? '%' : 'TL'}</strong> kazansın!
+src/pages/admin/ReferralSettings.tsx:268:                <span className="text-2xl font-black text-emerald-400">62.400 <span className="text-sm text-emerald-500 font-bold uppercase">{settings.rewardType === 'percent' ? '%' : 'TL'}</span></span>
+src/pages/admin/AppointmentManagement.tsx:178:          width: 100%;
+src/pages/admin/AdminSubscriptions.tsx:158:                        style={{ width: `${progress}%` }}
+src/pages/admin/ServiceManagement.tsx:273:            className="bg-[#f0f2f5] w-full h-full md:w-[95%] md:h-[95vh] rounded-[32px] shadow-2xl overflow-hidden z-10 flex flex-col font-sans"
+src/pages/admin/ServiceManagement.tsx:608:                          <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600">
+src/pages/admin/ServiceManagement.tsx:673:                           <div className="bg-orange-50 p-6 rounded-3xl border border-orange-100 flex items-start gap-4">
+src/pages/admin/ServiceManagement.tsx:674:                              <div className="bg-white p-2 rounded-xl shadow-sm text-orange-500">
+src/pages/admin/ServiceManagement.tsx:677:                              <p className="text-xs text-orange-800 font-bold leading-relaxed">
+src/pages/admin/ServiceManagement.tsx:855:                                <label className={`flex items-center gap-5 px-8 py-6 rounded-[28px] border-2 cursor-pointer transition-all ${formData.approvalType === 'manual' ? 'border-orange-500 bg-orange-50/50 shadow-md' : 'border-slate-100 bg-white hover:bg-slate-50'}`}>
+src/pages/admin/ServiceManagement.tsx:860:                                      className="w-6 h-6 text-orange-600 focus:ring-orange-500 border-slate-300"
+src/pages/admin/ServiceManagement.tsx:863:                                      <span className={`font-black text-sm uppercase tracking-tight ${formData.approvalType === 'manual' ? 'text-orange-900' : 'text-slate-800'}`}>Manuel Kontrol</span>
+src/pages/admin/AdminPrograms.tsx:488:                     placeholder="Örn: Katıılım Sertifikası, %10 İndirim Kuponu"
+src/pages/admin/AdminAutoDiscounts.tsx:197:                    {coupon.type === 'amount' ? `₺${coupon.discount}` : `%${coupon.discount}`}
+src/pages/admin/AdminPaidSubscriptions.tsx:35:          <p className="text-slate-400 mt-1">Platformdaki koçların abonelik paketleri için belirlediği fiyat ve sistem kesintisi oranlarını yönetin.</p>
+src/pages/admin/AdminPaidSubscriptions.tsx:46:            Sistem kesintisi, koçların belirledikleri abonelik ücretleri üzerinden %33 oranında otomatik (1/3 oranında) hesaplanır. Her koç, kendi profil ekranından her bir abonelik paketi için kendi fiyatını belirleyebilir. Öğrenciler koçsuz ise sistemdeki en düşük fiyattan başlayan paket fiyatlarını görür.
+src/pages/admin/AdminPaidSubscriptions.tsx:60:            const baseColor = isGold ? 'yellow' : isSilver ? 'blue' : 'orange';
+src/pages/ExamProcessTracking.tsx:33:        <div className="absolute top-[10%] left-[-5%] w-[400px] h-[400px] bg-purple-600/20 blur-[120px] rounded-full"></div>
+src/pages/ExamProcessTracking.tsx:34:        <div className="absolute top-[30%] right-[-10%] w-[500px] h-[500px] bg-orange-600/10 blur-[150px] rounded-full"></div>
+src/pages/ExamProcessTracking.tsx:35:        <div className="absolute bottom-[10%] left-[20%] w-[400px] h-[400px] bg-indigo-600/10 blur-[150px] rounded-full"></div>
+src/pages/ExamProcessTracking.tsx:58:            <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-fuchsia-500 to-orange-500">Tespit Ediyoruz.</span>
+src/pages/ExamProcessTracking.tsx:117:                <motion.div variants={itemVariants} className="bg-slate-900/80 backdrop-blur-xl border border-slate-800 hover:border-orange-500/30 transition-colors rounded-3xl p-8 group relative overflow-hidden flex flex-col">
+src/pages/ExamProcessTracking.tsx:118:                    <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/5 blur-[40px] rounded-full group-hover:bg-orange-500/10 transition-colors"></div>
+src/pages/ExamProcessTracking.tsx:119:                    <div className="w-14 h-14 bg-orange-500/10 text-orange-400 rounded-2xl flex items-center justify-center mb-6">
+src/pages/ExamProcessTracking.tsx:150:                                Sınav esnasında göğüs kafesini sıkıştıracak kadar masaya kapanmak, beyne giden oksijeni %20 oranında azaltarak uyku hali ve odak kaybı yaratır. Göz-kitapçık mesafenizi, nefes alanınızı ve omurga dikliğinizi gözlemliyor, sınav yorgunluğunuza sebep olan bedensel sabotajları ortadan kaldırıyoruz.
+src/pages/parents/ParentDashboard.tsx:33:             <span className="text-blue-500 text-xs font-bold mb-1">%75</span>
+src/pages/parents/ParentDashboard.tsx:36:             <div className="bg-blue-500 h-full w-[75%]" />
+src/pages/parents/ParentDashboard.tsx:96:              { coach: 'Sistem', date: '2 gün önce', note: 'Haftalık soru hedefinin %75\'ine ulaşıldı. Motivasyon desteği gerekebilir.', alert: true },
+src/pages/CommunityProfile.tsx:393:                <Bell size={18} className="text-orange-400" />
+src/pages/CommunityProfile.tsx:696:                         <span className="text-sm text-slate-400 mb-1">İlerleme: %{enrollment.progress}</span>
+src/pages/CommunityProfile.tsx:700:                             style={{ width: `${enrollment.progress}%` }}
+src/pages/CommunityProfile.tsx:782:                               {coupon.type === 'percentage' ? `%${coupon.discount}` : `${coupon.discount} ₺`}
+src/pages/coach/StudentExams.tsx:251:    { value: 'percentile', label: 'Yüzdelik Dilim' }
+src/pages/coach/StudentExams.tsx:381:      return { subject: b.name, category: b.category, urgency: percentage < 50 ? 'high' : percentage < 80 ? 'medium' : 'low', score: `%${percentage.toFixed(0)} Başarı` };
+src/pages/coach/StudentExams.tsx:570:                   <ResponsiveContainer width="100%" height="100%">
+src/pages/coach/StudentExams.tsx:574:                           <stop offset="5%" stopColor={chartMetric === 'net' ? "#6366f1" : (chartMetric === 'percentile' ? "#10b981" : "#f59e0b")} stopOpacity={0.3}/>
+src/pages/coach/StudentExams.tsx:575:                           <stop offset="95%" stopColor={chartMetric === 'net' ? "#6366f1" : (chartMetric === 'percentile' ? "#10b981" : "#f59e0b")} stopOpacity={0}/>
+src/pages/coach/StudentExams.tsx:652:                                         style={{ width: `${Math.min(100, (parseFloat(branch.avg) / parseFloat(branch.goal)) * 100)}%` }}
+src/pages/coach/StudentSummary.tsx:309:      value: `%${overallAvgCompletion}`, 
+src/pages/coach/StudentSummary.tsx:316:      value: `%${last4AvgCompletion}`, 
+src/pages/coach/StudentSummary.tsx:388:                    <span className="text-xs font-black text-emerald-400 italic">%{topicProgress}</span>
+src/pages/coach/StudentSummary.tsx:393:                      animate={{ width: `${topicProgress}%` }}
+src/pages/coach/StudentSummary.tsx:401:                    <span className="text-xs font-black text-amber-400 italic">%{avgBookProgress}</span>
+src/pages/coach/StudentSummary.tsx:406:                      animate={{ width: `${avgBookProgress}%` }}
+src/pages/coach/StudentSummary.tsx:407:                      className="h-full bg-gradient-to-r from-amber-600 to-orange-500 rounded-full shadow-[0_0_15px_rgba(245,158,11,0.3)]"
+src/pages/coach/StudentSummary.tsx:414:                    <span className="text-xs font-black text-blue-400 italic">%{Math.round((parseFloat(tytAvgs?.totalNet) / (selectedStudent?.targetTyt || 120)) * 100) || 0}</span>
+src/pages/coach/StudentSummary.tsx:419:                      animate={{ width: `${Math.min(100, (parseFloat(tytAvgs?.totalNet) / (selectedStudent?.targetTyt || 120)) * 100) || 0}%` }}
+src/pages/coach/StudentSummary.tsx:481:                      { label: 'Sıralama (%)', value: tytAvgs?.percentile ? `%${tytAvgs.percentile}` : '-', highlight: true },
+src/pages/coach/StudentSummary.tsx:601:                    <th className="pb-4 px-4 text-center">Başarı Oranı</th>
+src/pages/coach/StudentSummary.tsx:618:                                <div className="h-full bg-emerald-500" style={{ width: `${report.successPercentage}%` }} />
+src/pages/coach/StudentSummary.tsx:620:                             <span className="font-black text-white">%{report.successPercentage || 0}</span>
+src/pages/coach/StudentExamResults.tsx:251:                  <th className="px-6 py-6">Yüzdelik</th>
+src/pages/coach/StudentExamResults.tsx:302:                                <span className="text-orange-400">AYT SÖZ</span>
+src/pages/coach/StudentExamResults.tsx:303:                                <span className="text-white bg-orange-500/10 px-1 rounded">{calculateAYTBranchScores(mappedScores).soz}</span>
+src/pages/coach/StudentExamResults.tsx:321:                    <td className="px-6 py-6 text-xs text-slate-400 font-black">%{exam.percentile || '-'}</td>
+src/pages/coach/StudentExamResults.tsx:350:                                   <div className="bg-orange-500/10 border border-orange-500/20 px-3 py-1.5 rounded-xl">
+src/pages/coach/StudentExamResults.tsx:351:                                     <p className="text-[10px] font-black text-orange-400 uppercase">AYT SÖZ</p>
+src/pages/coach/PersonalCoachLayout.tsx:167:                                      message: `'${student.firstName || ''} ${student.lastName || ''}'nın bugün görev tamamlama oranı çok düşük (%${Math.round(progress)}). Programını gözden geçirmek isteyebilirsiniz.`,
+src/pages/coach/CoachStudents.tsx:200:                 <div className="bg-white/5 rounded-2xl p-3 border border-white/5" title="Son 2 deneme (TYT, AYT, YKS) arasındaki yüzdelik dilim değişimi">
+src/pages/coach/CoachStudents.tsx:203:                      {student.progress ? `${Number(student.progress) > 0 ? '+' : ''}${student.progress}%` : '-'}
+src/pages/coach/StudentDataEntry.tsx:257:                            <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${book.resourceType === 'youtube' ? 'bg-red-500/10 text-red-500' : book.resourceType === 'konu' ? 'bg-orange-500/10 text-orange-500' : 'bg-slate-500/10 text-slate-400'}`}>
+src/pages/coach/StudentDataEntry.tsx:274:                                style={{ width: `${book.completionPercentage || 0}%` }}
+src/pages/coach/StudentDataEntry.tsx:277:                            <span className="text-xl font-black text-white">%{book.completionPercentage || 0}</span>
+src/pages/coach/StudentGoals.tsx:387:                              {goal.isCompleted ? 'BİTTİ' : `%${goal.progress} TAMAM`}
+src/pages/coach/StudentGoals.tsx:396:                              style={{ width: `${goal.progress}%` }} 
+src/pages/coach/DeepAnalysis.tsx:819:                                    <ResponsiveContainer width="100%" height="100%">
+src/pages/coach/DeepAnalysis.tsx:836:                            {/* Chart 2: Derse Göre Başarı Oranı */}
+src/pages/coach/DeepAnalysis.tsx:840:                                    Derse Göre Başarı Oranı (%)
+src/pages/coach/DeepAnalysis.tsx:843:                                    <ResponsiveContainer width="100%" height="100%">
+src/pages/coach/DeepAnalysis.tsx:855:                                                formatter={(value: any) => [`%${value}`, 'Başarı Oranı']}
+src/pages/coach/DeepAnalysis.tsx:861:                                               label={{ position: 'right', fill: '#94a3b8', fontSize: 10, formatter: (val: any) => `%${val}` }}
+src/pages/coach/DeepAnalysis.tsx:868:                            {/* Chart 3: Konu Tamamlama Oranı (Yarım Donut) */}
+src/pages/coach/DeepAnalysis.tsx:872:                                    Konu Tamamlama Oranı
+src/pages/coach/DeepAnalysis.tsx:875:                                    <ResponsiveContainer width="100%" height="100%">
+src/pages/coach/DeepAnalysis.tsx:879:                                                cx="50%"
+src/pages/coach/DeepAnalysis.tsx:880:                                                cy="80%"
+src/pages/coach/DeepAnalysis.tsx:904:                                    <PieChartIcon size={18} className="text-orange-500" />
+src/pages/coach/DeepAnalysis.tsx:908:                                    <ResponsiveContainer width="100%" height="100%">
+src/pages/coach/DeepAnalysis.tsx:912:                                                cx="50%"
+src/pages/coach/DeepAnalysis.tsx:913:                                                cy="50%"
+src/pages/coach/DeepAnalysis.tsx:939:                                    <ResponsiveContainer width="100%" height="100%">
+src/pages/coach/CoachProfile.tsx:210:                  <div className="bg-white/5 border border-orange-500/30 rounded-2xl p-5">
+src/pages/coach/CoachProfile.tsx:211:                    <h4 className="text-orange-400 font-bold mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-orange-400" /> Aylık Bronz Paket</h4>
+src/pages/coach/CoachProfile.tsx:218:                          className="w-full bg-white/5 border border-white/5 rounded-2xl py-3 px-4 text-white font-bold text-sm outline-none focus:border-orange-500/30 transition-all font-mono" 
+src/pages/coach/StudentProfile.tsx:225:                   Günlük programların tamamlama yüzdesi, öğrencinin sınav performansı ve görev tipine göre hesaplanır. Soru Çözümü görevleri <b className="text-white">{TASK_WEIGHTS['Soru Çözümü']} puan</b>, Konu Çalışması ve YouTube Video görevleri <b className="text-white">{TASK_WEIGHTS['Konu Çalışması']} puan</b> değerindedir. Deneme analizlerinde <b className="text-white">sadece son 4 denemenin</b> net ortalaması dikkate alınır (böylece öğrencinin gelişimi katsayılara yansır). Net ortalaması düşük olan derslerin katsayıları 1.00 ile 2.50 arasında artış gösterir, böylece zayıf dersler program yüzdesini daha çok etkiler.
+src/pages/coach/StudentProfile.tsx:235:                           <span className={`text-2xl font-black ${multiplier > 1.5 ? 'text-red-400' : 'text-orange-400'}`}>x{multiplier.toFixed(2)}</span>
+src/pages/coach/StudentProgram.tsx:109:    const tColor = type === 'YouTube Video' ? 'red' : type === 'Konu Çalışması' ? 'orange' : 'indigo';
+src/pages/coach/StudentProgram.tsx:112:        orange: 'bg-orange-500/10 text-orange-100 border border-orange-500/30',
+src/pages/coach/StudentProgram.tsx:243:                                                    label={`${book.bookName} (%${book.completionPercentage || 0})`}
+src/pages/coach/StudentProgram.tsx:287:                        <div className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border ${completionPercentage >= 80 ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : completionPercentage >= 50 ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}`}>
+src/pages/coach/StudentProgram.tsx:288:                            %{completionPercentage} BŞR
+src/pages/coach/StudentProgram.tsx:322:  const tColor = task.type === 'YouTube Video' ? 'red' : task.type === 'Konu Çalışması' ? 'orange' : 'emerald';
+src/pages/coach/StudentProgram.tsx:325:    orange: { text: 'text-orange-400', icon: 'text-orange-500', bg: 'bg-orange-500', border: 'border-orange-500', shadow: 'shadow-orange-500/20' },
+src/pages/coach/StudentProgram.tsx:605:                                        const typeColor = task.type === 'YouTube Video' ? 'red' : task.type === 'Konu Çalışması' ? 'orange' : 'indigo';
+src/pages/coach/StudentProgram.tsx:608:                                            orange: { text: 'text-orange-500', bg: 'bg-orange-50', border: 'border-orange-200', tagBg: 'bg-orange-100', tagText: 'text-orange-600', countBg: 'bg-orange-200', countText: 'text-orange-800' },
+src/pages/coach/StudentProgram.tsx:936:    const remainder = totalCount % selectedDayDates.length;
+src/pages/coach/StudentProgram.tsx:1130:                          <div className="flex items-center gap-1.5" title="Son 7 Günün Ortalama Tamamlama Oranı">
+src/pages/coach/StudentProgram.tsx:1133:                               %{(days.reduce((acc, day) => acc + calculateDailyCompletion(tasks?.filter((t: any) => t.date === day.date) || []), 0) / (days.length || 1)).toFixed(0)}
+src/pages/coach/CoachOverallAssessment.tsx:314:      value: `%${overallAvgCompletion}`, 
+src/pages/coach/CoachOverallAssessment.tsx:321:      value: `%${last4AvgCompletion}`, 
+src/pages/coach/CoachOverallAssessment.tsx:393:                      { label: 'Grup Yüzdelik Ortalama', value: tytAvgs?.percentile ? `%${tytAvgs.percentile}` : '-', highlight: true },
+src/pages/coach/CoachOverallAssessment.tsx:453:                    <th className="pb-4 px-4 text-center">Grup Başarı Oranı</th>
+src/pages/coach/CoachOverallAssessment.tsx:469:                                <div className="h-full bg-emerald-500" style={{ width: `${report.successPercentage}%` }} />
+src/pages/coach/CoachOverallAssessment.tsx:471:                             <span className="font-black text-white">%{report.successPercentage || 0}</span>
+src/pages/coach/CoachAssistant.tsx:291:                className={`max-w-[80%] rounded-2xl p-4 md:p-5 ${
+src/pages/coach/CoachAssistant.tsx:314:                <div className="max-w-[80%] rounded-2xl p-4 md:p-5 bg-white/5 border border-white/10 text-slate-300 rounded-tl-none flex items-center gap-2">
+src/pages/ExamCountdown.tsx:28:          hours: Math.floor((difference / (1000 * 60 * 60)) % 24),
+src/pages/ExamCountdown.tsx:29:          minutes: Math.floor((difference / 1000 / 60) % 60),
+src/pages/ExamCountdown.tsx:30:          seconds: Math.floor((difference / 1000) % 60),
+src/pages/DeepAnalysis.tsx:145:                <li>Konu Tamamlama Oranları</li>
+src/pages/PersonalityAnalysis.tsx:39:        <div className="absolute top-[-10%] left-[-5%] w-[400px] h-[400px] bg-indigo-600/20 blur-[120px] rounded-full"></div>
+src/pages/PersonalityAnalysis.tsx:40:        <div className="absolute top-[40%] right-[-10%] w-[500px] h-[500px] bg-blue-600/20 blur-[150px] rounded-full"></div>
+src/pages/PersonalityAnalysis.tsx:41:        <div className="absolute bottom-[-10%] left-[20%] w-[600px] h-[600px] bg-emerald-600/10 blur-[150px] rounded-full"></div>
+src/pages/PersonalityAnalysis.tsx:104:              <h3 className="text-4xl font-black text-white mb-2">%100</h3>
+src/pages/TrialTracking.tsx:40:            description="Sadece netlerine bakıp süreç analizi yapmıyoruz. YKS gibi sıralama sınavı olan bir süreçte katılımcı sayısını ve sıralamayı değerlendirerek yüzdelik dilim belirliyoruz."
+src/pages/Contact.tsx:22:      link: "https://www.google.com/maps/dir//Tam+Akademi,+Ta%C5%9Fpazar+Mahallesi+809.+Sokak+G%C3%B6kta%C5%9F+Apt,+68100+Aksaray+Merkez%2FAksaray/@41.0812416,28.934144,11z/data=!4m8!4m7!1m0!1m5!1m1!1s0x14d671fc7370acb5:0xecf69130f785e83f!2m2!1d34.0267406!2d38.3675344!5m1!1e1?entry=ttu&g_ep=EgoyMDI2MDUyNy4wIKXMDSoASAFQAw%3D%3D"
+src/pages/SuccessStories.tsx:177:                  yüzlerce öğrenci uğurluyoruz. Mezunlarımızın %92'si hedefledikleri 
+src/pages/SuccessStories.tsx:183:                    <span className="text-white font-bold">%45</span>
+src/pages/SuccessStories.tsx:186:                    <div className="h-full bg-blue-500 w-[45%]"></div>
+src/pages/SuccessStories.tsx:190:                    <span className="text-white font-bold">%35</span>
+src/pages/SuccessStories.tsx:193:                    <div className="h-full bg-amber-500 w-[35%]"></div>
+src/pages/ExamMetronome.tsx:36:        <div className="absolute top-[-10%] left-[-5%] w-[400px] h-[400px] bg-indigo-600/20 blur-[120px] rounded-full"></div>
+src/pages/ExamMetronome.tsx:37:        <div className="absolute top-[40%] right-[-10%] w-[500px] h-[500px] bg-cyan-600/20 blur-[150px] rounded-full"></div>
+src/pages/ExamMetronome.tsx:38:        <div className="absolute bottom-[-10%] left-[20%] w-[600px] h-[600px] bg-blue-600/10 blur-[150px] rounded-full"></div>
+src/components/profile/AnalysisResults.tsx:117:                    <Target size={12} /> Yaşam Çarkı Başarı Oranı
+src/components/profile/AnalysisResults.tsx:123:                        width: `${(Object.values(result.data.wheel).reduce((a: any, b: any) => a + b, 0) as number / 60) * 100}%` 
+src/components/profile/AnalysisResults.tsx:250:                    <p className="text-2xl font-black text-white">%{Math.round(result.data.hpp)}</p>
+src/components/profile/AnalysisResults.tsx:277:                    <div className="text-[10px] font-black text-orange-400 uppercase tracking-widest">AİD-Y ATÖLYESİ</div>
+src/components/profile/AnalysisResults.tsx:293:                      <div className="w-6 h-6 rounded-full bg-orange-500 flex items-center justify-center ring-2 ring-slate-900 border border-white/10" title="Zihinsel">
+src/components/profile/AnalysisResults.tsx:299:                     className="text-[10px] font-black text-orange-400 uppercase tracking-widest flex items-center gap-1 hover:text-orange-300 transition-colors"
+src/components/profile/AnalysisResults.tsx:507:                    <div className="text-[10px] font-black text-orange-400 uppercase tracking-widest">AYÇE ENVANTERİ</div>
+src/components/profile/AnalysisResults.tsx:519:                    <p className={`text-lg font-black ${result.data.scores.total >= 76 ? 'text-emerald-400' : result.data.scores.total >= 51 ? 'text-orange-400' : 'text-red-400'}`}>
+src/components/profile/AnalysisResults.tsx:531:                      <div className="w-6 h-6 rounded-full bg-orange-500 flex items-center justify-center ring-2 ring-slate-900 border border-white/10" title="Strateji Profili">
+src/components/profile/AnalysisResults.tsx:537:                     className="text-[10px] font-black text-orange-400 uppercase tracking-widest flex items-center gap-1 hover:text-orange-300 transition-colors"
+src/components/profile/AnalysisResults.tsx:776:                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Değişim Oranı</p>
+src/components/profile/AnalysisResults.tsx:778:                      %{Math.round(((result.data.answers.preScore - result.data.answers.postScore) / 10) * 100)}
+src/components/profile/AnalysisResults.tsx:937:                    <p className="text-lg font-black text-orange-400">
+src/components/home/Community.tsx:49:        <div className="absolute inset-0 bg-indigo-600/10 blur-[120px] rounded-full w-2/3 h-2/3 right-[-10%] top-1/4 pointer-events-none z-0"></div>
+src/components/home/Pricing.tsx:13:      badgeBg: "bg-orange-600/90 text-white",
+src/components/home/Pricing.tsx:14:      borderColor: "border-orange-500/40",
+src/components/home/Pricing.tsx:15:      shadowColor: "shadow-orange-500/10",
+src/components/home/Pricing.tsx:16:      stripColor: "from-orange-400 to-orange-600",
+src/components/home/Pricing.tsx:17:      buttonClass: "bg-orange-600/20 hover:bg-orange-600 border border-orange-500/50 text-orange-100 hover:text-white shadow-orange-500/20",
+src/components/home/Pricing.tsx:18:      iconColor: "text-orange-400",
+src/components/home/Pricing.tsx:98:        <div className="absolute inset-0 bg-indigo-600/10 blur-[150px] z-0 rounded-full w-[60%] h-[70%] right-[-20%] bottom-[-10%] pointer-events-none"></div>
+src/components/home/Pricing.tsx:159:                        isBronzeWrap ? "flex items-center gap-3 text-sm bg-gradient-to-r from-orange-600/20 to-orange-500/10 border border-orange-500/30 p-3 rounded-xl mb-6 shadow-inner shadow-orange-500/10" :
+src/components/home/Pricing.tsx:164:                          isBronzeWrap ? "p-1.5 rounded-full shrink-0 border bg-orange-500/20 border-orange-500/40 text-orange-400" :
+src/components/home/Pricing.tsx:171:                          isBronzeWrap ? "text-orange-200 font-bold uppercase tracking-wide text-xs" :
+src/components/home/Testimonials.tsx:83:              transition={{ delay: (idx % 4) * 0.1 }}
+src/components/home/GoldenStrip.tsx:16:  // Diagonal shimmer effect moving from right (100%) to left (-100%) as scroll progress increases
+src/components/home/GoldenStrip.tsx:17:  const x = useTransform(scrollYProgress, [0, 1], ["100%", "-100%"]);
+src/components/home/Services.tsx:69:              transition={{ delay: (idx % 4) * 0.1 }}
+src/components/home/GiftCard.tsx:25:        <div className="absolute inset-0 bg-yellow-500/10 blur-[120px] rounded-full w-[40%] h-[80%] mx-auto pointer-events-none"></div>
+src/components/appointments/CoachBookingModal.tsx:53:      const endM = totalMin % 60;
+src/components/appointments/BookingModal.tsx:167:    const m = totalMinutes % 60;
+src/components/AgreementModal.tsx:177:                  <li>Koç, randevu planlamalarına (%95 oranında) tam riayet etmek zorundadır.</li>
+src/components/ui/Typewriter.tsx:26:        setCurrentStringIndex((prev) => (prev + 1) % strings.length);
+src/App.tsx:165:      <div className="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/20 blur-[120px] rounded-full pointer-events-none z-0"></div>
+src/App.tsx:166:      <div className="fixed bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-600/20 blur-[150px] rounded-full pointer-events-none z-0"></div>
+src/constants/curriculum.ts:30:    "Rasyonel Sayılar", "Oran‑Orantı Problemleri", "Sayı Problemleri", "Kesir Problemleri", "Karısım Problemleri", "Yüzde – Kar‑Zarar Problemleri", "Yaş Problemleri", "İş‑Emek, İşçi Problemleri (Havuz)", "Hareket Problemleri (Hız‑Zaman‑Yol)", "Grafik‑Tablo Yorumlama Problemleri", "Mantıksal Sıralama / Şifreleme Problemleri (Mantık destekli)", "Rutin Olmayan Problemleri"
+src/constants/curriculum.ts:69:    "1. Ünite: Sayılar", "Asal Çarpanlar", "EBOB ve EKOK", "Bölünebilme", "Fonksiyonlar ve Özellikleri", "Ters Fonksiyonlar", "Denklem ve Eşitsizlikler", "3. Ünite: Sayma ve Algoritma", "Algoritmik Yapıların Temeli", "4. Ünite: Geometrik Şekiller", "Trigonometrik Oranlar", "Üçgende Yardımcı Elemanlar", "5. Tema: Analitik İnceleme", "Nokta Analitiği", "Doğru Analitiği", "6. Ünite: İstatistik", "İki Kategorik Değişken Analizi", "7. Ünite: Veriden Olasılığa", "Koşullu Olasılık"

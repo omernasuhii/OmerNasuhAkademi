@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Brain, Sparkles, ChevronRight, BookOpen, Target, Activity, BarChart3, ShieldCheck, Clock, ShieldAlert, Zap, Users, Monitor, UserCheck, Candy, Eye, Compass, Snowflake, Puzzle, Timer, IterationCcw, Layout, Trophy, CheckCircle2, List, CheckSquare } from 'lucide-react';
+import { Brain, Sparkles, ChevronRight, BookOpen, Target, Activity, BarChart3, ShieldCheck, Clock, ShieldAlert, Zap, Users, Monitor, UserCheck, Candy, Eye, Compass, Snowflake, Puzzle, Timer, IterationCcw, Layout, Trophy, CheckCircle2, List, CheckSquare, Lock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import AnalysisResults from '../../components/profile/AnalysisResults';
 import { useAuth } from '../../lib/AuthContext';
@@ -419,9 +419,11 @@ export const categoryMap: Record<string, string> = {
 
 const CATEGORIES = ['Tümü', 'Sınav ve Strateji Yönetimi', 'Psikoloji ve Motivasyon', 'Öğrenme ve Odaklanma', 'Genel Değerlendirme'];
 
+const SILVER_ALLOWED_ANALYSES = ['VAK-S', 'SP-BE', 'SCM', 'ZS-ODO', 'APEA-3D', 'APK-S', 'ABBA', 'AID-Y', 'ADTE-20', 'OZ-AF'];
+
 export default function Analyses() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, userData } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Tümü');
   const [activeTab, setActiveTab] = useState<'analizler' | 'tamamlananlar'>('analizler');
@@ -431,7 +433,7 @@ export default function Analyses() {
     const fetchResults = async () => {
       if (!user) return;
       try {
-        const results = await analysisService.getResults(user.uid);
+        const results = (await analysisService.getResults(user.uid)).filter((r: any) => !['PARENT_REPORT', 'COACH_REPORT'].includes(r.analysisType));
         const counts: Record<string, number> = {};
         results.forEach((r: any) => {
           counts[r.analysisType] = (counts[r.analysisType] || 0) + 1;
@@ -561,45 +563,67 @@ export default function Analyses() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredAnalyses.map((analysis, idx) => (
-                  <motion.button
-                    key={analysis.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: (idx % 10) * 0.05 }}
-                    onClick={() => navigate(analysis.path)}
-                    className="group relative bg-slate-900/50 backdrop-blur-xl border border-white/5 rounded-[32px] p-8 text-left hover:border-blue-500/30 transition-all duration-500 flex flex-col gap-6"
-                  >
-                    <div className="flex justify-between items-start w-full">
-                      <div className={`w-14 h-14 ${analysis.color}/10 rounded-2xl flex items-center justify-center text-blue-400 border border-blue-500/20 group-hover:scale-110 transition-transform duration-500`}>
-                        <analysis.icon size={28} />
-                      </div>
-                      <div className="flex flex-col items-end gap-2">
-                        {categoryMap[analysis.id] && (
-                          <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 bg-white/5 px-2 py-1 rounded-lg">
-                            {categoryMap[analysis.id]?.split(' ')[0]}
-                          </span>
-                        )}
-                        {completedCounts[analysis.id] > 0 && (
-                          <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-2 py-1 rounded-lg">
-                            <CheckCircle2 size={12} />
-                            <span className="text-[10px] font-bold">{completedCounts[analysis.id]}x Tamamlandı</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <h3 className="text-xl font-bold text-white group-hover:text-blue-400 transition-colors">{analysis.title}</h3>
-                      <p className="text-sm text-slate-400 leading-relaxed font-medium">{analysis.description}</p>
-                    </div>
+                {filteredAnalyses.map((analysis, idx) => {
+                  const plan = userData?.subscriptionPlan || '';
+                  const isSilver = plan.includes('Gümüş');
+                  const isLockedForSilver = isSilver && !SILVER_ALLOWED_ANALYSES.includes(analysis.id);
 
-                    <div className="mt-auto pt-6 flex items-center justify-between border-t border-white/5 w-full">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Analize Başla</span>
-                      <ChevronRight size={16} className="text-slate-500 group-hover:translate-x-1 transition-transform" />
-                    </div>
-                  </motion.button>
-                ))}
+                  return (
+                    <motion.button
+                      key={analysis.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: (idx % 10) * 0.05 }}
+                      onClick={() => {
+                        if (isLockedForSilver) {
+                          alert("Bu analiz sadece Altın Paket (Sınırsız Zirve VIP) abonelerine özeldir. Paketinizi yükselterek bu analize erişebilirsiniz!");
+                          return;
+                        }
+                        navigate(analysis.path);
+                      }}
+                      className={`group relative bg-slate-900/50 backdrop-blur-xl border border-white/5 rounded-[32px] p-8 text-left hover:border-blue-500/30 transition-all duration-500 flex flex-col gap-6 ${isLockedForSilver ? 'opacity-50' : ''}`}
+                    >
+                      <div className="flex justify-between items-start w-full">
+                        <div className={`w-14 h-14 ${analysis.color}/10 rounded-2xl flex items-center justify-center text-blue-400 border border-blue-500/20 group-hover:scale-110 transition-transform duration-500`}>
+                          <analysis.icon size={28} />
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          {isLockedForSilver ? (
+                            <span className="text-[9px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 px-2 py-1 rounded-lg flex items-center gap-1 border border-amber-500/20">
+                              <Lock size={10} /> Altın Paket
+                            </span>
+                          ) : categoryMap[analysis.id] && (
+                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 bg-white/5 px-2 py-1 rounded-lg">
+                              {categoryMap[analysis.id]?.split(' ')[0]}
+                            </span>
+                          )}
+                          {completedCounts[analysis.id] > 0 && (
+                            <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-2 py-1 rounded-lg">
+                              <CheckCircle2 size={12} />
+                              <span className="text-[10px] font-bold">{completedCounts[analysis.id]}x Tamamlandı</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <h3 className="text-xl font-bold text-white group-hover:text-blue-400 transition-colors">{analysis.title}</h3>
+                        <p className="text-sm text-slate-400 leading-relaxed font-medium">{analysis.description}</p>
+                      </div>
+
+                      <div className="mt-auto pt-6 flex items-center justify-between border-t border-white/5 w-full">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                          {isLockedForSilver ? 'Kilidi Aç' : 'Analize Başla'}
+                        </span>
+                        {isLockedForSilver ? (
+                          <Lock size={16} className="text-amber-500" />
+                        ) : (
+                          <ChevronRight size={16} className="text-slate-500 group-hover:translate-x-1 transition-transform" />
+                        )}
+                      </div>
+                    </motion.button>
+                  );
+                })}
               </div>
             )}
           </motion.div>

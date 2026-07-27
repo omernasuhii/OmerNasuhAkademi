@@ -27,7 +27,7 @@ export interface Purchase {
   productId: string;
   productTitle: string;
   purchasedAt: string;
-  status: 'completed' | 'pending' | 'delivered';
+  status: 'completed' | 'pending' | 'delivered' | 'cancelled';
   cost: number;
   quantity?: number;
   totalCost?: number;
@@ -124,6 +124,16 @@ export const storeService = {
       return purchase;
     } catch (error) {
       console.error('Error purchasing product:', error);
+      throw error;
+    }
+  },
+
+  async updatePurchaseStatus(purchaseId: string, status: 'completed' | 'pending' | 'delivered' | 'cancelled') {
+    try {
+      const docRef = doc(db, 'purchases', purchaseId);
+      await updateDoc(docRef, { status });
+    } catch (error) {
+      console.error('Error updating purchase status:', error);
       throw error;
     }
   },

@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../../lib/AuthContext';
 import AppointmentList from '../../components/appointments/AppointmentList';
 import { Calendar, Filter, Download } from 'lucide-react';
+import CoachBookingModal from '../../components/appointments/CoachBookingModal';
 
 export default function CoachAppointments() {
   const { user } = useAuth();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -19,7 +22,10 @@ export default function CoachAppointments() {
            <button className="bg-white/5 hover:bg-white/10 border border-white/5 p-3 rounded-2xl text-slate-400 transition-all">
               <Download size={20} />
            </button>
-           <button className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-6 rounded-2xl transition-all flex items-center gap-2 shadow-lg shadow-emerald-600/20">
+           <button 
+             onClick={() => setIsModalOpen(true)}
+             className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-6 rounded-2xl transition-all flex items-center gap-2 shadow-lg shadow-emerald-600/20"
+           >
               <Calendar size={20} /> Yeni Randevu Ekle
            </button>
         </div>
@@ -38,9 +44,17 @@ export default function CoachAppointments() {
                </div>
             </div>
             
-            <AppointmentList role="coach" />
+            <AppointmentList key={refreshKey} role="coach" />
          </div>
       </div>
+
+      <CoachBookingModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        onSuccess={() => {
+           setRefreshKey(prev => prev + 1);
+        }}
+      />
     </div>
   );
 }

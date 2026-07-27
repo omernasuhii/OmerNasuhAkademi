@@ -1,24 +1,43 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Plus, Edit2, Trash2, Calendar, MapPin, Ticket, Users, Eye, EyeOff, Save, X, Activity, Image as ImageIcon, MapPinOff, Clock
+  Plus, Edit2, Trash2, Calendar, MapPin, Ticket, Users, Eye, EyeOff, Save, X, Activity, Image as ImageIcon, MapPinOff, Clock, ArrowLeft
 } from 'lucide-react';
-import { eventService, EventData, TicketTypeInfo } from '../../services/eventService';
+import { eventService, EventData, TicketTypeInfo, EventCategory } from '../../services/eventService';
+import { useParams, useNavigate } from 'react-router-dom';
 
-export default function AdminEvents() {
+export default function AdminEvents({ filterStatus }: { filterStatus?: string }) {
+  const { categoryId } = useParams<{ categoryId?: string }>();
+  const navigate = useNavigate();
   const [events, setEvents] = useState<EventData[]>([]);
+  const [categories, setCategories] = useState<EventCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [currentEvent, setCurrentEvent] = useState<Partial<EventData> | null>(null);
 
   useEffect(() => {
     loadEvents();
-  }, []);
+  }, [filterStatus, categoryId]);
 
   const loadEvents = async () => {
     setLoading(true);
-    const data = await eventService.getEvents('admin');
-    setEvents(data);
+    const [data, cats] = await Promise.all([
+       eventService.getEvents('admin'),
+       eventService.getCategories()
+    ]);
+    
+    let filteredData = data;
+    
+    if (filterStatus) {
+      filteredData = filteredData.filter(e => e.status === filterStatus);
+    }
+    
+    if (categoryId) {
+      filteredData = filteredData.filter(e => e.category === categoryId);
+    }
+    
+    setEvents(filteredData);
+    setCategories(cats);
     setLoading(false);
   };
 
@@ -81,6 +100,7 @@ export default function AdminEvents() {
       <EventEditor 
         event={currentEvent as EventData} 
         setEvent={setCurrentEvent}
+        categories={categories}
         onSave={handleSave}
         onCancel={() => setIsEditing(false)}
       />
@@ -91,11 +111,24 @@ export default function AdminEvents() {
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-white/5">
         <div>
-          <h1 className="text-3xl md:text-5xl font-black tracking-tight text-white mb-2">
-            Etkinlik Yönetimi
-          </h1>
+          <div className="flex items-center gap-4 mb-2">
+            {categoryId && (
+              <button 
+                onClick={() => navigate('/panel/admin/etkinlikler/kategoriler')}
+                className="p-2 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl transition-colors"
+                title="Kategorilere Dön"
+              >
+                <ArrowLeft size={24} />
+              </button>
+            )}
+            <h1 className="text-3xl md:text-5xl font-black tracking-tight text-white">
+              {categoryId ? `${categories.find(c => c.id === categoryId)?.name || 'Kategori'} Etkinlikleri` : filterStatus === 'draft' ? 'Taslak Etkinlikler' : filterStatus === 'published' ? 'Yayınlanan Etkinlikler' : 'Etkinlik Yönetimi'}
+            </h1>
+          </div>
           <p className="text-slate-500 max-w-xl">
-             Öğrencileriniz için yeni etkinlikler planlayın (Online/Fiziksel), bilet satışı yapın veya LCV (katılım durumu) toplayın.
+            {categoryId ? 'Bu kategoriye ait etkinlikleri görüntüleyin ve yönetin.' : filterStatus === 'draft' ? 
+               'Yayınlanmamış (taslak) etkinliklerinizi buradan yönetebilirsiniz.' : 
+               'Yayındaki etkinliklerinizi görüntüleyin, bilet satışlarını veya katılım durumunu takip edin.'}
           </p>
         </div>
         <button 
@@ -119,6 +152,13 @@ export default function AdminEvents() {
             <div className="h-40 bg-slate-800 relative">
                {ev.image && <img src={ev.image} alt={ev.title} className="w-full h-full object-cover opacity-60" />}
                <div className="absolute inset-0 bg-gradient-to-t from-slate-900 to-transparent" />
+               <div className="absolute top-4 left-4 flex gap-2">
+                 {ev.category && categories.find(c => c.id === ev.category) && (
+                    <div className="bg-black/50 backdrop-blur-md px-2 py-1 rounded text-xs font-black uppercase tracking-widest border border-white/10" style={{ color: categories.find(c => c.id === ev.category)?.color || '#fff' }}>
+                       {categories.find(c => c.id === ev.category)?.name}
+                    </div>
+                 )}
+               </div>
                <div className="absolute top-4 right-4 flex gap-2">
                   {ev.status === 'published' ? (
                      <div className="bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded text-xs font-black uppercase tracking-widest border border-emerald-500/20">
@@ -178,7 +218,7 @@ export default function AdminEvents() {
   );
 }
 
-function EventEditor({ event, setEvent, onSave, onCancel }: { event: Partial<EventData>, setEvent: Function, onSave: () => void, onCancel: () => void }) {
+function EventEditor({ event, setEvent, categories, onSave, onCancel }: { event: Partial<EventData>, setEvent: Function, categories: EventCategory[], onSave: () => void, onCancel: () => void }) {
   const [activeTab, setActiveTab] = useState<'details' | 'type' | 'settings'>('details');
 
   const updateField = (field: keyof EventData, value: any) => {
@@ -258,6 +298,18 @@ function EventEditor({ event, setEvent, onSave, onCancel }: { event: Partial<Eve
                    />
                 </div>
                 <div className="space-y-2">
+                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Kategori</label>
+                   <select 
+                     value={event.category || ''} 
+                     onChange={e => updateField('category', e.target.value)}
+                     className="w-full bg-black/40 border border-white/5 rounded-2xl p-4 text-white font-medium outline-none focus:border-indigo-500/50 appearance-none mb-4"
+                   >
+                     <option value="" className="bg-slate-900">Kategori Seçin</option>
+                     {categories.map(cat => (
+                       <option key={cat.id} value={cat.id} className="bg-slate-900">{cat.name}</option>
+                     ))}
+                   </select>
+
                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Açıklama</label>
                    <textarea 
                      rows={4}

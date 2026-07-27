@@ -28,24 +28,29 @@ export const analysisService = {
     try {
       let q = query(
         collection(db, 'user_analyses'), 
-        where('userId', '==', userId),
-        orderBy('timestamp', 'desc')
+        where('userId', '==', userId)
       );
       
       if (type) {
         q = query(
           collection(db, 'user_analyses'),
           where('userId', '==', userId),
-          where('analysisType', '==', type),
-          orderBy('timestamp', 'desc')
+          where('analysisType', '==', type)
         );
       }
       
       const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({
+      const results = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+
+      // Sort in memory (descending by timestamp)
+      return results.sort((a: any, b: any) => {
+        const timeA = a.timestamp?.seconds || 0;
+        const timeB = b.timestamp?.seconds || 0;
+        return timeB - timeA;
+      });
     } catch (error) {
       console.error('Error fetching analysis results:', error);
       throw error;

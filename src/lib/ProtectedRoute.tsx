@@ -1,14 +1,18 @@
-import React from 'react';
-import { Navigate } from 'react-router-dom';
-import { useAuth } from './AuthContext';
+import React from "react";
+import { Navigate, useLocation } from "react-router-dom";
+import { useAuth } from "./AuthContext";
 
 interface ProtectedRouteProps {
   children: React.ReactElement;
   allowedRoles?: string[];
 }
 
-export default function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
-  const { user, userData, loading } = useAuth();
+export default function ProtectedRoute({
+  children,
+  allowedRoles,
+}: ProtectedRouteProps) {
+  const location = useLocation();
+  const { user, userData, systemSettings, loading } = useAuth();
 
   if (loading) {
     return (
@@ -22,8 +26,54 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
     return <Navigate to="/giris" replace />;
   }
 
+  // If the user profile (userData) is null/missing or uninitialized, they must register or log in.
+  if (!userData || !userData.role) {
+    return <Navigate to="/giris" replace />;
+  }
+
+  // If the user has an incomplete registration or missing phone number, they must complete it first.
+  if (
+    userData &&
+    userData.role === "student" &&
+    (!userData.registrationStep || userData.registrationStep < 4 || !userData.phone)
+  ) {
+    if (location.pathname !== "/kayit-tamamla") {
+      return <Navigate to="/kayit-tamamla" replace />;
+    }
+    return children;
+  }
+
+  let requireVerification = true;
+  if (
+    systemSettings?.bypassVerification || 
+    systemSettings?.bypassInternalVerification ||
+    !userData?.phone
+  ) {
+    requireVerification = false;
+  }
+
+  if (
+    requireVerification &&
+    user &&
+    (!user.emailVerified || (!user.phoneNumber && !userData?.phoneVerified && !userData?.verificationDeferred))
+  ) {
+    if (location.pathname !== "/dogrulama") {
+      return <Navigate to="/dogrulama" replace />;
+    }
+  }
+
   if (allowedRoles && userData && !allowedRoles.includes(userData.role)) {
     return <Navigate to="/" replace />;
+  }
+
+  if (
+    userData &&
+    userData.role === "coach" &&
+    (userData.approved === false || userData.approved === "rejected")
+  ) {
+    if (location.pathname !== "/koc-onay-bekliyor") {
+      return <Navigate to="/koc-onay-bekliyor" replace />;
+    }
   }
 
   return children;

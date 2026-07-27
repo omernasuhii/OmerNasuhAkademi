@@ -6,6 +6,7 @@ import { collection, query, where, getDocs, doc, getDoc, setDoc } from 'firebase
 import { db } from '../../lib/firebase';
 
 import { studentDataService } from '../../services/studentDataService';
+import { analysisService } from '../../services/analysisService';
 import { appointmentService } from '../../services/appointmentService';
 
 export default function CoachAssistant() {
@@ -70,14 +71,25 @@ export default function CoachAssistant() {
         const uid = doc.id;
         const displayName = studentData.displayName || `${studentData.firstName} ${studentData.lastName}`;
         
-        // Fetch additional data for context
-        const [books, exams, analyses, appointments, goals, programs] = await Promise.all([
+        // Fetch ALL requested context data
+        const [
+          books, 
+          exams, 
+          analyses, 
+          appointments, 
+          goals, 
+          programs, 
+          weeklyPrograms,
+          coachReports
+        ] = await Promise.all([
           studentDataService.getBookTracking(uid),
           studentDataService.getExamResults(uid),
           studentDataService.getStudentAnalyses(uid),
           appointmentService.getAppointments(uid, 'student'),
           studentDataService.getMonthlyGoal(uid, new Date().toISOString().substring(0, 7)),
-          studentDataService.getAllDailyPrograms(uid)
+          studentDataService.getAllDailyPrograms(uid),
+          studentDataService.getWeeklyPrograms(uid),
+          analysisService.getResults(uid, 'COACH_REPORT')
         ]);
 
         return { 
@@ -85,14 +97,16 @@ export default function CoachAssistant() {
           ...studentData,
           displayName,
           summaryData: {
-            bookCount: books.length,
-            recentExams: exams.slice(0, 3),
+            books: books,
+            exams: exams,
             examAnalyses: analyses,
-            upcomingAppointments: appointments.filter(a => a.status === 'confirmed').slice(0, 3),
+            appointments: appointments,
             currentGoal: goals,
             walletBalance: studentData.walletBalance || 0,
-            allPrograms: programs, // All programs for context
-            todayProgram: programs.find(p => p.date === new Date().toISOString().split('T')[0])
+            subscriptionPlan: studentData.subscriptionPlan || 'Standart',
+            dailyPrograms: programs,
+            weeklyPrograms: weeklyPrograms,
+            coachReport: coachReports && coachReports.length > 0 ? coachReports[0].data.reportText : null
           }
         };
       }));
@@ -109,19 +123,92 @@ export default function CoachAssistant() {
       return "Kullanıcının henüz öğrencisi bulunmamaktadır.";
     }
 
-    let context = "Koçun Yetkisi Altındaki Öğrenciler ve Detaylı Durumları (Kitap Takibi, Randevular, Tüm Günlerin Programı, Deneme Analizleri, Hedefler ve Öğrencinin Koça Olan Cüzdan Ödemeleri):\n\n";
+    let context = "Koçun Yetkisi Altındaki Öğrenciler ve Tüm Detaylı Verileri (Genel Durum, Kitap Takibi, Randevular, Haftalık Program ve Notlar, Sınav Sonuçları, Deneme/Derin Analizleri, Öğrenci Profili, Koç Kişilik Raporları, Hedefler, Ödeme ve Abonelikler):\n\n";
     students.forEach((s, idx) => {
       const data = s.summaryData;
-      context += `${idx + 1}. ${s.displayName}:\n`;
-      context += `   - Profil: ${s.grade || 'Belirtilmemiş'} / ${s.branch || 'Belirtilmemiş'}\n`;
-      context += `   - Kitap Takibi: ${data.bookCount} kitap sistemde kayıtlı.\n`;
-      context += `   - Sınav Sonuçları & Detaylı Deneme Analizi: ${data.recentExams.map((e: any) => `${e.examName || e.title || 'İsimsiz Sınav'}: ${e.totalNet || e.net || 0} Toplam Net` + (e.scores ? " [Detaylar: " + Object.entries(e.scores).map(([subj, val]: any) => `${subj}= D:${val.c || 0} Y:${val.i || 0} N:${val.n || 0}`).join(' | ') + "]" : "")).join(' || ') || 'Henüz sınav verisi yok'}\n`;
+      context += `${idx + 1}. ${s.displayName} (UID: ${s.uid}):\n`;
       
+      // 1 & 8. Öğrenci Profili ve Genel Durum
+      context += `   --- PROFİL VE GENEL DURUM ---\n`;
+      context += `   - Sınıf/Alan: ${s.grade || 'Belirtilmemiş'} / ${s.branch || 'Belirtilmemiş'}\n`;
+      context += `   - İletişim: ${s.email} | Tel: ${s.phone || 'Yok'}\n`;
+      context += `   - Abonelik Paketi: ${data.subscriptionPlan}\n`;
+      context += `   - Cüzdan Bakiyesi / Koça Ödemeler: ₺${data.walletBalance}\n`;
+      
+      // 9. Koç Kişilik Raporları
+      if (data.coachReport) {
+         context += `   - Koç İçin Kişilik/Rehberlik Raporu: ${data.coachReport.substring(0, 300)}... (Özet)\n`;
+      } else {
+         context += `   - Koç İçin Kişilik/Rehberlik Raporu: Henüz oluşturulmamış.\n`;
+      }
+
+      // 10. Hedefler ve Takip
+      context += `   --- HEDEFLER VE TAKİP ---\n`;
+      context += `   - Aylık Hedef: ${data.currentGoal?.title || 'Belirlenmemiş'} (${data.currentGoal?.description || ''})\n`;
+
+      // 2. Kitap Takibi
+      context += `   --- KİTAP VE KANAL TAKİBİ ---\n`;
+      if (data.books && data.books.length > 0) {
+        context += `   - Toplam ${data.books.length} kaynak/kitap/kanal kayıtlı.\n`;
+        data.books.slice(0, 5).forEach((b: any) => {
+          const totalProgress = b.progress || 0;
+          context += `       * ${b.title} (${b.subject || ''}): %${totalProgress} tamamlandı.\n`;
+        });
+        if (data.books.length > 5) context += `       * (ve ${data.books.length - 5} kaynak daha...)\n`;
+      } else {
+        context += `   - Kayıtlı kaynak bulunmuyor.\n`;
+      }
+
+      // 3. Randevular
+      context += `   --- RANDEVULAR ---\n`;
+      const activeAppointments = data.appointments.filter((a:any) => ['pending', 'confirmed'].includes(a.status));
+      if (activeAppointments.length > 0) {
+         context += `   - Yaklaşan ${activeAppointments.length} randevu var:\n`;
+         activeAppointments.slice(0,3).forEach((a:any) => {
+           context += `       * Tarih: ${a.date} ${a.time} - Durum: ${a.status}\n`;
+         });
+      } else {
+         context += `   - Yaklaşan randevu yok.\n`;
+      }
+
+      // 4. Haftalık Programlar, Tamamlanma Oranları, Koç ve Öğrenci Notları
+      context += `   --- HAFTALIK PROGRAMLAR VE NOTLAR ---\n`;
+      if (data.weeklyPrograms && data.weeklyPrograms.length > 0) {
+         const recentWeeks = data.weeklyPrograms.slice(0, 2);
+         recentWeeks.forEach((wp:any) => {
+           context += `       * Hafta: ${wp.weekStartDate}\n`;
+           if (wp.coachNotes) context += `         - Koç Notu: ${wp.coachNotes}\n`;
+           if (wp.studentNotes) context += `         - Öğrenci Notu: ${wp.studentNotes}\n`;
+         });
+      }
+      if (data.dailyPrograms && data.dailyPrograms.length > 0) {
+         const recentDays = data.dailyPrograms.slice(0, 5); // last 5 days
+         let totalTasks = 0;
+         let completedTasks = 0;
+         data.dailyPrograms.forEach((p:any) => {
+            totalTasks += p.tasks?.length || 0;
+            completedTasks += p.tasks?.filter((t:any) => t.isDone).length || 0;
+         });
+         const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+         context += `       * Genel Program Tamamlanma Oranı: %${completionRate} (${completedTasks}/${totalTasks} görev)\n`;
+      } else {
+         context += `   - Henüz program verisi yok.\n`;
+      }
+
+      // 5, 6, 7. Sınav Sonuçları, Sınav Analizleri ve Derin Analiz
+      context += `   --- SINAV SONUÇLARI VE DERİN ANALİZ ---\n`;
+      if (data.exams && data.exams.length > 0) {
+         context += `   - Toplam ${data.exams.length} sınav sonucu kayıtlı.\n`;
+         data.exams.slice(0, 3).forEach((e:any) => {
+            context += `       * ${e.examName || e.title}: ${e.totalNet || e.net || 0} Net (${e.date || ''})\n`;
+         });
+      } else {
+         context += `   - Kayıtlı sınav sonucu yok.\n`;
+      }
+
       if (data.examAnalyses && data.examAnalyses.length > 0) {
-        context += `   - Konu Bazlı Hata Analizleri:\n`;
-        const recentAnalyses = data.examAnalyses.slice(0, 3);
-        recentAnalyses.forEach((a: any) => {
-           context += `       * Sınav: ${a.examTitle || 'Belirtilmemiş'} (${a.examDate || ''})\n`;
+         context += `   - Sınav Hata Analizleri (Derin Analiz Verisi):\n`;
+         data.examAnalyses.slice(0, 3).forEach((a: any) => {
            if (a.data && Object.keys(a.data).length > 0) {
               const errorsByTopic: Record<string, string[]> = {};
               Object.values(a.data).forEach((questions: any) => {
@@ -129,59 +216,23 @@ export default function CoachAssistant() {
                       questions.forEach(q => {
                            if (q.errorType && q.errorType !== 'none') {
                                const topicName = q.topic || 'Bilinmeyen Konu';
-                               if (!errorsByTopic[topicName]) {
-                                   errorsByTopic[topicName] = [];
-                               }
+                               if (!errorsByTopic[topicName]) { errorsByTopic[topicName] = []; }
                                errorsByTopic[topicName].push(q.errorType);
                            }
                       });
                   }
               });
-              
               if (Object.keys(errorsByTopic).length > 0) {
-                  context += `         [Hatalar: ${Object.entries(errorsByTopic).map(([topic, errs]) => {
-                      let errStr = topic + " -> ";
-                      errStr += errs.map(err => {
-                          if (err === 'bilgi') return 'Bilgi Eksikliği';
-                          if (err === 'kalip') return 'Soru Kalıp Eksikliği';
-                          if (err === 'dikkat') return 'Dikkat Hatası';
-                          if (err === 'zaman') return 'Zaman Hatası/Turlama';
-                          return err;
-                      }).join(', ');
-                      return errStr;
-                  }).join(' | ')}]\n`;
-              } else {
-                 context += `         [Bu sınavda kayıtlı hata bulunamadı (Tüm sorular doğru veya boş bırakılmış, ya da hata analizi yapılmamış)]\n`;
+                  context += `       * ${a.examTitle || 'Sınav'}: Hatalı Konular -> ${Object.keys(errorsByTopic).join(', ')}\n`;
               }
-           } else {
-              context += `         [Kayıtlı veri bulunamadı]\n`;
            }
-        });
-      } else {
-        context += `   - Konu Bazlı Hata Analizleri: Henüz veri yok.\n`;
+         });
       }
-
-      context += `   - Koça Olan Ödemeler (Cüzdan): ₺${data.walletBalance} koça ait bakiye/ödeme durumu bulunuyor. (Bu kısım öğrencinin koça olan ödemelerini ifade eder).\n`;
-      context += `   - Hedefler & Takip: Aylık Hedef: ${data.currentGoal?.title || 'Belirlenmemiş'}\n`;
-      if (data.allPrograms && data.allPrograms.length > 0) {
-        context += `   - Tüm Günlerin Programları (Öğrenciye atanan görevler ve tamamlanma durumları):\n`;
-        data.allPrograms.forEach((p: any) => {
-           const completedAtCount = p.tasks?.filter((t:any) => t.isDone).length || 0;
-           const taskCount = p.tasks?.length || 0;
-           context += `       * Tarih: ${p.date || p.weekStartDate} -> Görev Sayısı: ${taskCount}, Tamamlanan: ${completedAtCount}\n`;
-           
-           if (p.tasks && p.tasks.length > 0) {
-              context += `         [Görevlerin Detayları: ${p.tasks.map((t:any) => `${t.subject || ''} - ${t.topic || ''} (${t.type || ''}): ${t.isDone ? 'Tamamlandı' : 'Bekliyor'} (Hedef:${t.targetCount||0}, Çözülen/İzlenen:${t.completedCount||0})`).join(', ')}]\n`;
-           }
-        });
-      } else {
-        context += `   - Tüm Günlerin Programları: Henüz öğrenciye atanmış bir program bulunmuyor.\n`;
-      }
-      context += `   - Randevular: Yakın zamanda planlanan görüşme sayısı: ${data.upcomingAppointments?.length || 0}\n`;
+      
       context += '\n';
     });
     
-    context += "\nYukarıdaki verilere dayanarak koça öğrencileri hakkında derin analizler (Derin Analiz) sunabilir, deneme analizlerini kıyaslayabilir, tüm günlerin programını değerlendirebilir ve öğrencinin koça olan ödemeleri dâhil tüm verileri hakkında koça rehberlik yapabilirsin. Gerekirse RAG destekli bilgi çıkarımı yaparak tüm bu verileri akıcı ve yönlendirici bir şekilde sunmalısın.";
+    context += "\nYukarıdaki verilere dayanarak koça, öğrencilerinin genel durumu, sınav sonuçları, kitap tamamlama oranları, program sadakati, derin analizleri ve koça olan ödemeleri dâhil tüm verileri hakkında kapsamlı bir öneri ve rehberlik sunabilirsin. Tüm bu verileri akıcı, anlaşılır ve eyleme geçirilebilir (actionable) şekilde yorumla.";
     return context;
   };
 
@@ -238,7 +289,7 @@ Sen profesyonel, yapıcı ve koça destek olan bir karaktersin. Analizlerini yap
       console.error("AI Error:", error);
       setMessages(prev => [
         ...prev, 
-        { role: 'assistant', content: "Üzgünüm, şu anda yanıt veremiyorum. Lütfen teknik ekiple iletişime geçin veya API anahtarınızı kontrol edin. (İleride WhatsApp entegrasyonu sağlandığında daha kesintisiz hizmet alabileceksiniz.)" }
+        { role: 'assistant', content: "Üzgünüm, şu anda yanıt veremiyorum. Lütfen teknik ekiple iletişime geçin veya API anahtarınızı kontrol edin." }
       ]);
     } finally {
       setLoading(false);
@@ -261,7 +312,7 @@ Sen profesyonel, yapıcı ve koça destek olan bir karaktersin. Analizlerini yap
             ON Asistan
           </h1>
           <p className="text-slate-400 font-medium max-w-xl text-sm">
-            Tüm sınıf ve öğrenci verilerinizle desteklenen yapay zeka asistanınız. İleride WhatsApp üzerinden bildirimler ve hatırlatmalar planlayabileceksiniz.
+            Tüm sınıf ve öğrenci verilerinizle desteklenen yapay zeka asistanınız. İleride sistem içi bildirimler ve hatırlatmalar planlayabileceksiniz.
           </p>
         </motion.div>
         
@@ -325,7 +376,7 @@ Sen profesyonel, yapıcı ve koça destek olan bir karaktersin. Analizlerini yap
         <div className="p-4 md:p-6 bg-slate-950/50 border-t border-white/5 backdrop-blur-xl shrink-0">
           <div className="mb-4 flex items-center gap-2 text-[10px] uppercase font-black tracking-widest text-emerald-400 bg-emerald-500/10 w-fit px-3 py-1 rounded-full border border-emerald-500/20">
              <MessageCircle size={12} />
-             WhatsApp Entegrasyonu (Yakında)
+             Sistem İçi Bildirim ve Mesajlaşma
           </div>
           <form onSubmit={handleSendMessage} className="relative flex items-center">
             <input

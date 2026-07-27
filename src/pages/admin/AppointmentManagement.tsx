@@ -627,7 +627,7 @@ export default function AppointmentManagement() {
                                        }}
                                      />
                                   <div className="flex-1">
-                                     <div className="text-sm text-slate-300">{service.title || 'İsimsiz Hizmet'}</div>
+                                     <div className="text-sm text-slate-300">{service.title || 'Varsayılan / Özel Hizmet'}</div>
                                   </div>
                                </label>
                              ))}
@@ -708,7 +708,7 @@ export default function AppointmentManagement() {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="bg-[#070b14] w-full max-w-lg rounded-[32px] border border-white/10 shadow-2xl overflow-hidden z-10"
+              className="bg-[#070b14] w-full max-w-lg sm:rounded-[32px] border border-white/10 shadow-2xl overflow-hidden z-10 h-full sm:h-auto sm:max-h-[90vh] flex flex-col"
             >
               <div className="p-8">
                 <div className="flex items-center justify-between mb-8">
@@ -727,7 +727,7 @@ export default function AppointmentManagement() {
                 </div>
 
                 <div className="space-y-6">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
                       <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Öğrenci</p>
                       <p className="text-sm font-bold text-white">{selectedBooking.studentName}</p>

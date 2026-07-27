@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { auth } from '../../lib/firebase';
 import { studentDataService } from '../../services/studentDataService';
-import { CURRICULUM } from '../../constants/curriculum';
+import { useCurriculum } from '../../lib/CurriculumContext';
+import { formatSubjectName } from '../coach/StudentProgram';
 import { BookOpen, CheckCircle2, ChevronDown, ChevronUp, Search, Filter, Youtube, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function BookTrackingDetail() {
+  const { curriculum: CURRICULUM } = useCurriculum();
   const [books, setBooks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedBook, setExpandedBook] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSubject, setFilterSubject] = useState('Hepsi');
+  const [activeTab, setActiveTab] = useState('soru');
 
   useEffect(() => {
     const user = auth.currentUser;
@@ -25,10 +28,29 @@ export default function BookTrackingDetail() {
   const toggleTopic = async (book: any, topic: string) => {
     const currentTopics = book.completedTopics || [];
     let updatedTopics;
-    if (currentTopics.includes(topic)) {
+    const isNowCompleted = !currentTopics.includes(topic);
+    
+    const getTaskXP = (type: string) => {
+      switch (type) {
+        case 'youtube': return 4;
+        case 'konu': return 6;
+        default: return 20;
+      }
+    };
+
+    if (!isNowCompleted) {
       updatedTopics = currentTopics.filter((t: string) => t !== topic);
+      
+      if (auth.currentUser) {
+          studentDataService.awardXP(auth.currentUser.uid, -getTaskXP(book.resourceType), 'Konu İptal Edildi');
+      }
     } else {
       updatedTopics = [...currentTopics, topic];
+      
+      // Award XP for completing a topic
+      if (auth.currentUser) {
+          studentDataService.awardXP(auth.currentUser.uid, getTaskXP(book.resourceType), 'Konu Tamamlandı');
+      }
     }
 
     const allTopics = CURRICULUM[book.subject as keyof typeof CURRICULUM] || [];
@@ -46,9 +68,11 @@ export default function BookTrackingDetail() {
 
   const filteredBooks = books.filter(book => {
     const matchesSearch = book.bookName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                         book.subject.toLowerCase().includes(searchTerm.toLowerCase());
+                         book.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (book.isbn && book.isbn.includes(searchTerm));
     const matchesFilter = filterSubject === 'Hepsi' || book.subject === filterSubject;
-    return matchesSearch && matchesFilter;
+    const matchesTab = (book.resourceType || 'soru') === activeTab;
+    return matchesSearch && matchesFilter && matchesTab;
   });
 
   const subjects = ['Hepsi', ...new Set(books.map(b => b.subject))];
@@ -81,10 +105,31 @@ export default function BookTrackingDetail() {
             className="bg-slate-900 border border-white/10 rounded-xl py-3 px-4 text-xs text-white outline-none focus:border-indigo-500/50 transition-all"
           >
             {subjects.map(s => (
-              <option key={s} value={s}>{s}</option>
+              <option key={s} value={s}>{s === 'Hepsi' ? s : formatSubjectName(s)}</option>
             ))}
           </select>
         </div>
+      </div>
+
+      <div className="flex bg-slate-900 border border-white/5 rounded-xl p-1 mb-6">
+         <button 
+            onClick={() => setActiveTab('soru')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-bold rounded-lg transition-all ${activeTab === 'soru' ? 'bg-indigo-500 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+         >
+            Soru Bankası
+         </button>
+         <button 
+            onClick={() => setActiveTab('youtube')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-bold rounded-lg transition-all ${activeTab === 'youtube' ? 'bg-red-500 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+         >
+            YouTube Kanalı
+         </button>
+         <button 
+            onClick={() => setActiveTab('konu')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-bold rounded-lg transition-all ${activeTab === 'konu' ? 'bg-orange-500 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+         >
+            Konu Çalışması
+         </button>
       </div>
 
       <div className="grid grid-cols-1 gap-6">
@@ -104,7 +149,7 @@ export default function BookTrackingDetail() {
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">{book.subject}</span>
+                      <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">{formatSubjectName(book.subject, book.type)}</span>
                       <span className="text-[10px] font-bold text-slate-600">•</span>
                       <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${book.resourceType === 'youtube' ? 'bg-red-500/10 text-red-500' : book.resourceType === 'konu' ? 'bg-orange-500/10 text-orange-500' : 'bg-slate-500/10 text-slate-400'}`}>
                          {book.resourceType === 'youtube' ? 'YOUTUBE' : book.resourceType === 'konu' ? 'KONU' : 'SORU'}
@@ -113,6 +158,7 @@ export default function BookTrackingDetail() {
                       <span className="text-[10px] font-bold text-slate-500 uppercase">{completedCount} / {allTopics.length} Konu</span>
                     </div>
                     <h4 className="text-lg font-bold text-white mt-1 uppercase">{book.bookName}</h4>
+                    {book.isbn && <p className="text-xs font-medium text-slate-500 mt-0.5">ISBN: {book.isbn}</p>}
                   </div>
                 </div>
                 

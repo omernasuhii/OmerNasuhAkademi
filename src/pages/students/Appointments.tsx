@@ -26,10 +26,12 @@ export default function Appointments() {
     return () => unsubscribe();
   }, [user]);
 
+  const studentAppointments = appointments.filter(a => a.requesterRole !== 'parent');
+  
   const stats = {
-    active: appointments.filter(a => a.status === 'confirmed').length,
-    completed: appointments.filter(a => a.status === 'completed').length,
-    pending: appointments.filter(a => a.status === 'pending').length
+    active: studentAppointments.filter(a => a.status === 'confirmed').length,
+    completed: studentAppointments.filter(a => a.status === 'completed').length,
+    pending: studentAppointments.filter(a => a.status === 'pending').length
   };
 
   const handleOpenBooking = () => {
@@ -89,9 +91,9 @@ export default function Appointments() {
         
         <AppointmentList 
           role="student" 
+          filterRequesterRole="student"
           onReschedule={handleReschedule}
-          limit={5}
-          statuses={['confirmed', 'completed']}
+          statuses={['pending', 'confirmed', 'completed']}
         />
       </div>
 

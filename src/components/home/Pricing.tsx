@@ -1,12 +1,14 @@
 import { Check, Shield, Diamond, Medal } from 'lucide-react';
 import { motion } from 'motion/react';
+import { useNavigate } from 'react-router-dom';
 import GoldenStrip from './GoldenStrip';
 
 export default function Pricing() {
+  const navigate = useNavigate();
   const plans = [
     {
-      name: "Aylık Bronz Paket",
-      price: "3.000",
+      name: "Akademik Kıvılcım (Bronz Paket)",
+      image: "https://drive.google.com/thumbnail?id=11GU6GF_X4FCgsiD3bY51VuLPhyuDHDab&sz=q80&w500",
       badgeText: "En Uygun Fiyat",
       badgeBg: "bg-orange-600/90 text-white",
       borderColor: "border-orange-500/40",
@@ -22,13 +24,12 @@ export default function Pricing() {
         "Aylık Konu Hedefi ve Takibi",
         "Aylık Kitap Bitirme Programı",
         "Temel Deneme Takibi",
-        "Kitap Önerileri",
         "Veli Bilgilendirme Sistemi (aylık rapor)"
       ]
     },
     {
-      name: "Aylık Gümüş Paket",
-      price: "4.500",
+      name: "Akademik Momentum (Gümüş Paket)",
+      image: "https://drive.google.com/thumbnail?id=1JNToCLAubXGCaCG0aVDVrnAWfeqveb6L&sz=q80&w500",
       badgeText: "En Çok Tercih Edilen",
       badgeBg: "bg-slate-300 text-slate-900 border-b border-slate-400",
       borderColor: "border-slate-300/40",
@@ -37,20 +38,23 @@ export default function Pricing() {
       buttonClass: "bg-slate-200 hover:bg-white text-slate-900 shadow-slate-300/30",
       iconColor: "text-slate-300",
       features: [
-        "Bronz paket içeriklerinin tamamı",
-        "Ayrıntılı Deneme Analizi (3 Farklı Analiz)",
+        "Haftalık Ders Çalışma Programı",
+        "Haftalık Soru Takibi",
+        "Haftalık Kitap Takibi",
+        "Haftalık Konu Takibi",
+        "Aylık Konu Hedefi ve Takibi",
+        "Aylık Kitap Bitirme Programı",
+        "Temel ve Kurumsal Deneme Takibi",
+        "Veli Bilgilendirme Sistemi (Haftalık + Aylık rapor)",
+        "Ayrıntılı Deneme Analizi",
         "Öğrenci Analizleri (10 Farklı Kişilik Analizi)",
-        "Destekleyici Online Programlar (9 Adet)",
-        "Öğrenciler için Seminerler",
-        "Veliler için seminer",
-        "Veli Bilgilendirme Sistemi (haftalık rapor)",
-        "Kartlı Giriş-Çıkış Sistemi ile Takip",
-        "Ücretsiz Masa Rezervasyonu"
+        "Zaman Yönetim Asistanları (2 Adet)",
+        "Destekleyici Online Programlar (9 Adet)"
       ]
     },
     {
-      name: "Aylık Altın Paket",
-      price: "6.000",
+      name: "Sınırsız Zirve VIP (Altın Paket)",
+      image: "https://drive.google.com/thumbnail?id=1cnmbj2QLHjOBFNO2qjr7ASLEXzMTocrX&sz=q80&w500",
       badgeText: "En Kapsamlı",
       badgeBg: "bg-yellow-500 text-yellow-950",
       borderColor: "border-yellow-400/50",
@@ -59,16 +63,22 @@ export default function Pricing() {
       buttonClass: "bg-yellow-500/20 hover:bg-yellow-500 border border-yellow-400/50 text-yellow-100 hover:text-yellow-950 shadow-yellow-500/20",
       iconColor: "text-yellow-400",
       features: [
-        "Gümüş paket içeriklerinin tamamı",
-        "Ayrıntılı Deneme Analizi (+4 Farklı Analiz)",
-        "Tüm Öğrenci Analizleri (+40 Farklı Kişilik Testleri)",
-        "Destekleyici Online Programlar (+9 Adet)",
-        "Birebir Hedef Belirleme & Motivasyon Görüşmeleri",
-        "Öğrenciler için Özel Gelişim Semineri",
-        "ON Asistana Sınırsız Erişim",
-        "Veliler için Kapsamlı Bilgilendirme Oturumları",
-        "Veli Telefon Kontrol & Teslim Sistemi",
-        "Sabit Zamanlı Çalışma Masası"
+        "Haftalık Ders Çalışma Programı",
+        "Haftalık Soru Takibi",
+        "Haftalık Kitap Takibi",
+        "Haftalık Konu Takibi",
+        "Aylık Konu Hedefi ve Takibi",
+        "Aylık Kitap Bitirme Programı",
+        "Temel ve Kurumsal Deneme Takibi",
+        "Veli Bilgilendirme Sistemi (Haftalık + Aylık rapor)",
+        "Kurumsal ve Ayrıntılı Deneme Analizi",
+        "Öğrenci Analizleri (45 Farklı Kişilik Analizi)",
+        "Zaman Yönetim Asistanları (3 Adet)",
+        "Destekleyici Online Programlar (18 Adet)",
+        "Otomatik Hata Telafi Testi",
+        "Veliler için Kapsamlı Bilgilendirme Raporları",
+        "Öğrenci ve Veliler için Yapay Zekâ Asistan",
+        "300 Soruluk Yapay Zekâ Soru Çözümü"
       ]
     }
   ];
@@ -127,14 +137,33 @@ export default function Pricing() {
               )}
               
               <div className="p-6 md:p-8 pb-0 pt-6 md:pt-8">
-                <h3 className="text-center font-bold text-xl md:text-2xl tracking-tight mb-2">{plan.name}</h3>
-                <div className="text-center mb-6 md:mb-8">
-                  <span className="text-xs md:text-sm text-slate-400 mr-1">₺</span>
-                  <span className="text-4xl md:text-5xl font-extrabold tracking-tight">{plan.price}</span>
-                  <span className="block text-[10px] md:text-xs font-medium uppercase tracking-widest text-slate-500 mt-2">4 hafta için geçerli</span>
+                <div className="w-full h-40 md:h-48 mb-6 overflow-hidden rounded-2xl border border-white/10 relative group shadow-2xl">
+                  <div className="absolute inset-0 bg-slate-900/20 group-hover:bg-transparent transition-colors z-10 duration-500"></div>
+                  <img src={plan.image} alt={plan.name} className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700" />
+                </div>
+
+                <h3 className="text-center font-bold text-xl md:text-2xl tracking-tight mb-2 flex flex-col items-center">
+                  {(() => {
+                    const match = plan.name.match(/^(.*?)\s*(\(.*?\))$/);
+                    if (match) {
+                      return (
+                        <>
+                          <span>{match[1]}</span>
+                          <span className="block text-sm md:text-base opacity-85 font-semibold text-slate-300 mt-1">{match[2]}</span>
+                        </>
+                      );
+                    }
+                    return plan.name;
+                  })()}
+                </h3>
+                <div className="text-center mb-6 text-sm text-slate-400 font-medium tracking-wide">
+                  4 hafta için geçerli
                 </div>
                 
-                <button className={`w-full font-bold text-sm md:text-base py-3 md:py-4 rounded-xl transition-all shadow-lg mb-6 md:mb-8 ${plan.buttonClass}`}>
+                <button 
+                  onClick={() => navigate('/panel/ogrenci/abonelik')}
+                  className={`w-full font-bold text-sm md:text-base py-3 md:py-4 rounded-xl transition-all shadow-lg mb-6 md:mb-8 ${plan.buttonClass}`}
+                >
                   Seç
                 </button>
               </div>

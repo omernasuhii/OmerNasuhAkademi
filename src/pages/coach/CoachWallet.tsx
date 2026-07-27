@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Wallet, TrendingUp, History, ArrowDownLeft, ArrowUpRight, CreditCard, Users, Loader2, X, Check } from 'lucide-react';
+import { Wallet, TrendingUp, History, ArrowDownLeft, ArrowUpRight, CreditCard, Users, Loader2, X, Check, Share2, Copy } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
@@ -10,6 +10,7 @@ export default function CoachWallet() {
   const { userData, user } = useAuth();
   
   const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
   const [students, setStudents] = useState<any[]>([]);
   const [rawTransactions, setRawTransactions] = useState<any[]>([]);
   const [systemBalance, setSystemBalance] = useState(0); 
@@ -74,9 +75,15 @@ export default function CoachWallet() {
   };
 
   // Hesaplamalar
-  const totalEarnings = rawTransactions
+  const totalCollectedFromStudents = rawTransactions
     .filter(tx => tx.type === 'DEPOSIT' && tx.coachId !== 'SYSTEM')
     .reduce((sum, tx) => sum + tx.amount, 0);
+
+  const totalSystemDeductions = rawTransactions
+    .filter(tx => tx.type === 'WITHDRAWAL' && tx.coachId !== 'SYSTEM')
+    .reduce((sum, tx) => sum + (tx.coachDeductionAmount !== undefined ? tx.coachDeductionAmount : tx.amount), 0);
+
+  const totalEarnings = totalCollectedFromStudents - totalSystemDeductions;
 
   const currentMonthStr = new Date().toISOString().substring(0, 7);
   const monthlyEarnings = rawTransactions
@@ -84,6 +91,10 @@ export default function CoachWallet() {
     .reduce((sum, tx) => sum + tx.amount, 0);
 
   const currentSystemBalance = systemBalance;
+
+  const totalReferralEarnings = rawTransactions
+    .filter(tx => tx.type === 'DEPOSIT' && tx.coachId === 'SYSTEM' && (tx.description?.toLowerCase().includes('davet') || tx.description?.toLowerCase().includes('referans')))
+    .reduce((sum, tx) => sum + tx.amount, 0);
 
   // İşlemleri Birleştir (Öğrenci ödemeleri ve Sistem Bakiyesi hareketleri)
   const formattedStudentTxs = rawTransactions.flatMap(tx => {
@@ -167,6 +178,23 @@ export default function CoachWallet() {
         </motion.div>
       </div>
 
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+        className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex items-start gap-3"
+      >
+        <div className="mt-0.5">
+           <svg className="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        </div>
+        <div>
+          <h4 className="text-sm font-bold text-amber-500 mb-1">Sistem Bakiyesi Kuralları</h4>
+          <p className="text-xs text-amber-400/80 leading-relaxed font-medium">
+            Platformumuza yüklenen bakiyeler ve kazanılan hediye referans ödülleri, <strong>yalnızca sistem içi (hizmet satın alımları, abonelikler ve komisyon ödemeleri)</strong> kullanılabilir. Yüklenen bakiyeler ve kazanılan ödüller nakde çevrilemez veya banka hesaplarına iade edilemez. Öğrenci tahsilatlarınız haricindeki sistem içi bakiyeniz FocusON Akademi içerisindeki işlemlerinizde geçerlidir.
+          </p>
+        </div>
+      </motion.div>
+
       {/* Cards Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Earnings Card */}
@@ -221,6 +249,68 @@ export default function CoachWallet() {
            </p>
         </motion.div>
       </div>
+
+      {/* Coach Referral Banner */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.25 }}
+        className="bg-gradient-to-r from-emerald-500/10 via-slate-900 to-amber-500/10 border border-emerald-500/20 rounded-[32px] p-6 md:p-8 relative overflow-hidden"
+      >
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-2 max-w-xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black uppercase tracking-widest">
+              <Share2 size={12} /> Koç Referans Kodu
+            </div>
+            <h3 className="text-xl md:text-2xl font-black text-white">
+              Diğer Koçları Davet Edin, Bakiye Hediyesi Kazanın!
+            </h3>
+            <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
+              Kendi referans kodunuzla davet ettiğiniz koçlar platforma katılıp bakiye yüklediklerinde; onlar <strong className="text-white">ilk yüklemelerinde</strong>, siz ise onların yaptığı <strong className="text-white">her bakiye yüklemesinde</strong> hediye sistem bakiyesi kazanırsınız!
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-3 shrink-0">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <div className="bg-black/60 border border-white/10 rounded-2xl px-5 py-3 text-center flex flex-col justify-center">
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">SİZİN REFERANS KODUNUZ</span>
+                <span className="text-2xl font-mono font-black text-emerald-400 tracking-wider">
+                  {userData?.referralCode || ('FOCUS' + (user?.uid?.substring(0, 4).toUpperCase() || '2026'))}
+                </span>
+              </div>
+
+              <button
+                onClick={() => {
+                  const code = userData?.referralCode || ('FOCUS' + (user?.uid?.substring(0, 4).toUpperCase() || '2026'));
+                  navigator.clipboard.writeText(code);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2500);
+                }}
+                className="h-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-6 py-4 rounded-2xl transition-all shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 text-sm uppercase tracking-wider cursor-pointer"
+              >
+                {copied ? (
+                  <>
+                    <Check size={18} />
+                    Kopyalandı!
+                  </>
+                ) : (
+                  <>
+                    <Copy size={18} />
+                    Kodu Kopyala
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl px-5 py-3 flex items-center justify-between">
+              <span className="text-[11px] font-black text-emerald-400 uppercase tracking-widest">TOPLAM REFERANS KAZANCINIZ</span>
+              <span className="text-2xl font-black text-white">
+                ₺{totalReferralEarnings.toLocaleString('tr-TR')}
+              </span>
+            </div>
+          </div>
+        </div>
+      </motion.div>
 
       {/* Transaction History */}
       <motion.div
@@ -288,7 +378,7 @@ export default function CoachWallet() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-slate-900 border border-slate-700/50 rounded-3xl p-8 w-full max-w-sm shadow-2xl relative"
+              className="bg-slate-900 border border-slate-700/50 sm:rounded-3xl p-8 w-full max-w-sm h-full sm:h-auto max-h-screen sm:max-h-[90vh] overflow-y-auto shadow-2xl relative"
             >
               <button 
                 onClick={() => setSelectedTx(null)}

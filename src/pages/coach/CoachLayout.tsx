@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink, Outlet, Link, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { 
   Users, 
   LayoutDashboard, 
@@ -11,15 +11,19 @@ import {
   Sparkles,
   ClipboardCheck,
   BrainCircuit,
+  Brain,
   Target,
   FileEdit,
   ChevronLeft,
   ChevronRight,
   PanelLeftClose,
   PanelLeftOpen,
-  Wallet
+  Wallet,
+  X,
+  Lock
 } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
+import { isSubscriptionActive } from '../../services/subscriptionService';
 import { useStudent } from '../../lib/StudentContext';
 import { appointmentService } from '../../services/appointmentService';
 import { motion, AnimatePresence } from 'motion/react';
@@ -31,9 +35,14 @@ interface Student {
   lastName?: string;
   email?: string;
   photoURL?: string;
+  subscriptionPlan?: string;
+  subscriptionStatus?: string;
+  subscriptionStartDate?: any;
+  subscriptionEndDate?: any;
 }
 
 export default function CoachLayout() {
+  const location = useLocation();
   const { user, userData, logout } = useAuth();
   const { selectedStudent, setSelectedStudent } = useStudent();
   const [students, setStudents] = useState<Student[]>([]);
@@ -43,6 +52,10 @@ export default function CoachLayout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [location.pathname]);
 
   useEffect(() => {
     if (user && userData) {
@@ -125,13 +138,14 @@ export default function CoachLayout() {
     { title: 'Sınav Analizleri', path: 'analizler', icon: BarChart3 },
     { title: 'Derin Analiz', path: 'derin-analiz', icon: Search },
     { title: 'Öğrenci Profili', path: 'profil', icon: BrainCircuit },
+    { title: 'Kişilik Analizi', path: 'kisilik-analizi', icon: Brain },
     { title: 'Hedefler & Takip', path: 'hedefler', icon: Target },
     { title: 'Ön Ödemeli Cüzdan', path: 'cuzdan', icon: Wallet },
   ];
 
   return (
-    <div className="flex flex-1 min-h-screen bg-[#070b14] relative">
-      {/* Sidebar Toggle Trigger (Visible when collapsed) */}
+    <div className="flex flex-1 h-full bg-[#070b14] relative min-w-0">
+      {/* Sidebar Toggle Trigger (Visible when collapsed on desktop) */}
       <AnimatePresence>
         {isSidebarCollapsed && (
           <motion.button
@@ -146,13 +160,26 @@ export default function CoachLayout() {
         )}
       </AnimatePresence>
 
+      {/* Mobile Drawer Backdrop */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
       <aside className={`print:hidden
-        fixed inset-y-0 left-0 z-50 w-72 bg-[#070b14] border-r border-white/5 flex flex-col transition-all duration-300 lg:static 
+        fixed inset-y-0 left-0 z-50 w-72 bg-[#070b14]/95 border-r border-white/5 flex flex-col transition-all duration-300 lg:static 
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         ${isSidebarCollapsed ? 'lg:w-0 lg:opacity-0 lg:pointer-events-none' : 'lg:w-72 lg:opacity-100'}
       `}>
-        {/* Toggle Button Inside Sidebar */}
+        {/* Toggle Button Inside Sidebar (Desktop only) */}
         <button 
           onClick={() => setIsSidebarCollapsed(true)}
           className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-12 bg-[#070b14] border border-white/5 rounded-full flex items-center justify-center text-slate-500 hover:text-white transition-colors hidden lg:flex z-10"
@@ -171,13 +198,19 @@ export default function CoachLayout() {
         </div>
 
         {/* Logo Section */}
-        <div className="p-8 shrink-0">
+        <div className="p-8 shrink-0 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-3 group">
             <div className="bg-emerald-600 p-2 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.3)] group-hover:scale-105 transition-all">
               <Users size={20} className="text-white" />
             </div>
             <h1 className="text-lg font-black text-white tracking-widest uppercase truncate">Koç Paneli</h1>
           </Link>
+          <button 
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="p-2 text-slate-400 hover:text-white bg-white/5 rounded-xl lg:hidden"
+          >
+            <X size={16} />
+          </button>
         </div>
 
         {/* Search in Sidebar */}
@@ -226,28 +259,49 @@ export default function CoachLayout() {
           <div>
             <p className="px-4 text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 mb-2">Öğrenci Yönetimi</p>
             <div className="space-y-1">
-              {studentMenuItems.map((item) => (
+              {studentMenuItems.map((item) => {
+                const isAlwaysOpen = ['', 'profil', 'cuzdan'].includes(item.path);
+                const hasActiveSub = isSubscriptionActive(selectedStudent);
+                
+                let isDisabled = !hasActiveSub && !isAlwaysOpen;
+                
+                if (hasActiveSub) {
+                  const plan = selectedStudent?.subscriptionPlan || '';
+                  const isBronze = plan.includes('Bronz');
+                  if (isBronze && (item.path === 'derin-analiz' || item.path === 'kisilik-analizi')) {
+                    isDisabled = true;
+                  }
+                }
+                
+                return (
                 <NavLink
                   key={item.path}
-                  to={item.path}
+                  to={isDisabled ? '#' : item.path}
                   end
+                  onClick={(e) => {
+                    if (isDisabled) e.preventDefault();
+                  }}
                   className={({ isActive }) => `
-                    flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all group
-                    ${isActive 
+                    flex items-center justify-between px-4 py-3.5 rounded-2xl transition-all group
+                    ${isActive && !isDisabled
                       ? 'bg-emerald-600/10 text-emerald-400 border border-emerald-600/20' 
                       : 'text-slate-500 hover:text-slate-200 hover:bg-white/5'
                     }
+                    ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}
                   `}
                 >
-                  <item.icon size={18} className="shrink-0" />
-                  <span className="text-sm font-bold tracking-tight">{item.title}</span>
+                  <div className="flex items-center gap-3">
+                    <item.icon size={18} className="shrink-0" />
+                    <span className="text-sm font-bold tracking-tight">{item.title}</span>
+                  </div>
+                  {isDisabled && <Lock size={14} className="text-slate-500" />}
                 </NavLink>
-              ))}
+              )})}
             </div>
           </div>
         </nav>
 
-        {/* User Section at bottom of Sidebar (Optionally move student list here too if needed) */}
+        {/* User Section at bottom of Sidebar */}
         <div className="p-6 shrink-0 border-t border-white/5">
           <button 
             onClick={() => logout()}
@@ -260,21 +314,79 @@ export default function CoachLayout() {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0">
+        {/* Mobile Sub-Header */}
+        <div className="flex lg:hidden items-center gap-3 p-4 bg-[#070b14]/40 backdrop-blur-xl border-b border-white/5 sticky top-0 z-20 shrink-0">
+          <button
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="p-2 bg-emerald-600/10 border border-emerald-500/20 rounded-xl text-emerald-400"
+          >
+            <PanelLeftOpen size={18} />
+          </button>
+          <div className="flex-1">
+            <p className="text-[9px] text-emerald-400 font-bold uppercase tracking-widest leading-none mb-1">Koç Paneli</p>
+            <h2 className="text-xs font-bold text-white leading-none">
+              {studentMenuItems.find(item => {
+                const currentPath = location.pathname.split('/').pop() || '';
+                return item.path === currentPath;
+              })?.title || 'Genel Özet'}
+            </h2>
+          </div>
+        </div>
+
         {/* Route Content */}
-        <div className="flex-1 p-8">
-          {!selectedStudent && !window.location.pathname.includes('/musaitlik') ? (
-            <div className="h-full flex flex-col items-center justify-center text-center max-w-lg mx-auto">
-              <div className="w-20 h-20 bg-emerald-500/10 rounded-3xl flex items-center justify-center text-emerald-500 mb-6 border border-emerald-500/20">
-                <Users size={40} />
-              </div>
-              <h2 className="text-2xl font-bold text-white mb-2">Bir Öğrenci Seçin</h2>
-              <p className="text-slate-500">
-                Öğrenci bazlı özellikleri kullanabilmek için lütfen soldaki panelden takip etmek istediğiniz öğrenciyi seçin.
-              </p>
-            </div>
-          ) : (
-            <Outlet />
-          )}
+        <div className="flex-1 px-4 md:px-8 pb-4 md:pb-8 pt-2 md:pt-4">
+          {(() => {
+            if (!selectedStudent && !location.pathname.includes('/musaitlik')) {
+              return (
+                <div className="h-full flex flex-col items-center justify-center text-center max-w-lg mx-auto">
+                  <div className="w-20 h-20 bg-emerald-500/10 rounded-3xl flex items-center justify-center text-emerald-500 mb-6 border border-emerald-500/20">
+                    <Users size={40} />
+                  </div>
+                  <h2 className="text-2xl font-bold text-white mb-2">Bir Öğrenci Seçin</h2>
+                  <p className="text-slate-500">
+                    Öğrenci bazlı özellikleri kullanabilmek için lütfen soldaki panelden takip etmek istediğiniz öğrenciyi seçin.
+                  </p>
+                </div>
+              );
+            }
+            
+            if (selectedStudent) {
+              const currentPath = location.pathname.replace('/panel/koc/ogrenci', '').replace(/^\//, '');
+              const isAlwaysOpen = ['', 'profil', 'cuzdan'].includes(currentPath);
+              const hasActiveSub = isSubscriptionActive(selectedStudent);
+              
+              let isAllowed = true;
+              let restrictionMessage = '';
+              
+              if (!hasActiveSub && !isAlwaysOpen) {
+                isAllowed = false;
+                restrictionMessage = 'Bu öğrencinin aktif bir aboneliği bulunmadığı için bu sayfaya erişim sağlanamamaktadır. Öğrencinin abonelik başlatması gerekmektedir.';
+              } else if (hasActiveSub) {
+                const plan = selectedStudent?.subscriptionPlan || '';
+                const isBronze = plan.includes('Bronz');
+                if (isBronze && (currentPath === 'derin-analiz' || currentPath === 'kisilik-analizi')) {
+                  isAllowed = false;
+                  restrictionMessage = "Seçili öğrencinin paketi Bronz'dur. Derin Analiz ve Kişilik Analizi özelliklerine erişmek için lütfen öğrencinin abonelik paketini Gümüş veya Altın pakete yükseltin.";
+                }
+              }
+
+              if (!isAllowed) {
+                return (
+                  <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto mt-20">
+                    <div className="w-24 h-24 bg-[#070b14] border border-white/10 rounded-3xl flex items-center justify-center mb-6 shadow-2xl">
+                      <Lock size={40} className="text-slate-500" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-white mb-3 tracking-tight">Erişim Kısıtlı</h2>
+                    <p className="text-slate-400 mb-8 leading-relaxed text-sm">
+                      {restrictionMessage}
+                    </p>
+                  </div>
+                );
+              }
+            }
+
+            return <Outlet />;
+          })()}
         </div>
       </main>
     </div>

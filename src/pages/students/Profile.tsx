@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../lib/AuthContext';
 import { db } from '../../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -7,6 +7,15 @@ import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer, Area
 import { motion, AnimatePresence } from 'motion/react';
 import { studentDataService } from '../../services/studentDataService';
 import { analysisService } from '../../services/analysisService';
+
+const safeGetTime = (dateVal: any) => {
+  if (!dateVal) return 0;
+  if (dateVal.toDate && typeof dateVal.toDate === 'function') {
+    return dateVal.toDate().getTime();
+  }
+  const d = new Date(dateVal);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+};
 
 export default function Profile() {
   const { userData, user } = useAuth();
@@ -22,6 +31,7 @@ export default function Profile() {
     grade: '',
     branch: '',
     ydtLanguage: '',
+    targetUniversity: '',
     targetDepartment: '',
     targetTyt: '',
     targetAyt: ''
@@ -37,7 +47,7 @@ export default function Profile() {
           analysisService.getResults(user.uid)
         ]);
         setExamData(exams || []);
-        setAnalysisData(analyses || []);
+        setAnalysisData((analyses || []).filter((a: any) => !['PARENT_REPORT', 'COACH_REPORT'].includes(a.analysisType)));
       } catch (err) {
         console.error("Data fetch error", err);
       } finally {
@@ -53,6 +63,7 @@ export default function Profile() {
         grade: userData.grade || '',
         branch: userData.branch || '',
         ydtLanguage: userData.ydtLanguage || '',
+        targetUniversity: userData.targetUniversity || '',
         targetDepartment: userData.targetDepartment || '',
         targetTyt: userData.targetTyt?.toString() || '',
         targetAyt: userData.targetAyt?.toString() || ''
@@ -114,7 +125,7 @@ export default function Profile() {
   ];
 
   // Exams Data Processing
-  const sortedTytExams = examData.filter(e => e.examType === 'TYT' || e.examType === 'YKS').sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const sortedTytExams = examData.filter(e => e.examType === 'TYT' || e.examType === 'YKS').sort((a,b) => safeGetTime(a.date) - safeGetTime(b.date));
   const lastTyt = sortedTytExams.length > 0 ? sortedTytExams[sortedTytExams.length - 1] : null;
 
   const getPercentage = (scoreObj: any, max: number) => {
@@ -161,7 +172,7 @@ export default function Profile() {
     { subject: 'Biy', score: 0, fullMark: 100, rawScore: 0 },
   ];
 
-  const sortedAytExams = examData.filter(e => e.examType === 'AYT' || e.examType === 'YKS').sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const sortedAytExams = examData.filter(e => e.examType === 'AYT' || e.examType === 'YKS').sort((a,b) => safeGetTime(a.date) - safeGetTime(b.date));
   const lastAyt = sortedAytExams.length > 0 ? sortedAytExams[sortedAytExams.length - 1] : null;
 
   const aytScores = lastAyt?.examType === 'AYT' ? lastAyt?.scores : (lastAyt?.examType === 'YKS' ? {
@@ -240,16 +251,36 @@ export default function Profile() {
   const recentPerformanceData = performanceData.slice(-6);
 
 
+  const canChangeGrade = useMemo(() => {
+    if (userData?.role === 'admin' || userData?.role === 'coach') return true;
+    if (!userData?.gradeUpdatedAt) return true;
+    const lastUpdate = userData.gradeUpdatedAt.toDate ? userData.gradeUpdatedAt.toDate() : new Date(userData.gradeUpdatedAt);
+    const now = new Date();
+    const oneYearInMs = 365 * 24 * 60 * 60 * 1000;
+    return (now.getTime() - lastUpdate.getTime()) > oneYearInMs;
+  }, [userData]);
+
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await updateDoc(doc(db, 'users', user!.uid), {
+      const updates: any = {
         ...academicInfo,
         targetTyt: parseInt(academicInfo.targetTyt) || 0,
         targetAyt: parseInt(academicInfo.targetAyt) || 0,
         updatedAt: new Date()
-      });
+      };
+      
+      if (academicInfo.grade !== userData?.grade) {
+        if (!canChangeGrade) {
+          alert('Sınıf seviyesini yılda sadece 1 kez değiştirebilirsiniz.');
+          setSaving(false);
+          return;
+        }
+        updates.gradeUpdatedAt = new Date();
+      }
+
+      await updateDoc(doc(db, 'users', user!.uid), updates);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
@@ -342,11 +373,21 @@ export default function Profile() {
               <div className="space-y-5 relative z-10">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Sınıf</label>
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">
+                      Sınıf {(!canChangeGrade && academicInfo.grade === userData?.grade) && <span className="text-amber-500 lowercase normal-case text-[9px]">(Bu yıl değiştirilemez)</span>}
+                    </label>
                     <select 
                       value={academicInfo.grade}
-                      onChange={(e) => setAcademicInfo({...academicInfo, grade: e.target.value})}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 focus:bg-white/10 outline-none transition-all hover:bg-white/10"
+                      disabled={!canChangeGrade && academicInfo.grade === userData?.grade}
+                      onChange={(e) => {
+                        const newGrade = e.target.value;
+                        setAcademicInfo({
+                          ...academicInfo, 
+                          grade: newGrade,
+                          branch: (newGrade === '9. Sınıf' || newGrade === '10. Sınıf') ? 'Alan Yok' : academicInfo.branch
+                        });
+                      }}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 focus:bg-white/10 outline-none transition-all hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <option value="" className="bg-slate-900">Seçiniz...</option>
                       {['9. Sınıf', '10. Sınıf', '11. Sınıf', '12. Sınıf', 'Mezun'].map(g => (
@@ -355,22 +396,24 @@ export default function Profile() {
                     </select>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Alan</label>
-                    <select 
-                      value={academicInfo.branch}
-                      onChange={(e) => setAcademicInfo({...academicInfo, branch: e.target.value})}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 focus:bg-white/10 outline-none transition-all hover:bg-white/10"
-                    >
-                      <option value="" className="bg-slate-900">Seçiniz...</option>
-                      {['SAYISAL', 'EŞİT AĞIRLIK', 'SÖZEL', 'DİL'].map(b => (
-                        <option key={b} value={b} className="bg-slate-900">{b}</option>
-                      ))}
-                    </select>
-                  </div>
+                  {academicInfo.grade && academicInfo.grade !== '9. Sınıf' && academicInfo.grade !== '10. Sınıf' && (
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Alan</label>
+                      <select 
+                        value={academicInfo.branch}
+                        onChange={(e) => setAcademicInfo({...academicInfo, branch: e.target.value})}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 focus:bg-white/10 outline-none transition-all hover:bg-white/10"
+                      >
+                        <option value="" className="bg-slate-900">Seçiniz...</option>
+                        {['SAYISAL', 'EŞİT AĞIRLIK', 'SÖZEL', 'DİL'].map(b => (
+                          <option key={b} value={b} className="bg-slate-900">{b}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
 
-                {academicInfo.branch === 'DİL' && (
+                {academicInfo.branch === 'DİL' && academicInfo.grade !== '9. Sınıf' && academicInfo.grade !== '10. Sınıf' && (
                   <div className="space-y-1.5 animate-in slide-in-from-top-2">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Çalışılan Yabancı Dil</label>
                     <select 
@@ -386,15 +429,27 @@ export default function Profile() {
                   </div>
                 )}
 
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Hedef Üniversite / Bölüm</label>
-                  <input 
-                    type="text"
-                    value={academicInfo.targetDepartment}
-                    onChange={(e) => setAcademicInfo({...academicInfo, targetDepartment: e.target.value})}
-                    placeholder="Örn: ODTÜ - Bilgisayar Müh."
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-600 focus:border-blue-500 focus:bg-white/10 outline-none transition-all hover:bg-white/10"
-                  />
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Hedef Üniversite</label>
+                    <input 
+                      type="text"
+                      value={academicInfo.targetUniversity}
+                      onChange={(e) => setAcademicInfo({...academicInfo, targetUniversity: e.target.value})}
+                      placeholder="Örn: ODTÜ"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-600 focus:border-blue-500 focus:bg-white/10 outline-none transition-all hover:bg-white/10"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Hedef Bölüm</label>
+                    <input 
+                      type="text"
+                      value={academicInfo.targetDepartment}
+                      onChange={(e) => setAcademicInfo({...academicInfo, targetDepartment: e.target.value})}
+                      placeholder="Örn: Bilgisayar Mühendisliği"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-600 focus:border-blue-500 focus:bg-white/10 outline-none transition-all hover:bg-white/10"
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 pt-2">

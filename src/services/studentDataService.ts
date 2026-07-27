@@ -15,8 +15,59 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { OperationType, handleFirestoreError } from './appointmentService';
+import { notificationService } from './notificationService';
 
 export const studentDataService = {
+  async getWeeklyEvaluation(studentId: string, weekStartDate: string): Promise<any | null> {
+    try {
+      const q = query(collection(db, "weeklyEvaluations"), where("studentId", "==", studentId), where("weekStartDate", "==", weekStartDate));
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) {
+        return { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() };
+      }
+      return null;
+    } catch (e) {
+      console.error(e);
+      return null;
+    }
+  },
+  async saveWeeklyEvaluation(studentId: string, weekStartDate: string, evaluation: string): Promise<void> {
+    try {
+      const existing = await this.getWeeklyEvaluation(studentId, weekStartDate);
+      if (existing) {
+        await updateDoc(doc(db, "weeklyEvaluations", existing.id), {
+          evaluation,
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        await addDoc(collection(db, "weeklyEvaluations"), {
+          studentId,
+          weekStartDate,
+          evaluation,
+          createdAt: serverTimestamp()
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  },
+
+  // CABA Test Results
+  async getCabaTestResult(studentId: string): Promise<any | null> {
+    const path = 'caba_tests';
+    try {
+      const docRef = doc(db, path, studentId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        return { id: snap.id, ...snap.data() };
+      }
+      return null;
+    } catch (error) {
+      console.error("CABA testi çekilirken hata:", error);
+      return null;
+    }
+  },
+
   // Daily Programs & Routines
   async getDailyPrograms(studentId: string, dates: string[]): Promise<any[]> {
     const path = 'daily_programs';
@@ -155,6 +206,7 @@ export const studentDataService = {
 
   // Exam Results
   async getExamResults(studentId: string) {
+    if (!studentId) return [];
     const path = 'exam_results';
     try {
       const q = query(
@@ -170,14 +222,51 @@ export const studentDataService = {
     }
   },
 
+  async ensureUniqueExamName(studentId: string, examName: string, excludeId?: string): Promise<string> {
+    const path = 'exam_results';
+    try {
+      const q = query(collection(db, path), where('studentId', '==', studentId));
+      const snap = await getDocs(q);
+      const existingNames = snap.docs
+        .filter(doc => !excludeId || doc.id !== excludeId)
+        .map(doc => doc.data().examName)
+        .filter(Boolean);
+
+      if (!existingNames.includes(examName)) {
+        return examName;
+      }
+
+      let counter = 2;
+      let newName = `${examName} (${counter})`;
+      while (existingNames.includes(newName)) {
+        counter++;
+        newName = `${examName} (${counter})`;
+      }
+      return newName;
+    } catch (e) {
+      console.error('Error ensuring unique exam name:', e);
+      return examName;
+    }
+  },
+
   async addExamResult(result: any) {
     const path = 'exam_results';
     const { id, ...cleanData } = result;
     try {
+      if (cleanData.studentId && cleanData.examName) {
+        cleanData.examName = await this.ensureUniqueExamName(cleanData.studentId, cleanData.examName);
+      }
       const ref = await addDoc(collection(db, path), {
         ...cleanData,
         updatedAt: serverTimestamp()
       });
+      
+      // Award XP for adding a trial exam
+      if (cleanData.studentId) {
+        const isBranch = cleanData.examType === 'BRANŞ' || cleanData.examType === 'DERS';
+        await this.awardXP(cleanData.studentId, isBranch ? 20 : 50, 'Deneme Sınavı Eklendi');
+      }
+      
       return ref.id;
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
@@ -187,6 +276,18 @@ export const studentDataService = {
   async updateExamResult(id: string, result: any) {
     const path = 'exam_results';
     try {
+      if (result.studentId && result.examName) {
+        result.examName = await this.ensureUniqueExamName(result.studentId, result.examName, id);
+      } else if (result.examName) {
+        // If studentId isn't provided, fetch existing doc to get studentId
+        const examSnap = await getDoc(doc(db, path, id));
+        if (examSnap.exists()) {
+          const studentId = examSnap.data().studentId;
+          if (studentId) {
+            result.examName = await this.ensureUniqueExamName(studentId, result.examName, id);
+          }
+        }
+      }
       await updateDoc(doc(db, path, id), {
         ...result,
         updatedAt: serverTimestamp()
@@ -199,6 +300,28 @@ export const studentDataService = {
   async deleteExamResult(id: string) {
     const path = 'exam_results';
     try {
+      const examSnap = await getDoc(doc(db, path, id));
+      if (examSnap.exists()) {
+        const data = examSnap.data();
+        const isBranch = data.examType === 'BRANŞ' || data.examType === 'DERS';
+        
+        let xpToDeduct = isBranch ? 20 : 50;
+        if (data.analyzed) {
+          xpToDeduct += isBranch ? 40 : 150;
+          
+          // Clean up the analysis document as well
+          const analysesQuery = query(collection(db, 'exam_analyses'), where('examId', '==', id));
+          const analysesSnap = await getDocs(analysesQuery);
+          analysesSnap.forEach(async (analysisDoc) => {
+             await deleteDoc(doc(db, 'exam_analyses', analysisDoc.id));
+          });
+        }
+        
+        if (data.studentId) {
+          await this.awardXP(data.studentId, -xpToDeduct, 'Deneme Sınavı Silindi');
+        }
+      }
+
       await deleteDoc(doc(db, path, id));
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
@@ -207,6 +330,7 @@ export const studentDataService = {
 
   // Weekly Reports (Solved/Unsolved)
   async getWeeklyReports(studentId: string) {
+    if (!studentId) return [];
     const path = 'weekly_reports';
     try {
       const q = query(
@@ -232,6 +356,64 @@ export const studentDataService = {
       return ref.id;
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async logSubscriptionHistory(data: {
+    studentId: string;
+    studentName: string;
+    oldPlan?: string;
+    newPlan: string;
+    action: 'started' | 'renewed' | 'upgraded' | 'expired' | 'cancelled';
+    startDate: string;
+    endDate: string;
+  }) {
+    try {
+      const { doc, getDoc, updateDoc } = await import('firebase/firestore');
+      const ref = doc(db, 'users', data.studentId);
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+         const userData = snap.data();
+         const history = userData.subscriptionHistory || [];
+         const entry: any = {
+            id: Math.random().toString(36).substring(2, 11),
+            studentId: data.studentId || '',
+            studentName: data.studentName || '',
+            oldPlan: data.oldPlan || 'Yok',
+            newPlan: data.newPlan || '',
+            action: data.action,
+            startDate: data.startDate || '',
+            endDate: data.endDate || '',
+            createdAt: new Date().toISOString()
+         };
+         history.push(entry);
+         await updateDoc(ref, { subscriptionHistory: history });
+      }
+    } catch (error) {
+       console.error("Error logging subscription history", error);
+    }
+  },
+
+  async awardXP(uid: string, amount: number, reason: string = '') {
+    const path = 'users';
+    try {
+      const ref = doc(db, path, uid);
+      const userSnap = await getDoc(ref);
+      if (userSnap.exists()) {
+        const currentXP = userSnap.data().xp || 0;
+        await updateDoc(ref, {
+          xp: currentXP + amount,
+          updatedAt: serverTimestamp()
+        });
+        
+        // Optional: you can store XP history in a subcollection or array 
+        // to track "reason" and avoid spam, but simplified here.
+        return currentXP + amount;
+      }
+      return 0;
+    } catch (error) {
+      console.error("awardXP error", error);
+      return 0;
     }
   },
 
@@ -264,6 +446,46 @@ export const studentDataService = {
     }
   },
 
+  async getCurriculum() {
+    const path = 'settings';
+    try {
+      const snap = await getDoc(doc(db, path, 'curriculum'));
+      if (!snap.exists()) return null;
+      return (snap.data().subjects as Record<string, string[]>) || null;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path);
+      return null;
+    }
+  },
+
+  async saveCurriculumSubject(subject: string, topics: string[]) {
+    const path = 'settings';
+    try {
+      const ref = doc(db, path, 'curriculum');
+      const snap = await getDoc(ref);
+      let subjects = snap.exists() ? snap.data().subjects || {} : {};
+      subjects[subject] = topics;
+      await setDoc(ref, { subjects, updatedAt: serverTimestamp() }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async deleteCurriculumSubject(subject: string) {
+    const path = 'settings';
+    try {
+      const ref = doc(db, path, 'curriculum');
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        let subjects = snap.data().subjects || {};
+        delete subjects[subject];
+        await setDoc(ref, { subjects, updatedAt: serverTimestamp() }, { merge: true });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
   // Global Books
   async getGlobalBooks() {
     const path = 'global_books';
@@ -273,6 +495,168 @@ export const studentDataService = {
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, path);
       return [];
+    }
+  },
+
+  async getGlobalCurriculumPlans() {
+    const path = 'settings';
+    try {
+      const snap = await getDoc(doc(db, path, 'curriculum_plans_data'));
+      if (!snap.exists()) return [];
+      return snap.data().plans || [];
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path);
+      return [];
+    }
+  },
+
+  async saveGlobalCurriculumPlan(planData: any) {
+    const path = 'settings';
+    try {
+      const ref = doc(db, path, 'curriculum_plans_data');
+      const snap = await getDoc(ref);
+      let plans = snap.exists() ? snap.data().plans || [] : [];
+      
+      if (planData.id) {
+        const index = plans.findIndex((p: any) => p.id === planData.id);
+        if (index > -1) {
+          plans[index] = { ...planData, updatedAt: new Date().toISOString() };
+        } else {
+          plans.push({ ...planData, updatedAt: new Date().toISOString() });
+        }
+      } else {
+        const newId = Math.random().toString(36).substring(2, 15);
+        planData.id = newId;
+        plans.push({ ...planData, id: newId, updatedAt: new Date().toISOString() });
+      }
+      
+      await setDoc(ref, { plans }, { merge: true });
+      return planData.id;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async deleteGlobalCurriculumPlan(planId: string) {
+    const path = 'settings';
+    try {
+      const ref = doc(db, path, 'curriculum_plans_data');
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        let plans = snap.data().plans || [];
+        plans = plans.filter((p: any) => p.id !== planId);
+        await setDoc(ref, { plans }, { merge: true });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async getGlobalQuestions() {
+    const path = 'settings';
+    try {
+      const snap = await getDoc(doc(db, path, 'global_questions_data'));
+      if (!snap.exists()) return [];
+      return snap.data().questions || [];
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path);
+      return [];
+    }
+  },
+
+  async saveGlobalQuestion(questionData: any) {
+    const path = 'settings';
+    try {
+      const ref = doc(db, path, 'global_questions_data');
+      const snap = await getDoc(ref);
+      let questions = snap.exists() ? snap.data().questions || [] : [];
+      
+      if (questionData.id) {
+        const index = questions.findIndex((q: any) => q.id === questionData.id);
+        if (index > -1) {
+          questions[index] = { ...questionData, updatedAt: new Date().toISOString() };
+        } else {
+          questions.push({ ...questionData, updatedAt: new Date().toISOString() });
+        }
+      } else {
+        const newId = Math.random().toString(36).substring(2, 15);
+        questionData.id = newId;
+        questions.push({ ...questionData, id: newId, updatedAt: new Date().toISOString() });
+      }
+      
+      await setDoc(ref, { questions }, { merge: true });
+      return questionData.id;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async deleteGlobalQuestion(questionId: string) {
+    const path = 'settings';
+    try {
+      const ref = doc(db, path, 'global_questions_data');
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        let questions = snap.data().questions || [];
+        questions = questions.filter((q: any) => q.id !== questionId);
+        await setDoc(ref, { questions }, { merge: true });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async getGlobalAcademicExams() {
+    const path = 'settings';
+    try {
+      const snap = await getDoc(doc(db, path, 'global_academic_exams_data'));
+      if (!snap.exists()) return [];
+      return snap.data().exams || [];
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path);
+      return [];
+    }
+  },
+
+  async saveGlobalAcademicExam(examData: any) {
+    const path = 'settings';
+    try {
+      const ref = doc(db, path, 'global_academic_exams_data');
+      const snap = await getDoc(ref);
+      let exams = snap.exists() ? snap.data().exams || [] : [];
+      
+      if (examData.id) {
+        const index = exams.findIndex((e: any) => e.id === examData.id);
+        if (index > -1) {
+          exams[index] = { ...examData, updatedAt: new Date().toISOString() };
+        } else {
+          exams.push({ ...examData, updatedAt: new Date().toISOString() });
+        }
+      } else {
+        const newId = Math.random().toString(36).substring(2, 15);
+        examData.id = newId;
+        exams.push({ ...examData, id: newId, updatedAt: new Date().toISOString() });
+      }
+      
+      await setDoc(ref, { exams }, { merge: true });
+      return examData.id;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async deleteGlobalAcademicExam(examId: string) {
+    const path = 'settings';
+    try {
+      const ref = doc(db, path, 'global_academic_exams_data');
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        let exams = snap.data().exams || [];
+        exams = exams.filter((e: any) => e.id !== examId);
+        await setDoc(ref, { exams }, { merge: true });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
     }
   },
 
@@ -309,6 +693,15 @@ export const studentDataService = {
     }
   },
 
+  async deleteGlobalBook(bookId: string) {
+    const path = 'global_books';
+    try {
+      await deleteDoc(doc(db, path, bookId));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
   // Book Tracking
   async getBookTracking(studentId: string) {
     const path = 'book_tracking';
@@ -319,6 +712,15 @@ export const studentDataService = {
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, path);
       return [];
+    }
+  },
+
+  async deleteBookTracking(trackId: string) {
+    const path = 'book_tracking';
+    try {
+      await deleteDoc(doc(db, path, trackId));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
     }
   },
 
@@ -396,10 +798,114 @@ export const studentDataService = {
         const ref = await addDoc(collection(db, path), data);
         // Also update the exam result to mark it as analyzed
         await this.updateExamResult(analysis.examId, { analyzed: true });
+        
+        const examSnap = await getDoc(doc(db, 'exam_results', analysis.examId));
+        let xpEarned = 100;
+        if (examSnap.exists()) {
+           const examType = examSnap.data().examType;
+           xpEarned = (examType === 'BRANŞ' || examType === 'DERS') ? 80 : 300; // İki katına çıkarıldı
+        }
+        
+        if (analysis.studentId) {
+            await this.awardXP(analysis.studentId, xpEarned, 'Deneme Sınavı Analizi');
+        }
         return ref.id;
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async syncDailyProgramsWithExams(studentId: string, dates: string[], userData?: any) {
+    if (!studentId || !dates || dates.length === 0) return;
+    try {
+      const allExams = await this.getExamResults(studentId);
+      for (const dateStr of dates) {
+        if (!dateStr) continue;
+
+        const dateExams = allExams.filter((e: any) => 
+          e.date === dateStr || (e.examType === 'YKS' && e.aytDate === dateStr)
+        );
+
+        const programs = await this.getDailyPrograms(studentId, [dateStr]);
+        const program = (programs && programs.length > 0) ? programs[0] : null;
+        const existingTasks = program?.tasks || [];
+
+        const isDenemeTask = (t: any) => 
+          t.topic?.includes('Deneme') || t.subject?.includes('Genel') || t.subject?.includes('YDT') || t.branch === 'Denemeler' || t.type === 'Deneme';
+
+        const assignedDenemeTasks = existingTasks.filter((t: any) => isDenemeTask(t) && !t.id?.startsWith('exam-sync-'));
+        const nonDenemeTasks = existingTasks.filter((t: any) => !isDenemeTask(t));
+
+        const updatedDenemeTasks: any[] = [];
+
+        for (let i = 0; i < dateExams.length; i++) {
+          const exam = dateExams[i];
+
+          const totalSolved = Object.values(exam.scores || {}).reduce((acc: number, curr: any) => {
+            const c = Number((curr as any).c) || Number((curr as any).correct) || 0;
+            const i = Number((curr as any).i) || Number((curr as any).incorrect) || 0;
+            return acc + c + i;
+          }, 0);
+
+          const totalQuestions = Object.values(exam.scores || {}).reduce((acc: number, curr: any) => {
+            const c = Number((curr as any).c) || Number((curr as any).correct) || 0;
+            const i = Number((curr as any).i) || Number((curr as any).incorrect) || 0;
+            const b = Number((curr as any).b) || Number((curr as any).blank) || 0;
+            return acc + c + i + b;
+          }, 0);
+
+          const countToUse = exam.analyzed ? totalQuestions : totalSolved;
+
+          if (i < assignedDenemeTasks.length) {
+            updatedDenemeTasks.push({
+              ...assignedDenemeTasks[i],
+              isDone: true,
+              isWaitingResult: false,
+              completedCount: countToUse || assignedDenemeTasks[i].completedCount || 1,
+              targetCount: countToUse || assignedDenemeTasks[i].targetCount || 1,
+              examId: exam.id
+            });
+          } else {
+            const subjectName = exam.examName || (dateStr === exam.aytDate ? (userData?.branch === 'DİL' ? 'YDT Genel Deneme' : 'AYT Genel Deneme') : (exam.examType === 'TYT' || exam.examType === 'YKS' ? 'TYT Genel Deneme' : exam.examType === 'YDT' ? 'YDT Genel Deneme' : 'Genel Deneme'));
+            updatedDenemeTasks.push({
+              id: 'exam-sync-' + exam.id,
+              examId: exam.id,
+              subject: subjectName,
+              topic: 'Deneme Çözümü',
+              type: 'Deneme',
+              isDone: true,
+              isExtra: true,
+              targetCount: countToUse || 1,
+              completedCount: countToUse || 1
+            });
+          }
+        }
+
+        for (let j = dateExams.length; j < assignedDenemeTasks.length; j++) {
+          updatedDenemeTasks.push({
+            ...assignedDenemeTasks[j],
+            isDone: false,
+            isWaitingResult: false,
+            completedCount: 0,
+            examId: undefined
+          });
+        }
+
+        const finalTasks = [...nonDenemeTasks, ...updatedDenemeTasks];
+
+        if (program) {
+          await this.saveDailyProgram({ ...program, tasks: finalTasks });
+        } else if (finalTasks.length > 0) {
+          await this.saveDailyProgram({
+            studentId,
+            date: dateStr,
+            tasks: finalTasks
+          });
+        }
+      }
+    } catch (err) {
+      console.error('syncDailyProgramsWithExams error:', err);
     }
   },
 
@@ -436,6 +942,36 @@ export const studentDataService = {
     }
   },
 
+  async autoCompleteMonthlyTopicGoal(studentId: string, subject: string, topic: string, dateStr: string, isDone: boolean) {
+    const path = 'monthly_goals';
+    try {
+      const yearMonth = dateStr.slice(0, 7); // e.g. "2026-07"
+      const docId = `${studentId}_${yearMonth}`;
+      const ref = doc(db, path, docId);
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        const goalData = snap.data();
+        let topicGoals = goalData.topicGoals || [];
+        let updated = false;
+        topicGoals = topicGoals.map((tg: any) => {
+          if (tg.subject?.trim().toLowerCase() === subject?.trim().toLowerCase() && 
+              tg.topic?.trim().toLowerCase() === topic?.trim().toLowerCase()) {
+            if (tg.isCompleted !== isDone) {
+              updated = true;
+              return { ...tg, isCompleted: isDone };
+            }
+          }
+          return tg;
+        });
+        if (updated) {
+          await updateDoc(ref, { topicGoals, updatedAt: serverTimestamp() });
+        }
+      }
+    } catch (error) {
+      console.error("Error auto completing monthly topic goal:", error);
+    }
+  },
+
   // Wallet Transactions
   async getWalletTransactions(studentId: string) {
     const path = 'wallet_transactions';
@@ -464,7 +1000,7 @@ export const studentDataService = {
       }
       
       const studentData = studentSnap.data();
-      const coachId = studentData.coachId;
+      const coachId = studentData.coachId || studentData.assignedCoachId;
 
       let currentBalance = studentData.walletBalance || 0;
       
@@ -489,6 +1025,12 @@ export const studentDataService = {
         const coachDeduction = transaction.coachDeductionAmount !== undefined ? transaction.coachDeductionAmount : transaction.amount;
 
         if (currentSystemBalance < coachDeduction) {
+           await notificationService.addNotification(coachId, {
+               title: 'Yetersiz Sistem Bakiyesi',
+               message: `❌ İşlem Başarısız: Cüzdanınızda yeterli bakiye bulunmadığı için öğrenciniz '${studentData.firstName || ''} ${studentData.lastName || ''}'ın abonelik/satın alma işlemi gerçekleştirilemedi. Lütfen sisteme bakiye yükleyin.`,
+               type: 'payment',
+               link: '/panel/koc/cuzdan'
+           });
            return { success: false, error: "Bu işlemi gerçekleştirebilmek için bağlı olduğunuz kurumun/koçun paket güncellemesi (veya ek yetkilendirmesi) gerekmektedir. Lütfen eğitim koçunuza bilgi veriniz." };
         }
         
@@ -497,6 +1039,25 @@ export const studentDataService = {
            systemBalance: currentSystemBalance - coachDeduction,
            updatedAt: serverTimestamp()
         });
+
+        // Notify coach of successful deduction
+        await notificationService.addNotification(coachId, {
+            title: 'Satın Alım/Yenileme Kesintisi',
+            message: `🧾 İşlem Başarılı: Öğrenciniz '${studentData.firstName || ''} ${studentData.lastName || ''}'ın ödemesi sebebiyle cüzdanınızdan ${coachDeduction} ₺ sistem payı kesildi.`,
+            type: 'payment',
+            link: '/panel/koc/cuzdan'
+        });
+        
+        // Check critical balance warning
+        const newCoachBalance = currentSystemBalance - coachDeduction;
+        if (newCoachBalance < 500 && currentSystemBalance >= 500) { // arbitrary threshold, triggers once passing it
+            await notificationService.addNotification(coachId, {
+                title: 'Kritik Bakiye Uyarısı',
+                message: `⚠️ Cüzdan bakiyeniz kritik seviyeye (${newCoachBalance} ₺) düşmüştür. Öğrencilerinizin yaklaşan abonelik yenilemelerinde kesinti yaşanmaması için lütfen bakiye yüklemesi yapın.`,
+                type: 'system',
+                link: '/panel/koc/cuzdan'
+            });
+        }
       }
 
       // Create student transaction log
@@ -556,6 +1117,58 @@ export const studentDataService = {
         console.error(`Fallback failed for ${collectionPath}:`, innerError);
         return [];
       }
+    }
+  },
+
+  async getAIAssistantChatHistory(studentId: string) {
+    const path = 'ai_chat_history';
+    try {
+      const snap = await getDoc(doc(db, path, studentId));
+      if (snap.exists()) {
+        return snap.data().messages || [];
+      }
+      return [];
+    } catch (error) {
+      console.error(error);
+      return [];
+    }
+  },
+
+  async saveAIAssistantChatHistory(studentId: string, messages: any[]) {
+    const path = 'ai_chat_history';
+    try {
+      await setDoc(doc(db, path, studentId), {
+        messages,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    } catch (error) {
+      console.error(error);
+    }
+  },
+
+  async getParentAIAssistantChatHistory(parentId: string) {
+    const path = 'parent_ai_chat_history';
+    try {
+      const snap = await getDoc(doc(db, path, parentId));
+      if (snap.exists()) {
+        return snap.data().messages || [];
+      }
+      return [];
+    } catch (error) {
+      console.error(error);
+      return [];
+    }
+  },
+
+  async saveParentAIAssistantChatHistory(parentId: string, messages: any[]) {
+    const path = 'parent_ai_chat_history';
+    try {
+      await setDoc(doc(db, path, parentId), {
+        messages,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    } catch (error) {
+      console.error(error);
     }
   }
 };

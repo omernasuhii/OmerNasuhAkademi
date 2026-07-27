@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useStudent } from '../../lib/StudentContext';
+import { useAuth } from '../../lib/AuthContext';
 import { BrainCircuit, Star, Zap, User, Target, Sparkles, Save, Loader2, GraduationCap, Info, AlertCircle } from 'lucide-react';
 import { studentDataService } from '../../services/studentDataService';
 import { calculateSubjectMultipliers, TASK_WEIGHTS } from '../../lib/programCalculations';
@@ -7,6 +8,7 @@ import { serverTimestamp } from 'firebase/firestore';
 
 export default function StudentProfile() {
   const { selectedStudent, setSelectedStudent } = useStudent();
+  const { userData } = useAuth();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,16 +17,27 @@ export default function StudentProfile() {
   const [academicInfo, setAcademicInfo] = useState({
     grade: '',
     branch: '',
+    targetUniversity: '',
     targetDepartment: '',
     targetTyt: '',
     targetAyt: ''
   });
+
+  const canChangeGrade = useMemo(() => {
+    if (userData?.role === 'admin') return true;
+    if (!selectedStudent?.gradeUpdatedAt) return true;
+    const lastUpdate = selectedStudent.gradeUpdatedAt.toDate ? selectedStudent.gradeUpdatedAt.toDate() : new Date(selectedStudent.gradeUpdatedAt);
+    const now = new Date();
+    const oneYearInMs = 365 * 24 * 60 * 60 * 1000;
+    return (now.getTime() - lastUpdate.getTime()) > oneYearInMs;
+  }, [selectedStudent, userData]);
 
   useEffect(() => {
     if (selectedStudent) {
       setAcademicInfo({
         grade: selectedStudent.grade || '',
         branch: selectedStudent.branch || '',
+        targetUniversity: selectedStudent.targetUniversity || '',
         targetDepartment: selectedStudent.targetDepartment || '',
         targetTyt: selectedStudent.targetTyt?.toString() || '',
         targetAyt: selectedStudent.targetAyt?.toString() || ''
@@ -47,6 +60,15 @@ export default function StudentProfile() {
         targetTyt: parseInt(academicInfo.targetTyt) || 0,
         targetAyt: parseInt(academicInfo.targetAyt) || 0,
       };
+
+      if (academicInfo.grade !== selectedStudent.grade) {
+        if (!canChangeGrade) {
+          setError('Sınıf seviyesini yılda sadece 1 kez değiştirebilirsiniz.');
+          setLoading(false);
+          return;
+        }
+        updatedData.gradeUpdatedAt = new Date();
+      }
 
       const res = await studentDataService.updateStudentProfile(selectedStudent.uid, updatedData);
       
@@ -113,11 +135,12 @@ export default function StudentProfile() {
 
            <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
               <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2">
-                 <Target className="text-emerald-500" size={16} /> Hedef Bölüm & Paket
+                 <Target className="text-emerald-500" size={16} /> Hedef Gelişim Odakları
               </h3>
               <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-2xl mb-4">
-                 <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Hedef Bölüm/Meslek</p>
-                 <p className="text-lg font-black text-white italic uppercase leading-tight">{academicInfo.targetDepartment || 'Henüz Belirlenmedi'}</p>
+                 <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Hedef Üniversite / Bölüm</p>
+                 <p className="text-lg font-black text-white italic uppercase leading-tight mb-1">{academicInfo.targetUniversity || 'Üniversite Girilmedi'}</p>
+                 <p className="text-sm font-bold text-slate-300 uppercase leading-tight">{academicInfo.targetDepartment || 'Bölüm Girilmedi'}</p>
               </div>
               <div className="bg-indigo-500/10 border border-indigo-500/20 p-4 rounded-2xl">
                  <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Mevcut Abonelik</p>
@@ -147,11 +170,21 @@ export default function StudentProfile() {
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  <div className="space-y-2 text-left">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Sınıf Seviyesi</label>
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">
+                      Sınıf Seviyesi {(!canChangeGrade && academicInfo.grade === selectedStudent?.grade) && <span className="text-amber-500 lowercase normal-case text-[9px]">(Bu yıl değiştirilemez)</span>}
+                    </label>
                     <select 
                       value={academicInfo.grade}
-                      onChange={(e) => setAcademicInfo({...academicInfo, grade: e.target.value})}
-                      className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500/50 outline-none transition-all"
+                      disabled={!canChangeGrade && academicInfo.grade === selectedStudent?.grade}
+                      onChange={(e) => {
+                        const newGrade = e.target.value;
+                        setAcademicInfo({
+                          ...academicInfo,
+                          grade: newGrade,
+                          branch: (newGrade === '9. Sınıf' || newGrade === '10. Sınıf') ? 'Alan Yok' : academicInfo.branch
+                        });
+                      }}
+                      className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500/50 outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <option value="">Seçiniz...</option>
                       {['9. Sınıf', '10. Sınıf', '11. Sınıf', '12. Sınıf', 'Mezun'].map(g => (
@@ -160,22 +193,34 @@ export default function StudentProfile() {
                     </select>
                  </div>
 
-                 <div className="space-y-2 text-left">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Alan</label>
-                    <select 
-                      value={academicInfo.branch}
-                      onChange={(e) => setAcademicInfo({...academicInfo, branch: e.target.value})}
-                      className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500/50 outline-none transition-all"
-                    >
-                      <option value="">Seçiniz...</option>
-                      {['SAYISAL', 'EŞİT AĞIRLIK', 'SÖZEL', 'DİL'].map(b => (
-                        <option key={b} value={b}>{b}</option>
-                      ))}
-                    </select>
-                 </div>
+                 {academicInfo.grade && academicInfo.grade !== '9. Sınıf' && academicInfo.grade !== '10. Sınıf' && (
+                   <div className="space-y-2 text-left">
+                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Alan</label>
+                     <select 
+                       value={academicInfo.branch}
+                       onChange={(e) => setAcademicInfo({...academicInfo, branch: e.target.value})}
+                       className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500/50 outline-none transition-all"
+                     >
+                       <option value="">Seçiniz...</option>
+                       {['SAYISAL', 'EŞİT AĞIRLIK', 'SÖZEL', 'DİL'].map(b => (
+                         <option key={b} value={b}>{b}</option>
+                       ))}
+                     </select>
+                   </div>
+                 )}
 
                  <div className="space-y-2 md:col-span-2 text-left">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Hedef Bölüm/Meslek</label>
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Hedef Üniversite</label>
+                    <input 
+                      type="text"
+                      value={academicInfo.targetUniversity}
+                      onChange={(e) => setAcademicInfo({...academicInfo, targetUniversity: e.target.value})}
+                      placeholder="Örn: Orta Doğu Teknik Üniversitesi"
+                      className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500/50 outline-none transition-all"
+                    />
+                 </div>
+                 <div className="space-y-2 md:col-span-2 text-left">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Hedef Bölüm / Meslek</label>
                     <input 
                       type="text"
                       value={academicInfo.targetDepartment}

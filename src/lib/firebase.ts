@@ -1,11 +1,41 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { initializeApp, getApps } from 'firebase/app';
+import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
+import { getMessaging, isSupported } from 'firebase/messaging';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
+let app;
+try {
+  if (!getApps().length) {
+    app = initializeApp(firebaseConfig);
+  } else {
+    app = getApps()[0];
+  }
+} catch (e) {
+  console.error("Firebase init error:", e);
+}
+
 export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
-export const auth = getAuth();
+export const auth = getAuth(app);
+export const storage = getStorage(app);
+setPersistence(auth, browserLocalPersistence).catch((err) => console.error('Auth persistence error:', err));
+auth.languageCode = 'tr';
+
+let messaging = null;
+try {
+  if (app) {
+    isSupported().then(supported => {
+      if (supported) {
+        messaging = getMessaging(app);
+      }
+    });
+  }
+} catch (e) {
+  console.error("Firebase messaging not supported", e);
+}
+
+export { messaging };
 
 export enum OperationType {
   CREATE = 'create',
@@ -51,7 +81,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
 }
 
 async function testConnection() {
@@ -63,5 +92,4 @@ async function testConnection() {
     }
   }
 }
-
 testConnection();

@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Particles, { initParticlesEngine } from "@tsparticles/react";
 import { type Container, type ISourceOptions } from "@tsparticles/engine";
 import { loadSlim } from "@tsparticles/slim";
@@ -8,6 +9,7 @@ import { Typewriter } from '../ui/Typewriter';
 
 export default function AIAssistantSection() {
   const [init, setInit] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     initParticlesEngine(async (engine) => {
@@ -152,7 +154,7 @@ export default function AIAssistantSection() {
             </div>
 
             <div className="flex gap-4">
-              <button className="px-8 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold transition-all shadow-[0_0_40px_-10px_rgba(79,70,229,0.5)] flex items-center gap-2">
+              <button onClick={() => navigate('/panel/ogrenci/ai-asistan')} className="px-8 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold transition-all shadow-[0_0_40px_-10px_rgba(79,70,229,0.5)] flex items-center gap-2">
                 <Bot size={20} />
                 Asistanla Tanış
               </button>

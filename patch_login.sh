@@ -1,0 +1,78 @@
+#!/bin/bash
+cat << 'PATCH' > patch.txt
+      // Check if user profile exists in Firestore
+      const userDoc = await getDoc(doc(db, "users", user.uid));
+
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        const role = userData.role || "student";
+        
+        if (role === "admin") {
+          navigate("/panel/admin");
+        } else if (role === "coach") {
+          if (userData.approved === false || userData.approved === "rejected") {
+            navigate("/koc-onay-bekliyor");
+          } else {
+            navigate("/panel/koc");
+          }
+        } else if (role === "parent") {
+          navigate("/panel/veli");
+        } else {
+          if (!userData.registrationStep || userData.registrationStep < 4 || !userData.phone) {
+            navigate("/kayit-tamamla");
+          } else {
+            navigate("/panel/ogrenci");
+          }
+        }
+      } else {
+        // Check if a user with this email already exists but with a different UID
+        const usersRef = collection(db, "users");
+        const emailQuery = query(usersRef, where("email", "==", user.email?.toLowerCase()));
+        const emailQuerySnapshot = await getDocs(emailQuery);
+        
+        if (!emailQuerySnapshot.empty) {
+          const existingUser = emailQuerySnapshot.docs[0].data();
+          if (existingUser.role === "coach") {
+            setError("Bu e-posta adresi ile kayıtlı bir koç hesabınız bulunmaktadır. Lütfen e-posta ve şifrenizle giriş yapınız.");
+            await auth.signOut();
+            setLoading(false);
+            return;
+          } else if (existingUser.role === "admin") {
+            setError("Yönetici hesapları Google ile giriş yapamaz. Lütfen e-posta ve şifrenizle giriş yapınız.");
+            await auth.signOut();
+            setLoading(false);
+            return;
+          } else {
+            setError("Bu e-posta adresi ile zaten bir hesabınız bulunmaktadır. Lütfen e-posta ve şifrenizle giriş yapınız.");
+            await auth.signOut();
+            setLoading(false);
+            return;
+          }
+        }
+
+        // Quick sign up with Google (default role is student)
+        const displayName = user.displayName || "";
+        const nameParts = displayName.split(" ");
+        const firstName = nameParts[0] || "";
+        const lastName = nameParts.slice(1).join(" ") || "";
+
+        const userData = {
+          uid: user.uid,
+          email: user.email?.toLowerCase() || "",
+          firstName,
+          lastName,
+          role: "student",
+          phone: "",
+          phoneVerified: false,
+          emailVerified: true,
+          createdAt: serverTimestamp(),
+          lastLoginAt: serverTimestamp(),
+          isOnline: true,
+          registrationStep: 1,
+          referralCode: "FOCUS" + user.uid.substring(0, 4).toUpperCase()
+        };
+
+        await setDoc(doc(db, "users", user.uid), userData);
+        navigate("/kayit-tamamla");
+      }
+PATCH

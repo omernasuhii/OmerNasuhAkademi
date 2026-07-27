@@ -126,7 +126,7 @@ export default function AdminPrograms() {
             <h3 className="text-xl font-bold text-white mb-2 pr-20">{prog.title}</h3>
             <p className="text-slate-400 text-sm mb-6 line-clamp-2 flex-1">{prog.description}</p>
             
-            <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                <div className="bg-black/20 rounded-xl p-3 border border-white/5">
                  <div className="flex items-center gap-1.5 text-slate-500 mb-1">
                     <List size={14} /> <span className="text-[10px] uppercase font-bold tracking-widest">Adım Sayısı</span>
@@ -273,7 +273,7 @@ function ProgramEditor({ program, setProgram, onSave, onCancel }: { program: Par
                  </div>
              </div>
              
-             <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-white/5">
                 <div className="space-y-2">
                   <label className="text-xs font-black text-slate-500 uppercase tracking-widest pl-1">Tamamlama Türü</label>
                   <select 
@@ -382,7 +382,7 @@ function ProgramEditor({ program, setProgram, onSave, onCancel }: { program: Par
 
          {activeTab === 'settings' && (
            <div className="max-w-2xl space-y-6">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                  <div className="space-y-2">
                     <label className="text-xs font-black text-slate-500 uppercase tracking-widest pl-1">Görünürlük</label>
                     <select 
@@ -410,7 +410,7 @@ function ProgramEditor({ program, setProgram, onSave, onCancel }: { program: Par
                  </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-white/5">
                  <div className="space-y-4">
                    <label className="flex items-center gap-3 bg-black/30 p-4 rounded-2xl border border-white/5 cursor-pointer hover:bg-black/50 transition-colors">
                      <div className="relative">

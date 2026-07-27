@@ -21,10 +21,15 @@ import {
 import { useAuth } from '../../lib/AuthContext';
 import { studentDataService } from '../../services/studentDataService';
 import { useCart } from '../../lib/CartContext';
+import { notificationService } from '../../services/notificationService';
+import { isSubscriptionActive, checkAndRenewSubscription } from '../../services/subscriptionService';
+import { getDoc, getDocs, collection, query, where, doc } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 
 export interface SubscriptionPackage {
   name: string;
   price: number; 
+  systemDeduction: number;
   durationDays: number; 
   badgeText?: string;
   badgeBg?: string;
@@ -38,8 +43,9 @@ export interface SubscriptionPackage {
 
 export const SUBSCRIPTION_PACKAGES: SubscriptionPackage[] = [
   {
-    name: "Aylık Bronz Paket",
+    name: "Akademik Kıvılcım (Bronz Paket)",
     price: 3000,
+    systemDeduction: 1000,
     durationDays: 28,
     badgeText: "Giriş Seviyesi",
     badgeBg: "bg-orange-600/20 text-orange-400 border border-orange-500/30",
@@ -56,13 +62,13 @@ export const SUBSCRIPTION_PACKAGES: SubscriptionPackage[] = [
       "Aylık Konu Hedefi ve Takibi",
       "Aylık Kitap Bitirme Programı",
       "Temel Deneme Takibi",
-      "Kitap Önerileri",
       "Veli Bilgilendirme Sistemi (aylık rapor)"
     ]
   },
   {
-    name: "Aylık Gümüş Paket",
+    name: "Akademik Momentum (Gümüş Paket)",
     price: 4500,
+    systemDeduction: 1500,
     durationDays: 28,
     badgeText: "En Popüler",
     badgeBg: "bg-blue-600/20 text-blue-400 border border-blue-500/30",
@@ -72,20 +78,24 @@ export const SUBSCRIPTION_PACKAGES: SubscriptionPackage[] = [
     buttonClass: "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/25",
     iconColor: "text-blue-400",
     features: [
-      "Bronz paket içeriklerinin tamamı",
-      "Ayrıntılı Deneme Analizi (3 Farklı Analiz)",
+      "Haftalık Ders Çalışma Programı",
+      "Haftalık Soru Takibi",
+      "Haftalık Kitap Takibi",
+      "Haftalık Konu Takibi",
+      "Aylık Konu Hedefi ve Takibi",
+      "Aylık Kitap Bitirme Programı",
+      "Temel ve Kurumsal Deneme Takibi",
+      "Veli Bilgilendirme Sistemi (Haftalık + Aylık rapor)",
+      "Ayrıntılı Deneme Analizi",
       "Öğrenci Analizleri (10 Farklı Kişilik Analizi)",
-      "Destekleyici Online Programlar (9 Adet)",
-      "Öğrenciler için Seminerler",
-      "Veliler için seminer",
-      "Veli Bilgilendirme Sistemi (haftalık rapor)",
-      "Kartlı Giriş-Çıkış Sistemi ile Takip",
-      "Ücretsiz Masa Rezervasyonu"
+      "Zaman Yönetim Asistanları (2 Adet)",
+      "Destekleyici Online Programlar (9 Adet)"
     ]
   },
   {
-    name: "Aylık Altın Paket",
+    name: "Sınırsız Zirve VIP (Altın Paket)",
     price: 6000,
+    systemDeduction: 2000,
     durationDays: 28,
     badgeText: "En Kapsamlı",
     badgeBg: "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30",
@@ -95,16 +105,22 @@ export const SUBSCRIPTION_PACKAGES: SubscriptionPackage[] = [
     buttonClass: "bg-yellow-500/10 hover:bg-yellow-500 border border-yellow-400/30 text-yellow-200 hover:text-yellow-950",
     iconColor: "text-yellow-400",
     features: [
-      "Gümüş paket içeriklerinin tamamı",
-      "Ayrıntılı Deneme Analizi (+4 Farklı Analiz)",
-      "Tüm Öğrenci Analizleri (+40 Farklı Kişilik Testleri)",
-      "Destekleyici Online Programlar (+9 Adet)",
-      "Birebir Hedef Belirleme & Motivasyon Görüşmeleri",
-      "Öğrenciler için Özel Gelişim Semineri",
-      "ON Asistana Sınırsız Erişim",
-      "Veliler için Kapsamlı Bilgilendirme Oturumları",
-      "Veli Telefon Kontrol & Teslim Sistemi",
-      "Sabit Zamanlı Çalışma Masası"
+      "Haftalık Ders Çalışma Programı",
+      "Haftalık Soru Takibi",
+      "Haftalık Kitap Takibi",
+      "Haftalık Konu Takibi",
+      "Aylık Konu Hedefi ve Takibi",
+      "Aylık Kitap Bitirme Programı",
+      "Temel ve Kurumsal Deneme Takibi",
+      "Veli Bilgilendirme Sistemi (Haftalık + Aylık rapor)",
+      "Kurumsal ve Ayrıntılı Deneme Analizi",
+      "Öğrenci Analizleri (45 Farklı Kişilik Analizi)",
+      "Zaman Yönetim Asistanları (3 Adet)",
+      "Destekleyici Online Programlar (18 Adet)",
+      "Otomatik Hata Telafi Testi",
+      "Veliler için Kapsamlı Bilgilendirme Raporları",
+      "Öğrenci ve Veliler için Yapay Zekâ Asistan",
+      "300 Soruluk Yapay Zekâ Soru Çözümü"
     ]
   }
 ];
@@ -122,102 +138,110 @@ export default function Subscription() {
   // Modal states
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPackage | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [displayPackages, setDisplayPackages] = useState<SubscriptionPackage[]>(SUBSCRIPTION_PACKAGES);
+  const [loadingPricing, setLoadingPricing] = useState(true);
 
   useEffect(() => {
-    if (userData) {
-      if (!isChecking.current) {
-        checkAndHandleExpiration();
+    async function loadPricing() {
+      try {
+        let bronze = 1000, silver = 1500, gold = 2000;
+        let pBronze = 3000, pSilver = 4500, pGold = 6000;
+        
+        // Fetch deduction rate from settings
+        let rate = 20;
+        let minRateBronze = 1000;
+        let minRateSilver = 1500;
+        let minRateGold = 2000;
+        const rootSnap = await getDoc(doc(db, 'settings', 'financial'));
+        if (rootSnap.exists()) {
+          const data = rootSnap.data();
+          if (data.systemDeductionRate !== undefined) rate = data.systemDeductionRate;
+          if (data.minSystemDeductionBronze !== undefined) minRateBronze = data.minSystemDeductionBronze;
+          if (data.minSystemDeductionSilver !== undefined) minRateSilver = data.minSystemDeductionSilver;
+          if (data.minSystemDeductionGold !== undefined) minRateGold = data.minSystemDeductionGold;
+        }
+
+        const coachId = userData?.assignedCoachId || userData?.coachId;
+        
+        if (coachId) {
+          const coachDoc = await getDoc(doc(db, 'users', coachId));
+          if (coachDoc.exists()) {
+            const data = coachDoc.data();
+            pBronze = data.bronzePrice || 3000;
+            pSilver = data.silverPrice || 4500;
+            pGold = data.goldPrice || 6000;
+          }
+        } else {
+          // If no coach, find minimum starting prices
+          const q = query(collection(db, 'users'), where('role', '==', 'coach'));
+          const snapshot = await getDocs(q);
+          let minB = 3000, minS = 4500, minG = 6000;
+          let foundCoach = false;
+          snapshot.forEach(d_doc => {
+             const d = d_doc.data();
+             foundCoach = true;
+             if (d.bronzePrice && d.bronzePrice < minB) minB = d.bronzePrice;
+             if (d.silverPrice && d.silverPrice < minS) minS = d.silverPrice;
+             if (d.goldPrice && d.goldPrice < minG) minG = d.goldPrice;
+          });
+          
+          if (foundCoach) {
+             pBronze = Math.max(1000, minB);
+             pSilver = Math.max(1500, minS);
+             pGold = Math.max(2000, minG);
+          } else {
+             pBronze = 3000;
+             pSilver = 4500;
+             pGold = 6000;
+          }
+        }
+
+        const newPackages = [
+          { ...SUBSCRIPTION_PACKAGES[0], price: pBronze, systemDeduction: Math.max(Math.floor(pBronze * (rate / 100)), minRateBronze) },
+          { ...SUBSCRIPTION_PACKAGES[1], price: pSilver, systemDeduction: Math.max(Math.floor(pSilver * (rate / 100)), minRateSilver) },
+          { ...SUBSCRIPTION_PACKAGES[2], price: pGold, systemDeduction: Math.max(Math.floor(pGold * (rate / 100)), minRateGold) }
+        ];
+        setDisplayPackages(newPackages);
+        
+        if (!isChecking.current) {
+          checkAndHandleExpiration(newPackages);
+        }
+      } catch(e) {
+        console.error("Pricing load error", e);
+      } finally {
+        setLoadingPricing(false);
       }
+    }
+    
+    if (userData) {
+      loadPricing();
     } else {
       setChecking(false);
+      setLoadingPricing(false);
     }
-  }, [userData?.uid, userData?.subscriptionEndDate]);
+  }, [userData?.uid, userData?.subscriptionEndDate, userData?.coachId, userData?.assignedCoachId]);
 
-  // Check and handle subscription expiration in client lazily
-  const checkAndHandleExpiration = async () => {
+  // Check and handle subscription expiration
+  const checkAndHandleExpiration = async (_loadedPackages: SubscriptionPackage[]) => {
     if (!userData || !user) {
       setChecking(false);
       return;
     }
     
     isChecking.current = true;
-
-    const { subscriptionPlan, subscriptionEndDate, subscriptionStatus, autoRenew } = userData;
-
-    if (!subscriptionPlan || !subscriptionEndDate) {
+    try {
+      const res = await checkAndRenewSubscription(userData, user.uid);
+      if (res.renewed) {
+        setSuccess(res.message || 'Aboneliğiniz başarıyla otomatik olarak yenilendi!');
+      } else if (res.message && (userData.subscriptionStatus === 'expired' || new Date(userData.subscriptionEndDate) < new Date())) {
+        setError(res.message);
+      }
+    } catch (e) {
+      console.error("Subscription check error:", e);
+    } finally {
       setChecking(false);
       isChecking.current = false;
-      return;
     }
-
-    const endDate = new Date(subscriptionEndDate);
-    const now = new Date();
-
-    // If subscription has expired
-    if (now > endDate && subscriptionStatus === 'active') {
-      if (autoRenew !== false) {
-        // Find current package details
-        const currentPkg = SUBSCRIPTION_PACKAGES.find(p => p.name === subscriptionPlan);
-        const cost = currentPkg ? currentPkg.price : null;
-
-        if (cost) {
-          const walletBalance = userData.walletBalance || 0;
-          if (walletBalance >= cost) {
-            try {
-              // Deduct from wallet & coach (1/3 of the amount from coach)
-              const txResult = await studentDataService.addWalletTransaction(user.uid, {
-                amount: cost,
-                type: 'WITHDRAWAL',
-                description: `Otomatik Abonelik Yenileme: ${subscriptionPlan}`,
-                coachDeductionAmount: cost / 3,
-                items: [{
-                   title: subscriptionPlan,
-                   quantity: 1,
-                   price: cost,
-                   type: 'subscription'
-                }]
-              });
-
-              if (txResult.success) {
-                // Update subscription details for another 4 weeks
-                const newStartDate = new Date().toISOString();
-                const newEndDate = new Date(Date.now() + 28 * 24 * 60 * 60 * 1000).toISOString();
-
-                await studentDataService.updateStudentProfile(user.uid, {
-                  subscriptionStartDate: newStartDate,
-                  subscriptionEndDate: newEndDate,
-                  subscriptionStatus: 'active'
-                });
-
-                setSuccess(`Aboneliğiniz başarıyla otomatik olarak yenilendi! (Paket: ${subscriptionPlan})`);
-              } else {
-                // Coach balance insufficient or other error
-                await studentDataService.updateStudentProfile(user.uid, {
-                  subscriptionStatus: 'expired'
-                });
-                setError(`Yetersiz bakiye veya sistemsel limitler sebebiyle aboneliğiniz yenilenemedi.`);
-              }
-            } catch (err: any) {
-              console.error("Auto renew error:", err);
-            }
-          } else {
-            // Student balance insufficient
-            await studentDataService.updateStudentProfile(user.uid, {
-              subscriptionStatus: 'expired'
-            });
-            setError(`Cüzdanınızda yeterli bakiye bulunmadığından otomatik yenileme başarısız oldu. Aboneliğiniz sonlandırıldı.`);
-          }
-        }
-      } else {
-        // Auto renew disabled, transition peacefully to expired
-        await studentDataService.updateStudentProfile(user.uid, {
-          subscriptionStatus: 'expired'
-        });
-        setError(`Abonelik süreniz doldu ve otomatik yenileme kapalı olduğu için aboneliğiniz sonlandırıldı.`);
-      }
-    }
-    setChecking(false);
-    isChecking.current = false;
   };
 
   const handleSubscribeClick = (pkg: SubscriptionPackage) => {
@@ -268,6 +292,12 @@ export default function Subscription() {
       await studentDataService.updateStudentProfile(user.uid, {
         autoRenew: false
       });
+      await notificationService.addNotification(user.uid, {
+          title: 'Otomatik Yenileme İptal Edildi',
+          message: 'Otomatik paket yenileme özelliği kapatıldı. Süre bitiminde aboneliğin yenilenmeyecek.',
+          type: 'system',
+          link: '/panel/ogrenci/abonelik'
+      });
       setSuccess("Otomatik yenileme kapatıldı. Kalan süreniz bitince aboneliğiniz sona erecektir.");
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
@@ -287,7 +317,7 @@ export default function Subscription() {
     );
   }
 
-  const hasActiveSub = userData?.subscriptionPlan && userData?.subscriptionStatus === 'active';
+  const hasActiveSub = isSubscriptionActive(userData);
   const planExpiryDate = userData?.subscriptionEndDate ? new Date(userData.subscriptionEndDate) : null;
   const daysRemaining = planExpiryDate 
     ? Math.max(0, Math.ceil((planExpiryDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))
@@ -359,9 +389,22 @@ export default function Subscription() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-2">AKTİF ABONELİK PAKETİNİZ</p>
-                <h2 className="text-3xl font-extrabold text-white tracking-tight leading-tight flex items-center gap-3">
-                  {userData.subscriptionPlan}
-                  <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full">
+                <h2 className="text-3xl font-extrabold text-white tracking-tight leading-tight flex flex-col sm:flex-row sm:items-center gap-3">
+                  <span>
+                    {(() => {
+                      const match = (userData.subscriptionPlan || "").match(/^(.*?)\s*(\(.*?\))$/);
+                      if (match) {
+                        return (
+                          <span className="flex flex-col">
+                            <span>{match[1]}</span>
+                            <span className="text-sm font-semibold text-slate-400 mt-1">{match[2]}</span>
+                          </span>
+                        );
+                      }
+                      return userData.subscriptionPlan;
+                    })()}
+                  </span>
+                  <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full self-start sm:self-auto">
                     Abonelik Aktif
                   </span>
                 </h2>
@@ -479,8 +522,9 @@ export default function Subscription() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 items-stretch pt-2">
-          {SUBSCRIPTION_PACKAGES.map((plan, idx) => {
+          {displayPackages.map((plan, idx) => {
             const isCurrent = hasActiveSub && userData?.subscriptionPlan === plan.name;
+            const hasCoach = !!(userData?.coachId || userData?.assignedCoachId);
             return (
               <motion.div 
                 key={idx}
@@ -500,10 +544,26 @@ export default function Subscription() {
                 )}
                 
                 <div className="p-6 md:p-8 pb-0 pt-6 md:pt-8">
-                  <h3 className="text-center font-bold text-lg md:text-xl text-white tracking-tight mb-2 uppercase italic">{plan.name}</h3>
+                  <h3 className="text-center font-bold text-lg md:text-xl text-white tracking-tight mb-2 uppercase italic flex flex-col items-center">
+                    {(() => {
+                      const match = plan.name.match(/^(.*?)\s*(\(.*?\))$/);
+                      if (match) {
+                        return (
+                          <>
+                            <span>{match[1]}</span>
+                            <span className="block text-xs md:text-sm opacity-85 font-semibold text-slate-300 mt-1 lowercase normal-case">{match[2]}</span>
+                          </>
+                        );
+                      }
+                      return plan.name;
+                    })()}
+                  </h3>
                   <div className="text-center mb-6 md:mb-8">
                     <span className="text-xs md:text-sm text-slate-400 mr-1">₺</span>
                     <span className="text-4xl md:text-5xl font-black text-white tracking-tight">{plan.price.toLocaleString('tr-TR')}</span>
+                    {!hasCoach && (
+                        <span className="block text-[10px] md:text-xs font-bold text-emerald-400 mt-2 mb-1 lowercase">'den başlayan fiyatlarla</span>
+                    )}
                     <span className="block text-[10px] md:text-xs font-bold uppercase tracking-widest text-slate-500 mt-2">4 haftalık kullanım için</span>
                   </div>
                   
@@ -601,9 +661,19 @@ export default function Subscription() {
             </div>
 
             <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-5 space-y-3 text-sm">
-              <div className="flex justify-between">
+              <div className="flex justify-between items-start">
                 <span className="text-slate-400">Seçilen Paket:</span>
-                <span className="text-white font-bold">{selectedPlan.name}</span>
+                <span className="text-white font-bold text-right">
+                  {(() => {
+                    const match = selectedPlan.name.match(/^(.*?)\s*(\(.*?\))$/);
+                    return match ? (
+                      <span className="flex flex-col items-end">
+                        <span>{match[1]}</span>
+                        <span className="text-xs text-slate-400 font-normal mt-0.5">{match[2]}</span>
+                      </span>
+                    ) : selectedPlan.name;
+                  })()}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Ücret (4 Hafta):</span>

@@ -48,9 +48,9 @@ export default function ActivitiesOverview() {
     {
       id: "metronom",
       icon: <Clock className="text-emerald-400" size={32} />,
-      title: "Sınav Metronomu",
-      desc: "Özel sınav zamanlayıcısıyla süre yönteminizi geliştirin ve tam odaklanmayı sağlayın.",
-      url: "/sinav-metronomu",
+      title: "Zaman Yönetimi",
+      desc: "Pomodoro ve sınav metronomuyla süre yönetiminizi geliştirin ve tam odaklanmayı sağlayın.",
+      url: "/zaman-yonetimi",
       image: "https://images.pexels.com/photos/5563404/pexels-photo-5563404.jpeg?auto=compress&cs=tinysrgb&h=650&w=940",
       colSpan: "md:col-span-2",
       color: "from-emerald-500/20 to-emerald-900/80"
@@ -117,7 +117,7 @@ export default function ActivitiesOverview() {
                     className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110 opacity-60 group-hover:opacity-80"
                   />
                   {/* Subtle noise texture over image */}
-                  <div className="absolute inset-0 mix-blend-overlay opacity-20 bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
+                  <div className="absolute inset-0 mix-blend-overlay opacity-20"></div>
                 </div>
 
                 {/* Gradient Overlays */}

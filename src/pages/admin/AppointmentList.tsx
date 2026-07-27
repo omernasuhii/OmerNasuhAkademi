@@ -206,7 +206,8 @@ export default function AppointmentList() {
 
       {/* List Table */}
       <div className="bg-[#070b14] rounded-3xl border border-white/5 overflow-hidden shadow-2xl">
-        <div className="overflow-x-auto">
+        {/* Desktop View Table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-white/5 bg-white/[0.02]">
@@ -242,7 +243,7 @@ export default function AppointmentList() {
                     </td>
                     <td className="px-6 py-5">
                       <div className="space-y-1">
-                        <span className="text-sm text-slate-300 block">{services.find(s => s.id === app.serviceId)?.title || 'İsimsiz Hizmet'}</span>
+                        <span className="text-sm text-slate-300 block">{services.find(s => s.id === app.serviceId)?.title || (app.requesterRole === 'parent' ? 'Veli Görüşmesi' : 'Öğrenci Koçluğu')}</span>
                         <span className={`text-[10px] font-black uppercase tracking-widest ${app.serviceType === 'one-on-one' ? 'text-indigo-400' : 'text-purple-400'}`}>
                           {app.serviceType === 'one-on-one' ? 'Birebir' : 'Grup'}
                         </span>
@@ -298,6 +299,83 @@ export default function AppointmentList() {
             </tbody>
           </table>
         </div>
+
+        {/* Mobile Card List */}
+        <div className="md:hidden divide-y divide-white/5">
+          {filteredAppointments.length > 0 ? (
+            filteredAppointments.map((app) => (
+              <div key={app.id} className="p-4 space-y-4 hover:bg-white/[0.01] transition-colors">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold text-white leading-none">#{app.id?.slice(-6).toUpperCase()}</span>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider border ${STATUS_COLORS[app.status as keyof typeof STATUS_COLORS]}`}>
+                    {STATUS_LABELS[app.status as keyof typeof STATUS_LABELS]}
+                  </span>
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <User size={14} className="text-blue-500 shrink-0" />
+                    <span className="text-sm font-medium text-slate-200">{app.studentName}</span>
+                  </div>
+                  <div className="flex items-center gap-2 opacity-60">
+                    <LayoutTemplate size={14} className="text-slate-400 shrink-0" />
+                    <span className="text-xs text-slate-400">{app.coachName}</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs border-t border-b border-white/5 py-3">
+                  <div>
+                    <span className="text-slate-500 block mb-0.5 text-[9px] uppercase tracking-wider">Hizmet & Tür</span>
+                    <span className="text-slate-300 font-bold block truncate">
+                      {services.find(s => s.id === app.serviceId)?.title || (app.requesterRole === 'parent' ? 'Veli Görüşmesi' : 'Öğrenci Koçluğu')}
+                    </span>
+                    <span className={`text-[9px] font-black uppercase tracking-widest ${app.serviceType === 'one-on-one' ? 'text-indigo-400' : 'text-purple-400'}`}>
+                      {app.serviceType === 'one-on-one' ? 'Birebir' : 'Grup'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block mb-0.5 text-[9px] uppercase tracking-wider">Tarih & Saat</span>
+                    <div className="flex items-center gap-1 text-slate-300 mb-0.5">
+                      <CalendarIcon size={12} className="text-slate-400 shrink-0" />
+                      <span>{formatDateSafely(app.date, 'd MMM yyyy')}</span>
+                    </div>
+                    <div className="flex items-center gap-1 text-slate-300 font-bold">
+                      <Clock size={12} className="text-emerald-500 shrink-0" />
+                      <span>{app.startTime} - {app.endTime}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[9px] text-slate-500 uppercase tracking-tighter">Oluşturma: {formatDateSafely(app.createdAt, 'dd.MM.yyyy')}</span>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => setSelectedAppointment(app)}
+                      className="p-1.5 hover:bg-blue-600/10 hover:text-blue-500 text-slate-500 rounded-xl transition-all"
+                    >
+                      <Eye size={16} />
+                    </button>
+                    <button className="p-1.5 hover:bg-red-600/10 hover:text-red-500 text-slate-500 rounded-xl transition-all">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="p-10 text-center">
+              <div className="flex flex-col items-center justify-center space-y-4">
+                <div className="w-16 h-16 rounded-3xl bg-white/5 flex items-center justify-center text-slate-500">
+                  <CalendarIcon size={32} />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-lg font-bold text-white">Sonuç Bulunamadı</p>
+                  <p className="text-slate-500 text-sm">Farklı filtreler deneyebilir veya arama teriminizi değiştirebilirsiniz.</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Appointment Detail Modal */}
@@ -309,7 +387,7 @@ export default function AppointmentList() {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="bg-[#070b14] w-full max-w-lg rounded-[32px] border border-white/10 shadow-2xl overflow-hidden z-10"
+              className="bg-[#070b14] w-full max-w-lg sm:rounded-[32px] border border-white/10 shadow-2xl overflow-hidden z-10 h-full sm:h-auto sm:max-h-[90vh] flex flex-col"
             >
               <div className="p-8">
                 <div className="flex items-center justify-between mb-8">
@@ -328,7 +406,7 @@ export default function AppointmentList() {
                 </div>
 
                 <div className="space-y-6">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
                       <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Öğrenci</p>
                       <p className="text-sm font-bold text-white">{selectedAppointment.studentName}</p>

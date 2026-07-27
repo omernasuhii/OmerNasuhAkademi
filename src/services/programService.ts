@@ -1,6 +1,7 @@
 import { collection, doc, getDocs, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { handleFirestoreError, OperationType } from './appointmentService';
+import { notificationService } from './notificationService';
 
 export interface ProgramStep {
   id: string;
@@ -41,6 +42,7 @@ export interface ProgramEnrollment {
   completedSteps: string[]; // array of step IDs
   completed: boolean;
   completedAt?: string;
+  updatedAt?: string;
 }
 
 export const programService = {
@@ -81,6 +83,23 @@ export const programService = {
         enrolledCount: 0,
       };
       await setDoc(newRef, program);
+
+      try {
+        const q = query(collection(db, 'users'), where('role', '==', 'student'));
+        const usersSnap = await getDocs(q);
+        const notificationPromises = usersSnap.docs.map(userDoc => 
+          notificationService.addNotification(userDoc.id, {
+             title: 'Yeni Eğitim Eklendi',
+             message: `Yepyeni bir Kamp Başlıyor: "${program.title}" sisteme eklendi! Hemen incele.`,
+             type: 'system',
+             link: '/panel/ogrenci/online-egitimler'
+          })
+        );
+        await Promise.allSettled(notificationPromises);
+      } catch (e) {
+         console.warn('Failed to send global notification', e);
+      }
+
       return program;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'programs');
@@ -91,6 +110,24 @@ export const programService = {
   async updateProgram(id: string, updates: Partial<Program>) {
     try {
       const docRef = doc(db, 'programs', id);
+      
+      try {
+         const progSnap = await getDoc(docRef);
+         if (progSnap.exists() && updates.steps && updates.steps.length > progSnap.data().steps.length) {
+            const q = query(collection(db, 'program_enrollments'), where('programId', '==', id));
+            const enrSnap = await getDocs(q);
+            const notificationPromises = enrSnap.docs.map(doc => 
+               notificationService.addNotification(doc.data().studentId, {
+                  title: 'Eğitim Güncellendi',
+                  message: `Katıldığın "${progSnap.data().title}" programına yepyeni içerikler eklendi, hemen göz at!`,
+                  type: 'system',
+                  link: '/panel/ogrenci/online-egitimler'
+               })
+            );
+            await Promise.allSettled(notificationPromises);
+         }
+      } catch (ignored) {}
+
       await updateDoc(docRef, updates);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'programs');
@@ -132,6 +169,18 @@ export const programService = {
         } catch (ignoredError) {
           console.warn('Could not update enrolledCount', ignoredError);
         }
+        
+        try {
+          const programTitle = programSnap.data().title || 'Yeni Eğitim';
+          await notificationService.addNotification(studentId, {
+            title: 'Eğitime Kayıt Olundu',
+            message: `Harika bir karar! "${programTitle}" programına başarıyla katıldın. İlk ders seni bekliyor. 🔥`,
+            type: 'system',
+            link: '/panel/ogrenci/online-egitimler'
+          });
+        } catch(ignoredErr) {
+          console.warn('Notification failed', ignoredErr);
+        }
       }
       return enrollment;
     } catch (error) {
@@ -154,6 +203,10 @@ export const programService = {
   async completeStep(enrollmentId: string, stepId: string, totalSteps: number, completedStepsArg: string[]) {
     try {
       const docRef = doc(db, 'program_enrollments', enrollmentId);
+      const enrSnapPrev = await getDoc(docRef);
+      const prevProgress = enrSnapPrev.exists() ? enrSnapPrev.data().progress : 0;
+      const prevCompleted = enrSnapPrev.exists() ? enrSnapPrev.data().completed : false;
+
       const newCompleted = [...completedStepsArg, stepId];
       const uniqueCompleted = Array.from(new Set(newCompleted));
       const progress = Math.round((uniqueCompleted.length / totalSteps) * 100);
@@ -163,8 +216,54 @@ export const programService = {
         completedSteps: uniqueCompleted,
         progress: progress,
         completed: isCompleted,
-        ...(isCompleted ? { completedAt: new Date().toISOString() } : {})
+        updatedAt: new Date().toISOString(),
+        ...(!prevCompleted && isCompleted ? { completedAt: new Date().toISOString() } : {})
       });
+
+      try {
+        if (enrSnapPrev.exists()) {
+          const data = enrSnapPrev.data() as ProgramEnrollment;
+          const progSnap = await getDoc(doc(db, 'programs', data.programId));
+          const title = progSnap.exists() ? progSnap.data().title : 'Eğitim';
+
+          if (!isCompleted && progress !== 50) {
+            await notificationService.addNotification(data.studentId, {
+               title: 'Adım Tamamlandı',
+               message: `Çok iyi gidiyorsun! "${title}" eğitiminde bir adımı başarıyla bitirdin, hedefe adım adım yaklaşıyorsun.`,
+               type: 'success',
+               link: '/panel/ogrenci/online-egitimler'
+            });
+          }
+
+          if (progress >= 50 && prevProgress < 50) {
+            await notificationService.addNotification(data.studentId, {
+               title: 'Yarıyı Devirdin!',
+               message: `Yolun yarısını devirdin! "${title}" programına harika devam ediyorsun, ivmeni kaybetme.`,
+               type: 'success',
+               link: '/panel/ogrenci/online-egitimler'
+            });
+          }
+
+          if (!prevCompleted && isCompleted) {
+            await notificationService.addNotification(data.studentId, {
+               title: 'Büyük Final Tebriği',
+               message: `GURUR TABLOSU! "${title}" eğitimini başarıyla bitirdin. 🎓`,
+               type: 'success',
+               link: '/panel/ogrenci/online-egitimler'
+            });
+            
+            if (progSnap.exists() && progSnap.data().rewardName) {
+               await notificationService.addNotification(data.studentId, {
+                  title: 'Ödül Kazandın!',
+                  message: `Eğitimi tamamladığın için ${progSnap.data().rewardName} ödülünü kazandın ve hesabına eklendi! 🎁`,
+                  type: 'success',
+                  link: '/panel/ogrenci/cuzdan'
+               });
+            }
+          }
+        }
+      } catch (ignored) {}
+
       return { completedSteps: uniqueCompleted, progress, completed: isCompleted };
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'program_enrollments');

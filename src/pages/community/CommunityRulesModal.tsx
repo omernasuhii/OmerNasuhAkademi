@@ -25,7 +25,7 @@ export default function CommunityRulesModal({ isOpen, onClose }: CommunityRulesM
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}
-          className="relative bg-slate-900 border border-white/10 rounded-2xl md:rounded-3xl shadow-2xl p-6 md:p-8 w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col"
+          className="relative bg-slate-900 border border-white/10 sm:rounded-3xl shadow-2xl p-6 md:p-8 w-full max-w-2xl h-full sm:h-auto sm:max-h-[85vh] overflow-hidden flex flex-col"
         >
           {/* Header */}
           <div className="flex items-center justify-between mb-6 shrink-0">

@@ -81,10 +81,6 @@ export default function Programs() {
               </div>
             </motion.div>
           </div>
-
-          <button className="mt-8 md:mt-12 px-6 py-3 rounded-full border border-slate-700 hover:bg-slate-800 transition-colors text-xs md:text-sm font-semibold tracking-wide w-full sm:w-auto">
-            Puanları Görüntüle
-          </button>
         </div>
       </div>
     </section>

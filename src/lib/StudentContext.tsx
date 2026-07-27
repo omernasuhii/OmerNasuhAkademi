@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { safeStorage } from './localStorage';
 
 interface Student {
   uid: string;
@@ -8,14 +9,22 @@ interface Student {
   email?: string;
   photoURL?: string;
   grade?: string;
+  gradeUpdatedAt?: any;
   branch?: string;
+  targetUniversity?: string;
   targetDepartment?: string;
   targetTyt?: number;
   targetAyt?: number;
   walletBalance?: number;
   subscriptionPlan?: string;
+  subscriptionStatus?: string;
+  subscriptionStartDate?: any;
+  subscriptionEndDate?: any;
   lastSubscriptionUpdate?: any;
   createdAt?: any;
+  parentUid?: string;
+  parentFirstName?: string;
+  parentLastName?: string;
 }
 
 interface StudentContextType {
@@ -27,16 +36,16 @@ const StudentContext = createContext<StudentContextType | undefined>(undefined);
 
 export function StudentProvider({ children }: { children: React.ReactNode }) {
   const [selectedStudent, setSelectedStudentState] = useState<Student | null>(() => {
-    const saved = localStorage.getItem('coach_selected_student');
+    const saved = safeStorage.getItem('coach_selected_student');
     return saved ? JSON.parse(saved) : null;
   });
 
   const setSelectedStudent = (student: Student | null) => {
     setSelectedStudentState(student);
     if (student) {
-      localStorage.setItem('coach_selected_student', JSON.stringify(student));
+      safeStorage.setItem('coach_selected_student', JSON.stringify(student));
     } else {
-      localStorage.removeItem('coach_selected_student');
+      safeStorage.removeItem('coach_selected_student');
     }
   };
 

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useStudent } from '../../lib/StudentContext';
-import { Wallet, Plus, Loader2, ArrowUpRight, ArrowDownLeft, CheckCircle2, History, X, Check } from 'lucide-react';
+import { Wallet, Plus, Loader2, ArrowUpRight, ArrowDownLeft, CheckCircle2, History, X, Check, CreditCard } from 'lucide-react';
 import { studentDataService } from '../../services/studentDataService';
+import { isSubscriptionActive, checkAndRenewSubscription } from '../../services/subscriptionService';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function StudentWallet() {
@@ -49,14 +50,18 @@ export default function StudentWallet() {
       );
       
       if (res.success && res.newBalance !== undefined) {
-        setSelectedStudent({
+        const updatedStudent = {
           ...selectedStudent,
           walletBalance: res.newBalance
-        });
+        };
+        setSelectedStudent(updatedStudent);
         setSuccess(true);
         setAmountToAdd('');
         setTimeout(() => setSuccess(false), 3000);
         loadTransactions();
+
+        // Check auto-renew after deposit
+        checkAndRenewSubscription(updatedStudent, selectedStudent.uid).catch(console.error);
       }
     } catch (err) {
       console.error(err);
@@ -73,6 +78,22 @@ export default function StudentWallet() {
   }
 
   const currentBalance = selectedStudent.walletBalance || 0;
+
+  const formatDate = (dateVal: any) => {
+    if (!dateVal) return 'Belirtilmedi';
+    try {
+      if (typeof dateVal === 'object' && dateVal.seconds) {
+        return new Date(dateVal.seconds * 1000).toLocaleDateString('tr-TR');
+      }
+      const d = new Date(dateVal);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('tr-TR');
+      }
+    } catch (e) {
+      return 'Belirtilmedi';
+    }
+    return 'Belirtilmedi';
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -149,9 +170,55 @@ export default function StudentWallet() {
            </form>
         </div>
 
-        {/* Right Column - Transactions */}
-        <div className="lg:col-span-2">
-           <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8 h-full">
+        {/* Right Column - Subscription Info & Transactions */}
+        <div className="lg:col-span-2 space-y-6">
+           {/* Student Subscription Status Card */}
+           <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-4">
+                 <div>
+                    <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                       <CreditCard size={14} /> MEVCUT ABONELİK DURUMU
+                    </p>
+                    <h3 className="text-xl font-bold text-white capitalize">
+                       {selectedStudent.subscriptionPlan || 'Abonelik Paketi Seçilmedi'}
+                    </h3>
+                 </div>
+                 <div>
+                    {(() => {
+                       const subActive = isSubscriptionActive(selectedStudent);
+                       const isExpired = selectedStudent.subscriptionStatus === 'expired' || (selectedStudent.subscriptionEndDate && new Date(selectedStudent.subscriptionEndDate) < new Date());
+                       return (
+                         <span className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider inline-flex items-center gap-1.5 ${
+                            subActive 
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                              : isExpired
+                              ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                              : 'bg-slate-800 text-slate-400 border border-white/10'
+                         }`}>
+                            <span className={`w-2 h-2 rounded-full ${
+                               subActive ? 'bg-emerald-400 animate-pulse' : isExpired ? 'bg-red-400' : 'bg-slate-500'
+                            }`} />
+                            {subActive ? 'Aktif Abonelik' : isExpired ? 'Süresi Doldu' : 'Pasif / Yok'}
+                         </span>
+                       );
+                    })()}
+                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 text-xs">
+                 <div className="bg-white/5 p-3.5 rounded-2xl border border-white/5">
+                    <span className="text-slate-400 block mb-1 font-medium">Başlangıç Tarihi</span>
+                    <span className="text-white font-black text-sm">{formatDate(selectedStudent.subscriptionStartDate)}</span>
+                 </div>
+                 <div className="bg-white/5 p-3.5 rounded-2xl border border-white/5">
+                    <span className="text-slate-400 block mb-1 font-medium">Bitiş Tarihi</span>
+                    <span className="text-white font-black text-sm">{formatDate(selectedStudent.subscriptionEndDate)}</span>
+                 </div>
+              </div>
+           </div>
+
+           {/* Son İşlemler */}
+           <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
               <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
                 <History className="text-slate-400" size={20} />
                 Son İşlemler
@@ -208,7 +275,7 @@ export default function StudentWallet() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-slate-900 border border-slate-700/50 rounded-3xl p-8 w-full max-w-sm shadow-2xl relative"
+              className="bg-slate-900 border border-slate-700/50 sm:rounded-3xl p-8 w-full max-w-sm h-full sm:h-auto max-h-screen sm:max-h-[90vh] overflow-y-auto shadow-2xl relative"
             >
               <button 
                 onClick={() => setSelectedTx(null)}

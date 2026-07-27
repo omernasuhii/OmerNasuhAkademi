@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../lib/AuthContext';
 import { notificationService, Notification } from '../../services/notificationService';
-import { Bell, CheckCircle2, Circle, Calendar, Info, MessageSquare, Loader2, Trash2 } from 'lucide-react';
+import { Bell, CheckCircle2, Circle, Calendar, Info, MessageSquare, Loader2, Trash2, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export default function NotificationsList() {
@@ -78,6 +78,7 @@ export default function NotificationsList() {
       case 'appointment': return <Calendar className="w-5 h-5 text-indigo-400" />;
       case 'message': return <MessageSquare className="w-5 h-5 text-emerald-400" />;
       case 'system': return <Info className="w-5 h-5 text-blue-400" />;
+      case 'success': return <Sparkles className="w-5 h-5 text-emerald-400" />;
       default: return <Bell className="w-5 h-5 text-slate-400" />;
     }
   };

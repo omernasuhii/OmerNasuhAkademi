@@ -37,16 +37,11 @@ export default function Services() {
       icon: <FolderOpen size={20} className="text-cyan-300" />,
       title: "Dosya Paylaşımı",
       desc: "Güncel ders notları, zaman yönetimi çizelgeleri ve özel çalışma rehberlerine her an elinizin altında erişin."
-    },
-    {
-      icon: <PartyPopper size={20} className="text-pink-300" />,
-      title: "Etkinlikler",
-      desc: "Moral ve motivasyon seminerleri, kaynaşma kampları ve kampüs gezileriyle sınav psikolojisini iyi yönetin."
     }
   ];
 
   return (
-    <section className="py-12 md:py-24">
+    <section id="services" className="py-12 md:py-24">
       <div className="max-w-7xl mx-auto px-4 md:px-12">
         <div className="text-center mb-10 md:mb-16">
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full mb-3 md:mb-4">

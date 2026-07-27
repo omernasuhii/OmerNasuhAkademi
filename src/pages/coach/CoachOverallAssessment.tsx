@@ -69,9 +69,12 @@ export default function CoachOverallAssessment() {
     let globalTaskNotDone = 0;
     let globalUnsolved = 0;
     
+    const todayStr = new Date().toLocaleDateString('sv-SE');
     const weeklyData: Record<string, { target: number, solved: number, unsolved: number, taskDone: number, taskNotDone: number, earnedPoints: number, targetPoints: number }> = {};
 
     dailyPrograms.forEach(dp => {
+      if (!dp.date || dp.date > todayStr) return;
+
       const dpParts = dp.date.split('-');
       const dpDate = new Date(Date.UTC(Number(dpParts[0]), Number(dpParts[1]) - 1, Number(dpParts[2])));
       
@@ -87,22 +90,47 @@ export default function CoachOverallAssessment() {
 
       if (dp.tasks) {
         dp.tasks.forEach((task: any) => {
-          let isQuestion = task.type === 'Soru Çözümü';
+          const taskDateStr = task.date || dp.date;
+          let diffDays = 0;
+          if (taskDateStr) {
+            const parts = taskDateStr.split('-');
+            if (parts.length === 3) {
+              const tDateObj = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+              const today = new Date();
+              const todayObj = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+              diffDays = Math.floor((todayObj.getTime() - tDateObj.getTime()) / (1000 * 3600 * 24));
+            }
+          }
+          const isWaitingExpired = task.isWaitingResult && diffDays >= 5;
+          const effectiveIsDone = task.isDone && !isWaitingExpired;
+
+          let isQuestion = task.type === 'Soru Çözümü' || task.type === 'Deneme';
 
           if (isQuestion) {
             let solved = 0;
             let target = 0;
             if (!task.isExtra) {
               target = Number(task.targetCount) || 0;
-              solved = task.isDone ? Math.max(target, Number(task.completedCount) || 0) : (Number(task.completedCount) || 0);
+              solved = effectiveIsDone ? Math.max(target, Number(task.completedCount) || 0) : (Number(task.completedCount) || 0);
               weekStats.target += target;
               globalTarget += target;
               
               const taskUnsolved = Math.max(0, target - solved);
               weekStats.unsolved += taskUnsolved;
               globalUnsolved += taskUnsolved;
+              if (effectiveIsDone) {
+                 weekStats.taskDone += 1;
+                 globalTaskDone += 1;
+              } else {
+                 weekStats.taskNotDone += 1;
+                 globalTaskNotDone += 1;
+              }
             } else {
               solved = Number(task.completedCount) || 0;
+              if (effectiveIsDone) {
+                 weekStats.taskDone += 1;
+                 globalTaskDone += 1;
+              }
             }
             
             weekStats.solved += solved;
@@ -123,6 +151,13 @@ export default function CoachOverallAssessment() {
                  globalTaskNotDone += 1;
                }
                let point = task.type === 'Konu Çalışması' || task.type?.includes('Video') ? 2 : 1;
+               
+               const isDeneme = task.topic?.includes('Deneme') || task.subject?.includes('Genel') || task.subject?.includes('YDT') || task.branch === 'Denemeler' || task.type === 'Deneme';
+               if (isDeneme && task.isDone) {
+                 const relatedExam = exams.find((e: any) => e.studentId === dp.studentId && e.date === dp.date && e.analyzed);
+                 if (relatedExam) point *= 2;
+               }
+               
                weekStats.targetPoints += point;
                if (task.isDone) weekStats.earnedPoints += point;
             } else {
@@ -130,6 +165,13 @@ export default function CoachOverallAssessment() {
                   weekStats.taskDone += 1;
                   globalTaskDone += 1;
                   let point = task.type === 'Konu Çalışması' || task.type?.includes('Video') ? 2 : 1;
+                  
+                  const isDeneme = task.topic?.includes('Deneme') || task.subject?.includes('Genel') || task.subject?.includes('YDT') || task.branch === 'Denemeler' || task.type === 'Deneme';
+                  if (isDeneme) {
+                    const relatedExam = exams.find((e: any) => e.studentId === dp.studentId && e.date === dp.date && e.analyzed);
+                    if (relatedExam) point *= 2;
+                  }
+                  
                   weekStats.earnedPoints += point;
                }
             }
@@ -164,7 +206,15 @@ export default function CoachOverallAssessment() {
         }, 0) / sortedWeeks.length) * 100)
       : 0;
 
-    const weeklyReportsArray = Object.keys(weeklyData).sort((a, b) => b.localeCompare(a)).map(weekStart => {
+    
+    const now = new Date();
+    const todayDay = now.getUTCDay();
+    const todayDiff = now.getUTCDate() - todayDay + (todayDay === 0 ? -6 : 1);
+    const currentWeekStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), todayDiff)).toISOString().split('T')[0];
+
+    const weeklyReportsArray = Object.keys(weeklyData)
+      .filter(weekStart => weekStart <= currentWeekStart)
+      .sort((a, b) => b.localeCompare(a)).map(weekStart => {
       const w = weeklyData[weekStart];
       const wParts = weekStart.split('-');
       const d = new Date(Date.UTC(Number(wParts[0]), Number(wParts[1]) - 1, Number(wParts[2])));
@@ -181,7 +231,7 @@ export default function CoachOverallAssessment() {
         unsolvedCount: w.unsolved,
         taskDone: w.taskDone,
         taskNotDone: w.taskNotDone,
-        successPercentage: Math.min(successPercentage, 100)
+        successPercentage: successPercentage
       };
     });
 
@@ -190,11 +240,11 @@ export default function CoachOverallAssessment() {
       totalUnsolved: globalUnsolved,
       avgSolved: Math.round(globalSolved / totalStudentWeeks),
       avgUnsolved: Math.round(globalUnsolved / totalStudentWeeks),
-      overallAvgCompletion: Math.min(overallAvgCompletion, 100),
-      last4AvgCompletion: Math.min(last4AvgCompletion, 100),
+      overallAvgCompletion: overallAvgCompletion,
+      last4AvgCompletion: last4AvgCompletion,
       derivedWeeklyReports: weeklyReportsArray
     };
-  }, [dailyPrograms, students]);
+  }, [dailyPrograms, students, exams]);
 
   const { totalSolved, totalUnsolved, avgSolved, avgUnsolved, overallAvgCompletion, last4AvgCompletion, derivedWeeklyReports } = statsFromPrograms;
 
@@ -441,45 +491,83 @@ export default function CoachOverallAssessment() {
            </h3>
         </div>
         
-        <div className="overflow-x-auto">
-           <table className="w-full text-left">
-              <thead>
-                 <tr className="text-[10px] font-black text-slate-500 uppercase tracking-widest border-b border-white/5">
-                    <th className="pb-4 px-4">Tarih</th>
-                    <th className="pb-4 px-4 text-center">Toplam Çözülen Soru</th>
-                    <th className="pb-4 px-4 text-center">Toplam Eksik Soru</th>
-                    <th className="pb-4 px-4 text-center">Biten Görev</th>
-                    <th className="pb-4 px-4 text-center">Eksik Görev</th>
-                    <th className="pb-4 px-4 text-center">Grup Başarı Oranı</th>
-                 </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5 text-sm">
-                 {derivedWeeklyReports.map((report, i) => (
-                    <tr key={i} className="group hover:bg-white/[0.02]">
-                       <td className="py-4 px-4">
-                          <span className="font-bold text-slate-300 block">{report.date}</span>
-                       </td>
-                       <td className="py-4 px-4 text-center font-black text-emerald-400">{report.solvedCount || 0}</td>
-                       <td className="py-4 px-4 text-center font-black text-red-400">{report.unsolvedCount || 0}</td>
-                       <td className="py-4 px-4 text-center font-black text-emerald-400">{report.taskDone || 0}</td>
-                       <td className="py-4 px-4 text-center font-black text-red-400">{report.taskNotDone || 0}</td>
-                       <td className="py-4 px-4 text-center">
-                          <div className="flex items-center justify-center gap-2">
-                             <div className="w-12 h-1.5 bg-white/5 rounded-full overflow-hidden hidden sm:block">
-                                <div className="h-full bg-emerald-500" style={{ width: `${report.successPercentage}%` }} />
+        <div>
+           {/* Desktop View Table */}
+           <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left">
+                 <thead>
+                    <tr className="text-[10px] font-black text-slate-500 uppercase tracking-widest border-b border-white/5">
+                       <th className="pb-4 px-4">Tarih</th>
+                       <th className="pb-4 px-4 text-center">Toplam Çözülen Soru</th>
+                       <th className="pb-4 px-4 text-center">Toplam Eksik Soru</th>
+                       <th className="pb-4 px-4 text-center">Biten Görev</th>
+                       <th className="pb-4 px-4 text-center">Eksik Görev</th>
+                       <th className="pb-4 px-4 text-center">Grup Başarı Oranı</th>
+                    </tr>
+                 </thead>
+                 <tbody className="divide-y divide-white/5 text-sm">
+                    {derivedWeeklyReports.map((report, i) => (
+                       <tr key={i} className="group hover:bg-white/[0.02]">
+                          <td className="py-4 px-4">
+                             <span className="font-bold text-slate-300 block">{report.date}</span>
+                          </td>
+                          <td className="py-4 px-4 text-center font-black text-emerald-400">{report.solvedCount || 0}</td>
+                          <td className="py-4 px-4 text-center font-black text-red-400">{report.unsolvedCount || 0}</td>
+                          <td className="py-4 px-4 text-center font-black text-emerald-400">{report.taskDone || 0}</td>
+                          <td className="py-4 px-4 text-center font-black text-red-400">{report.taskNotDone || 0}</td>
+                          <td className="py-4 px-4 text-center">
+                             <div className="flex items-center justify-center gap-2">
+                                <div className="w-12 h-1.5 bg-white/5 rounded-full overflow-hidden hidden sm:block">
+                                   <div className="h-full bg-emerald-500" style={{ width: `${Math.min(report.successPercentage, 100)}%` }} />
+                                </div>
+                                <span className="font-black text-white">%{report.successPercentage || 0}</span>
                              </div>
-                             <span className="font-black text-white">%{report.successPercentage || 0}</span>
-                          </div>
-                       </td>
-                    </tr>
-                 ))}
-                 {derivedWeeklyReports.length === 0 && (
-                    <tr>
-                       <td colSpan={6} className="py-20 text-center text-slate-600 italic">Öğrencilerin henüz program verisi bulunmuyor.</td>
-                    </tr>
-                 )}
-              </tbody>
-           </table>
+                          </td>
+                       </tr>
+                    ))}
+                    {derivedWeeklyReports.length === 0 && (
+                       <tr>
+                          <td colSpan={6} className="py-20 text-center text-slate-600 italic">Öğrencilerin henüz program verisi bulunmuyor.</td>
+                       </tr>
+                    )}
+                 </tbody>
+              </table>
+           </div>
+
+           {/* Mobile View Card List */}
+           <div className="md:hidden divide-y divide-white/5 bg-slate-950/20 rounded-2xl overflow-hidden border border-white/5">
+             {derivedWeeklyReports.map((report, i) => (
+               <div key={i} className="p-4 space-y-4 hover:bg-white/[0.01] transition-colors">
+                 <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                   <span className="text-sm font-bold text-slate-200">{report.date}</span>
+                   <div className="flex items-center gap-2">
+                     <span className="text-[10px] text-slate-500 font-bold">Başarı:</span>
+                     <span className="font-black text-emerald-400 text-sm">%{report.successPercentage || 0}</span>
+                   </div>
+                 </div>
+                 
+                 <div className="grid grid-cols-2 gap-3 text-xs">
+                   <div className="space-y-1">
+                     <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest block">Soru Çözümü</span>
+                     <div className="flex items-center justify-between bg-white/[0.02] p-2 rounded-lg border border-white/5">
+                       <span className="text-emerald-400 font-bold">Çözülen: {report.solvedCount || 0}</span>
+                       <span className="text-red-400 font-bold">Eksik: {report.unsolvedCount || 0}</span>
+                     </div>
+                   </div>
+                   <div className="space-y-1">
+                     <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest block">Görevler</span>
+                     <div className="flex items-center justify-between bg-white/[0.02] p-2 rounded-lg border border-white/5">
+                       <span className="text-emerald-400 font-bold">Biten: {report.taskDone || 0}</span>
+                       <span className="text-red-400 font-bold">Eksik: {report.taskNotDone || 0}</span>
+                     </div>
+                   </div>
+                 </div>
+               </div>
+             ))}
+             {derivedWeeklyReports.length === 0 && (
+               <div className="py-12 text-center text-slate-600 italic text-sm">Öğrencilerin henüz program verisi bulunmuyor.</div>
+             )}
+           </div>
         </div>
       </div>
     </div>

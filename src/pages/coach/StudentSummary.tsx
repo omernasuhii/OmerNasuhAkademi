@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { 
-  BookOpen, 
+import { AlertTriangle, BookOpen, 
   TrendingUp, 
   Target,
   ChevronRight,
@@ -31,6 +30,10 @@ export default function StudentSummary() {
   const [exams, setExams] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [monthlyGoal, setMonthlyGoal] = useState<any>(null);
+  const [selectedEvaluationWeek, setSelectedEvaluationWeek] = useState<string>('');
+  const [evaluationText, setEvaluationText] = useState<string>('');
+  const [isSavingEvaluation, setIsSavingEvaluation] = useState<boolean>(false);
+  const [isGeneratingEval, setIsGeneratingEval] = useState<boolean>(false);
 
   const currentMonthStr = useMemo(() => {
     const d = new Date();
@@ -76,12 +79,17 @@ export default function StudentSummary() {
     let globalTaskDone = 0;
     let globalTaskNotDone = 0;
     let globalUnsolved = 0;
+    let pendingResultsCount = 0;
+    let expiredWaitingCount = 0;
     let firstDate: Date | null = null;
     
+    const todayStr = new Date().toLocaleDateString('sv-SE');
     // Group programs by week
     const weeklyData: Record<string, { target: number, solved: number, unsolved: number, taskDone: number, taskNotDone: number, earnedPoints: number, targetPoints: number }> = {};
 
     dailyPrograms.forEach(dp => {
+      if (!dp.date || dp.date > todayStr) return;
+
       const dpParts = dp.date.split('-');
       const dpDate = new Date(Date.UTC(Number(dpParts[0]), Number(dpParts[1]) - 1, Number(dpParts[2])));
       if (!firstDate || dpDate < firstDate) firstDate = dpDate;
@@ -99,22 +107,55 @@ export default function StudentSummary() {
 
       if (dp.tasks) {
         dp.tasks.forEach((task: any) => {
-          let isQuestion = task.type === 'Soru Çözümü';
+          const taskDateStr = task.date || dp.date;
+          let diffDays = 0;
+          if (taskDateStr) {
+            const parts = taskDateStr.split('-');
+            if (parts.length === 3) {
+              const tDateObj = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+              const today = new Date();
+              const todayObj = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+              diffDays = Math.floor((todayObj.getTime() - tDateObj.getTime()) / (1000 * 3600 * 24));
+            }
+          }
+          const isWaitingExpired = task.isWaitingResult && diffDays >= 5;
+
+          if (task.isWaitingResult) {
+            if (isWaitingExpired) {
+              expiredWaitingCount++;
+            } else {
+              pendingResultsCount++;
+            }
+          }
+
+          const effectiveIsDone = task.isDone && !isWaitingExpired;
+          let isQuestion = task.type === 'Soru Çözümü' || task.type === 'Deneme';
 
           if (isQuestion) {
             let solved = 0;
             let target = 0;
             if (!task.isExtra) {
               target = Number(task.targetCount) || 0;
-              solved = task.isDone ? Math.max(target, Number(task.completedCount) || 0) : (Number(task.completedCount) || 0);
+              solved = effectiveIsDone ? Math.max(target, Number(task.completedCount) || 0) : (Number(task.completedCount) || 0);
               weekStats.target += target;
               globalTarget += target;
               
               const taskUnsolved = Math.max(0, target - solved);
               weekStats.unsolved += taskUnsolved;
               globalUnsolved += taskUnsolved;
+              if (effectiveIsDone) {
+                 weekStats.taskDone += 1;
+                 globalTaskDone += 1;
+              } else {
+                 weekStats.taskNotDone += 1;
+                 globalTaskNotDone += 1;
+              }
             } else {
               solved = Number(task.completedCount) || 0;
+              if (effectiveIsDone) {
+                 weekStats.taskDone += 1;
+                 globalTaskDone += 1;
+              }
             }
             
             weekStats.solved += solved;
@@ -136,6 +177,13 @@ export default function StudentSummary() {
                }
                // Target point based on weight (simplified)
                let point = task.type === 'Konu Çalışması' || task.type?.includes('Video') ? 2 : 1;
+               
+               const isDeneme = task.topic?.includes('Deneme') || task.subject?.includes('Genel') || task.subject?.includes('YDT') || task.branch === 'Denemeler' || task.type === 'Deneme';
+               if (isDeneme && task.isDone) {
+                 const relatedExam = exams.find((e: any) => e.date === dp.date && e.analyzed);
+                 if (relatedExam) point *= 2;
+               }
+
                weekStats.targetPoints += point;
                if (task.isDone) weekStats.earnedPoints += point;
             } else {
@@ -143,6 +191,13 @@ export default function StudentSummary() {
                   weekStats.taskDone += 1;
                   globalTaskDone += 1;
                   let point = task.type === 'Konu Çalışması' || task.type?.includes('Video') ? 2 : 1;
+                  
+                  const isDeneme = task.topic?.includes('Deneme') || task.subject?.includes('Genel') || task.subject?.includes('YDT') || task.branch === 'Denemeler' || task.type === 'Deneme';
+                  if (isDeneme) {
+                    const relatedExam = exams.find((e: any) => e.date === dp.date && e.analyzed);
+                    if (relatedExam) point *= 2;
+                  }
+
                   weekStats.earnedPoints += point;
                }
             }
@@ -158,14 +213,22 @@ export default function StudentSummary() {
       weekCount = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 7)));
     }
 
+    // Filter out future weeks
+    const currentNow = new Date();
+    const curTodayDay = currentNow.getUTCDay();
+    const curTodayDiff = currentNow.getUTCDate() - curTodayDay + (curTodayDay === 0 ? -6 : 1);
+    const currentWeekStartStr = new Date(Date.UTC(currentNow.getUTCFullYear(), currentNow.getUTCMonth(), curTodayDiff)).toISOString().split('T')[0];
+
+    const pastOrCurrentWeekKeys = Object.keys(weeklyData).filter(weekStart => weekStart <= currentWeekStartStr);
+    
     // Weekly Averages from data
-    const weeksList = Object.values(weeklyData);
+    const weeksList = pastOrCurrentWeekKeys.map(k => weeklyData[k]);
     const overallAvgCompletion = weeksList.length > 0 
       ? Math.round((weeksList.reduce((acc, w) => acc + (w.targetPoints > 0 ? (w.earnedPoints / w.targetPoints) : (w.earnedPoints > 0 ? 1 : 0)), 0) / weeksList.length) * 100)
       : 0;
 
     // Sort weeks descending to get last 4
-    const sortedWeeks = Object.keys(weeklyData).sort((a, b) => b.localeCompare(a)).slice(0, 4);
+    const sortedWeeks = pastOrCurrentWeekKeys.sort((a, b) => b.localeCompare(a)).slice(0, 4);
     const last4AvgCompletion = sortedWeeks.length > 0
       ? Math.round((sortedWeeks.reduce((acc, wStart) => {
           const w = weeklyData[wStart];
@@ -173,7 +236,15 @@ export default function StudentSummary() {
         }, 0) / sortedWeeks.length) * 100)
       : 0;
 
-    const weeklyReportsArray = Object.keys(weeklyData).sort((a, b) => b.localeCompare(a)).map(weekStart => {
+    
+    const now = new Date();
+    const todayDay = now.getUTCDay();
+    const todayDiff = now.getUTCDate() - todayDay + (todayDay === 0 ? -6 : 1);
+    const currentWeekStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), todayDiff)).toISOString().split('T')[0];
+
+    const weeklyReportsArray = Object.keys(weeklyData)
+      .filter(weekStart => weekStart <= currentWeekStart)
+      .sort((a, b) => b.localeCompare(a)).map(weekStart => {
       const w = weeklyData[weekStart];
       const wParts = weekStart.split('-');
       const d = new Date(Date.UTC(Number(wParts[0]), Number(wParts[1]) - 1, Number(wParts[2])));
@@ -190,7 +261,8 @@ export default function StudentSummary() {
         unsolvedCount: w.unsolved,
         taskDone: w.taskDone,
         taskNotDone: w.taskNotDone,
-        successPercentage: Math.min(successPercentage, 100)
+        successPercentage: successPercentage,
+        weekStartKey: weekStart
       };
     });
 
@@ -199,13 +271,87 @@ export default function StudentSummary() {
       totalUnsolved: globalUnsolved,
       avgSolved: Math.round(globalSolved / weekCount),
       avgUnsolved: Math.round(globalUnsolved / weekCount),
-      overallAvgCompletion: Math.min(overallAvgCompletion, 100),
-      last4AvgCompletion: Math.min(last4AvgCompletion, 100),
-      derivedWeeklyReports: weeklyReportsArray
+      overallAvgCompletion: overallAvgCompletion,
+      last4AvgCompletion: last4AvgCompletion,
+      derivedWeeklyReports: weeklyReportsArray,
+      pendingResultsCount,
+      expiredWaitingCount
     };
-  }, [dailyPrograms, selectedStudent]);
+  }, [dailyPrograms, selectedStudent, exams]);
 
-  const { totalSolved, totalUnsolved, avgSolved, avgUnsolved, overallAvgCompletion, last4AvgCompletion, derivedWeeklyReports } = statsFromPrograms;
+  const { totalSolved, totalUnsolved, avgSolved, avgUnsolved, overallAvgCompletion, last4AvgCompletion, derivedWeeklyReports, pendingResultsCount, expiredWaitingCount } = statsFromPrograms;
+
+  useEffect(() => {
+    if (derivedWeeklyReports.length > 0 && !selectedEvaluationWeek) {
+      setSelectedEvaluationWeek(derivedWeeklyReports[0].weekStartKey);
+    }
+  }, [derivedWeeklyReports, selectedEvaluationWeek]);
+
+  useEffect(() => {
+    if (selectedStudent && selectedEvaluationWeek) {
+      studentDataService.getWeeklyEvaluation(selectedStudent.uid, selectedEvaluationWeek)
+        .then(evalData => {
+          setEvaluationText(evalData?.evaluation || '');
+        })
+        .catch(console.error);
+    } else {
+      setEvaluationText('');
+    }
+  }, [selectedStudent, selectedEvaluationWeek]);
+
+  const handleSaveEvaluation = async () => {
+    if (!selectedStudent || !selectedEvaluationWeek) return;
+    setIsSavingEvaluation(true);
+    try {
+      await studentDataService.saveWeeklyEvaluation(selectedStudent.uid, selectedEvaluationWeek, evaluationText);
+      alert('Haftalık koç değerlendirmesi başarıyla kaydedildi.');
+    } catch (err) {
+      console.error(err);
+      alert('Değerlendirme kaydedilirken bir hata oluştu.');
+    } finally {
+      setIsSavingEvaluation(false);
+    }
+  };
+
+  const handleGenerateAIEvaluation = async () => {
+    if (!selectedStudent || !selectedEvaluationWeek) return;
+    setIsGeneratingEval(true);
+    try {
+      const selectedWeekReport = derivedWeeklyReports.find(r => r.weekStartKey === selectedEvaluationWeek);
+      if (!selectedWeekReport) return;
+      
+      const draft = `Öğrencimiz bu hafta toplam ${selectedWeekReport.taskDone} görev tamamladı, ${selectedWeekReport.taskNotDone} görev ise eksik kaldı. Toplam çözdüğü soru sayısı ${selectedWeekReport.solvedCount}, çözemediği/yanlış soru sayısı ise ${selectedWeekReport.unsolvedCount}. Genel başarı oranı ise %${selectedWeekReport.successPercentage} olarak gerçekleşti.`;
+      
+      let previousEvaluation = null;
+      const currentIndex = derivedWeeklyReports.findIndex(r => r.weekStartKey === selectedEvaluationWeek);
+      if (currentIndex !== -1 && currentIndex < derivedWeeklyReports.length - 1) {
+        const prevWeek = derivedWeeklyReports[currentIndex + 1];
+        const prev = await studentDataService.getWeeklyEvaluation(selectedStudent.uid, prevWeek.weekStartKey);
+        if (prev) previousEvaluation = prev.evaluation;
+      }
+      
+      const response = await fetch("/api/weekly-evaluation-generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          prompt: draft, 
+          previousEvaluation, 
+          studentName: selectedStudent?.firstName || selectedStudent?.displayName 
+        })
+      });
+      const data = await response.json();
+      if (data.text) {
+        setEvaluationText(data.text);
+      } else {
+        alert("Yapay zeka raporu oluşturulamadı.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Yapay zeka raporu oluşturulurken bir hata oluştu.");
+    } finally {
+      setIsGeneratingEval(false);
+    }
+  };
 
   // Exam Average Calculations (Latest up to 4)
   const getExamAverages = (type: string, subjects: Record<string, string[]>) => {
@@ -327,6 +473,28 @@ export default function StudentSummary() {
       {/* Student ID Card & Target Progress */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
         {/* ID Card */}
+        {(pendingResultsCount > 0 || expiredWaitingCount > 0) && (
+          <div className="xl:col-span-3 space-y-2">
+            {pendingResultsCount > 0 && (
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-3 flex items-center gap-3">
+                <AlertTriangle className="text-amber-400 shrink-0" size={18} />
+                <div className="text-xs">
+                  <span className="font-bold text-amber-400 uppercase tracking-wide mr-2">Sonuç Bekleyen Denemeler ({pendingResultsCount}):</span>
+                  <span className="text-slate-300">Öğrencinin henüz sonuç açıklanmamış/girilmemiş deneme görevleri bulunuyor.</span>
+                </div>
+              </div>
+            )}
+            {expiredWaitingCount > 0 && (
+              <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-3 flex items-center gap-3">
+                <AlertTriangle className="text-red-400 shrink-0" size={18} />
+                <div className="text-xs">
+                  <span className="font-bold text-red-400 uppercase tracking-wide mr-2">5 Günü Geçen Bekleyen Görevler ({expiredWaitingCount}):</span>
+                  <span className="text-slate-300">5 gün içerisinde sonucu girilmeyen denemeler yapılmadı olarak işaretlenmiştir.</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <div className="xl:col-span-2 bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-[40px] p-8 overflow-hidden relative group">
           <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-blue-600/10 to-transparent blur-3xl -mr-32 -mt-32 group-hover:scale-110 transition-transform duration-1000" />
           <div className="relative flex flex-col md:flex-row gap-10">
@@ -353,7 +521,10 @@ export default function StudentSummary() {
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
                   <Target size={12} className="text-blue-500" /> Hedef Üniversite / Bölüm
                 </p>
-                <p className="text-sm font-bold text-slate-200 uppercase truncate">{selectedStudent?.targetDepartment || 'Belirtilmedi'}</p>
+                <div className="flex flex-col">
+                  <p className="text-xs font-bold text-slate-200 uppercase truncate" title={selectedStudent?.targetUniversity}>{selectedStudent?.targetUniversity || 'Üni Girilmedi'}</p>
+                  <p className="text-[10px] font-medium text-slate-400 uppercase truncate" title={selectedStudent?.targetDepartment}>{selectedStudent?.targetDepartment || 'Bölüm Girilmedi'}</p>
+                </div>
               </div>
               <div className="space-y-1">
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
@@ -421,15 +592,22 @@ export default function StudentSummary() {
                     />
                  </div>
               </div>
-           </div>
-           <div className="mt-8 flex items-center gap-3 p-4 bg-white/5 rounded-2xl border border-white/5">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0">
-                 <Sparkles size={20} />
+              <div className="space-y-3 mt-4">
+                 <div className="flex justify-between items-end">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">AYT Hedef Yakınlığı</span>
+                    <span className="text-xs font-black text-purple-400 italic">%{Math.round((parseFloat(aytAvgs?.totalNet) / (selectedStudent?.targetAyt || 80)) * 100) || 0}</span>
+                 </div>
+                 <div className="h-3 bg-white/5 rounded-full overflow-hidden p-0.5 border border-white/5">
+                    <motion.div 
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(100, (parseFloat(aytAvgs?.totalNet) / (selectedStudent?.targetAyt || 80)) * 100) || 0}%` }}
+                      transition={{ delay: 0.2 }}
+                      className="h-full bg-gradient-to-r from-purple-600 to-pink-500 rounded-full shadow-[0_0_15px_rgba(147,51,234,0.4)]"
+                    />
+                 </div>
               </div>
-              <p className="text-[10px] text-slate-400 font-medium leading-relaxed italic">
-                "Ulaşılacak hiçbir yer yoktur ki, büyük adımlarla gidilsin."
-              </p>
            </div>
+           
         </div>
       </div>
 
@@ -553,33 +731,94 @@ export default function StudentSummary() {
       </div>
 
       {/* Monthly Assessment & Reports */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-stretch">
         {/* Coach Note */}
-        <div className="lg:col-span-1 bg-slate-900/40 border border-white/5 rounded-3xl p-8 flex flex-col">
-           <div className="flex items-center justify-between mb-8">
-              <h3 className="text-xl font-bold flex items-center gap-3">
-                 <Quote className="text-purple-500" /> Koçun Notu (Bu Ay)
-              </h3>
-           </div>
-           <div className="flex-1 bg-white/5 rounded-2xl p-6 border border-white/5 relative">
-              <Sparkles size={24} className="absolute -top-3 -right-3 text-purple-500/50" />
-              {monthlyGoal?.coachNote ? (
-                <p className="text-sm text-slate-300 leading-relaxed italic">
-                  "{monthlyGoal.coachNote}"
-                </p>
-              ) : (
-                <p className="text-sm text-slate-500 leading-relaxed italic text-center py-10">
-                  Bu ay için henüz bir değerlendirme notu girilmemiş.
-                </p>
-              )}
+        <div className="lg:col-span-1 bg-slate-900/40 border border-white/5 rounded-3xl p-8 flex flex-col justify-between h-full">
+           <div>
+              <div className="flex items-center justify-between mb-6">
+                 <h3 className="text-xl font-bold flex items-center gap-3">
+                    <Quote className="text-purple-500" /> Koçun Notu (Bu Ay)
+                 </h3>
+              </div>
+              <div className="bg-white/5 rounded-2xl p-6 border border-white/5 relative flex-1 flex flex-col justify-center min-h-[210px]">
+                 <Sparkles size={24} className="absolute -top-3 -right-3 text-purple-500/50" />
+                 {monthlyGoal?.coachNote ? (
+                   <p className="text-sm text-slate-300 leading-relaxed italic">
+                     "{monthlyGoal.coachNote}"
+                   </p>
+                 ) : (
+                   <p className="text-sm text-slate-500 leading-relaxed italic text-center py-10">
+                     Bu ay için henüz bir değerlendirme notu girilmemiş.
+                   </p>
+                 )}
+              </div>
            </div>
            <Link to="hedefler" className="mt-6 text-[10px] font-black text-purple-400 hover:text-purple-300 uppercase tracking-widest flex items-center justify-center gap-1 transition-colors bg-white/5 py-3 rounded-xl border border-white/5">
               Notu Düzenle <ChevronRight size={14} />
            </Link>
         </div>
 
-        {/* Weekly Reports Table */}
-        <div className="lg:col-span-2 bg-slate-900/40 border border-white/5 rounded-3xl p-8">
+        {/* Weekly Coach Evaluation Section */}
+        {derivedWeeklyReports.length > 0 && (
+          <div className="lg:col-span-2 bg-slate-900/40 border border-white/5 rounded-3xl p-8 flex flex-col justify-between h-full space-y-6">
+             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4">
+                <div>
+                   <h3 className="text-xl font-bold flex items-center gap-3">
+                      <Sparkles className="text-emerald-400 animate-pulse" /> Haftalık Koç Değerlendirmesi Yaz / Düzenle
+                   </h3>
+                   <p className="text-xs text-slate-400 mt-1">Seçtiğiniz hafta için öğrenciye ve velisine iletilecek değerlendirmeyi girin.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                   <span className="text-xs text-slate-400 font-bold">Hafta Seçin:</span>
+                   <select 
+                     value={selectedEvaluationWeek}
+                     onChange={(e) => setSelectedEvaluationWeek(e.target.value)}
+                     className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-emerald-500/50 cursor-pointer"
+                   >
+                     {derivedWeeklyReports.map(report => (
+                       <option key={report.weekStartKey} value={report.weekStartKey}>
+                         {report.date}
+                       </option>
+                     ))}
+                   </select>
+                </div>
+             </div>
+
+             <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                   <span className="text-xs font-black uppercase tracking-widest text-slate-400">Değerlendirme Notu</span>
+                   <button 
+                     onClick={handleGenerateAIEvaluation}
+                     disabled={isGeneratingEval || !selectedEvaluationWeek}
+                     className="bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-30 text-emerald-400 font-bold px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 text-xs border border-emerald-500/20"
+                   >
+                      {isGeneratingEval ? 'Oluşturuluyor...' : 'Yapay Zeka ile Taslak Oluştur'}
+                   </button>
+                </div>
+
+                <textarea 
+                   value={evaluationText}
+                   onChange={(e) => setEvaluationText(e.target.value)}
+                   placeholder="Bu hafta için koç değerlendirmesini buraya yazın..."
+                   className="w-full bg-slate-950/50 border border-white/10 rounded-2xl p-4 text-sm text-slate-200 placeholder-slate-500 outline-none focus:border-emerald-500/50 min-h-[160px] resize-y"
+                />
+
+                <div className="flex justify-end gap-3">
+                   <button 
+                     onClick={handleSaveEvaluation}
+                     disabled={isSavingEvaluation || !selectedEvaluationWeek}
+                     className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-30 text-slate-950 font-black px-6 py-2.5 rounded-xl transition-all flex items-center gap-2 text-xs shadow-lg shadow-emerald-500/10"
+                   >
+                      <CheckCircle2 size={16} /> Değerlendirmeyi Kaydet
+                   </button>
+                </div>
+             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Weekly Reports Table */}
+      <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
         <div className="flex items-center justify-between mb-8">
            <h3 className="text-xl font-bold flex items-center gap-3">
               <History className="text-emerald-500" /> Haftalık Performans Özeti
@@ -606,7 +845,6 @@ export default function StudentSummary() {
                     <tr key={i} className="group hover:bg-white/[0.02]">
                        <td className="py-4 px-4">
                           <span className="font-bold text-slate-300 block">{report.date}</span>
-                          
                        </td>
                        <td className="py-4 px-4 text-center font-black text-emerald-400">{report.solvedCount || 0}</td>
                        <td className="py-4 px-4 text-center font-black text-red-400">{report.unsolvedCount || 0}</td>
@@ -615,7 +853,7 @@ export default function StudentSummary() {
                        <td className="py-4 px-4 text-center">
                           <div className="flex items-center justify-center gap-2">
                              <div className="w-12 h-1.5 bg-white/5 rounded-full overflow-hidden hidden sm:block">
-                                <div className="h-full bg-emerald-500" style={{ width: `${report.successPercentage}%` }} />
+                                <div className="h-full bg-emerald-500" style={{ width: `${Math.min(report.successPercentage, 100)}%` }} />
                              </div>
                              <span className="font-black text-white">%{report.successPercentage || 0}</span>
                           </div>
@@ -631,7 +869,6 @@ export default function StudentSummary() {
            </table>
         </div>
       </div>
-    </div>
   </div>
 );
 }

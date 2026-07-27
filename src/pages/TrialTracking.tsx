@@ -27,7 +27,7 @@ export default function TrialTracking() {
         <FeatureCard 
             icon={<Bell className="text-indigo-400" size={32} />}
             title="Otomatik Bildirim ve Şeffaflık"
-            description="Yeni bir deneme verisi sisteme eklendiğinde WhatsApp entegrasyonumuz ile bilgilendirme sağlanıyor. Sonuçlar anlık olarak veli ve öğrenci bilgilendirme panellerine iletilerek sürecin tamamen şeffaf ve eşzamanlı yürümesi sağlanıyor."
+            description="Yeni bir deneme verisi sisteme eklendiğinde sistem üzerinden bilgilendirme sağlanıyor. Sonuçlar anlık olarak veli ve öğrenci bilgilendirme panellerine iletilerek sürecin tamamen şeffaf ve eşzamanlı yürümesi sağlanıyor."
         />
         <FeatureCard 
             icon={<CalendarDays className="text-amber-400" size={32} />}

@@ -1,30 +1,82 @@
+import { useState } from 'react';
 import { Mail, Phone, MapPin, Send, MessageSquare, Clock, Globe } from 'lucide-react';
 import { motion } from 'motion/react';
+import { db } from '../lib/firebase';
+import { collection, doc, setDoc } from 'firebase/firestore';
 
 export default function Contact() {
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fullName || !email || !subject || !message) {
+      setError('Lütfen tüm alanları doldurunuz.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const nameParts = fullName.trim().split(" ");
+      const firstName = nameParts[0] || "";
+      const lastName = nameParts.slice(1).join(" ") || "";
+
+      const messageId = `contact_${Date.now()}`;
+      await setDoc(doc(db, 'inbox_messages', messageId), {
+        firstName,
+        lastName,
+        email,
+        phone: '', // İletişim formunda telefon alanı yok
+        topic: subject,
+        message: message,
+        status: 'new',
+        type: 'contact_message',
+        createdAt: new Date()
+      });
+
+      setSuccess(true);
+      setFullName('');
+      setEmail('');
+      setSubject('');
+      setMessage('');
+    } catch (err: any) {
+      console.error('Error sending contact message:', err);
+      setError('Mesajınız gönderilirken bir hata oluştu. Lütfen tekrar deneyin.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const contactInfo = [
     {
       icon: <Phone className="text-blue-400" />,
       title: "Telefon",
-      details: ["0500 000 00 00", "0500 000 00 01"],
-      link: "tel:+905000000000"
+      details: ["0545 448 78 86", "0543 207 37 48"],
+      link: "tel:+905454487886"
     },
     {
       icon: <Mail className="text-emerald-400" />,
       title: "E-Posta",
-      details: ["destek@omernasuhakademi.com", "bilgi@omernasuhakademi.com"],
+      details: ["destek@omernasuhakademi.com"],
       link: "mailto:destek@omernasuhakademi.com"
     },
     {
       icon: <MapPin className="text-rose-400" />,
       title: "Adres",
-      details: ["Bahçelievler, İstanbul, Türkiye"],
-      link: "https://maps.google.com"
+      details: [""],
+      link: "https://www.google.com/maps/"
     },
     {
       icon: <Clock className="text-amber-400" />,
       title: "Çalışma Saatleri",
-      details: ["Hafta İçi: 09:00 - 19:00", "Hafta Sonu: 10:00 - 17:00"],
+      details: ["Hafta İçi: 09:00 - 19:00"],
       link: "#"
     }
   ];
@@ -107,13 +159,28 @@ export default function Contact() {
               <div className="relative z-10">
                 <h2 className="text-3xl font-bold text-white mb-8 italic">Bize Mesaj Gönderin</h2>
                 
-                <form className="space-y-6">
+                {success && (
+                  <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-emerald-400 text-sm">
+                    Mesajınız başarıyla gönderildi! En kısa sürede sizinle iletişime geçeceğiz.
+                  </div>
+                )}
+
+                {error && (
+                  <div className="mb-6 p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-400 text-sm">
+                    {error}
+                  </div>
+                )}
+
+                <form onSubmit={handleSubmit} className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
                       <label className="text-xs text-slate-500 font-bold uppercase tracking-widest ml-1">Ad Soyad</label>
                       <input 
                         type="text" 
+                        required
                         placeholder="Örn: Ahmet Yılmaz"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
                         className="w-full bg-slate-950 border border-white/10 rounded-2xl p-4 text-white focus:border-blue-500/50 focus:ring-0 transition-all"
                       />
                     </div>
@@ -121,7 +188,10 @@ export default function Contact() {
                       <label className="text-xs text-slate-500 font-bold uppercase tracking-widest ml-1">E-Posta</label>
                       <input 
                         type="email" 
+                        required
                         placeholder="Örn: ahmet@mail.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
                         className="w-full bg-slate-950 border border-white/10 rounded-2xl p-4 text-white focus:border-blue-500/50 focus:ring-0 transition-all"
                       />
                     </div>
@@ -131,7 +201,10 @@ export default function Contact() {
                     <label className="text-xs text-slate-500 font-bold uppercase tracking-widest ml-1">Konu</label>
                     <input 
                       type="text" 
+                      required
                       placeholder="Mesajınızın konusu"
+                      value={subject}
+                      onChange={(e) => setSubject(e.target.value)}
                       className="w-full bg-slate-950 border border-white/10 rounded-2xl p-4 text-white focus:border-blue-500/50 focus:ring-0 transition-all"
                     />
                   </div>
@@ -140,14 +213,27 @@ export default function Contact() {
                     <label className="text-xs text-slate-500 font-bold uppercase tracking-widest ml-1">Mesajınız</label>
                     <textarea 
                       rows={5}
+                      required
                       placeholder="Detaylı mesajınız..."
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
                       className="w-full bg-slate-950 border border-white/10 rounded-2xl p-4 text-white focus:border-blue-500/50 focus:ring-0 transition-all resize-none"
                     ></textarea>
                   </div>
 
-                  <button className="w-full flex items-center justify-center gap-2 py-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-2xl transition-all shadow-lg shadow-blue-900/20 group">
-                    <Send size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-                    Mesajı Gönder
+                  <button 
+                    type="submit"
+                    disabled={loading}
+                    className="w-full flex items-center justify-center gap-2 py-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-2xl transition-all shadow-lg shadow-blue-900/20 group disabled:opacity-50"
+                  >
+                    {loading ? (
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    ) : (
+                      <>
+                        <Send size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                        Mesajı Gönder
+                      </>
+                    )}
                   </button>
                 </form>
               </div>
@@ -164,7 +250,7 @@ export default function Contact() {
             <MapPin size={48} className="text-slate-700 mb-4 group-hover:text-blue-500 transition-colors duration-500" />
             <h4 className="text-slate-500 font-bold uppercase tracking-widest text-sm">İnteraktif Harita Yakında</h4>
             <div className="mt-2 text-slate-600 text-xs text-center px-10">
-              Bahçelievler Mah. Atatürk Cad. No:123<br />Bakırköy / İSTANBUL
+              Taşpazar Mah.<br />Merkez / AKSARAY
             </div>
           </div>
         </div>

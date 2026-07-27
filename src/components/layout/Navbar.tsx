@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, Menu, ChevronDown, LogOut, LayoutDashboard, Shield, Clock, ExternalLink, X, Bell, Check, Trash2, Users, ShoppingBag } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../lib/AuthContext';
 import { useCart } from '../../lib/CartContext';
 import NotificationBell from './NotificationBell';
+import ChatWidget from '../chat/ChatWidget';
 import { notificationService, Notification } from '../../services/notificationService';
 
 export default function Navbar() {
@@ -13,8 +14,20 @@ export default function Navbar() {
   const [openMobileSubmenu, setOpenMobileSubmenu] = useState<string | null>(null);
   const [mobileDrawerView, setMobileDrawerView] = useState<'menu' | 'notifications'>('menu');
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   
   const location = useLocation();
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setActiveDropdown(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -57,6 +70,7 @@ export default function Navbar() {
   useEffect(() => {
     setIsMobileMenuOpen(false);
     setOpenMobileSubmenu(null);
+    setActiveDropdown(null);
     setTimeout(() => setMobileDrawerView('menu'), 300); // reset after animation
   }, [location.pathname]);
 
@@ -78,7 +92,7 @@ export default function Navbar() {
   };
 
   return (
-    <header className="bg-transparent border-b border-white/10 text-white py-4 px-4 md:px-12 flex items-center justify-between sticky top-0 z-50 backdrop-blur-xl relative">
+    <header ref={dropdownRef} className="bg-transparent border-b border-white/10 text-white py-4 px-4 md:px-12 flex items-center justify-between sticky top-0 z-50 backdrop-blur-xl relative">
       <div className="flex items-center gap-2">
         <Link to="/">
           <img src="/images/logo.png" alt="FocusON Akademi Logo" width="450" height="175" className="h-10 md:h-14 w-auto object-contain" />
@@ -88,13 +102,15 @@ export default function Navbar() {
       <nav className="hidden lg:flex items-center gap-8 text-sm font-medium text-slate-300">
         <Link to="/" className="hover:text-white transition-colors">Ana Sayfa</Link>
         
-        <div className="relative group">
-          <button className="flex items-center gap-1 hover:text-white transition-colors py-2 relative">
-            YKS <ChevronDown size={14} className="group-hover:rotate-180 transition-transform duration-300" />
-            <span className="absolute bottom-0 left-0 w-full h-8 translate-y-full"></span> {/* Invisible hover bridge */}
+        <div className="relative">
+          <button 
+            className="flex items-center gap-1 hover:text-white transition-colors py-2 relative"
+            onClick={() => setActiveDropdown(activeDropdown === 'yks' ? null : 'yks')}
+          >
+            YKS <ChevronDown size={14} className={`transition-transform duration-300 ${activeDropdown === 'yks' ? 'rotate-180' : ''}`} />
           </button>
           
-          <div className="absolute top-full left-0 mt-0 w-56 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 translate-y-2 group-hover:translate-y-0 z-50">
+          <div className={`absolute top-full left-0 mt-0 w-56 transition-all duration-300 z-50 ${activeDropdown === 'yks' ? 'opacity-100 visible translate-y-0' : 'opacity-0 invisible translate-y-2'}`}>
             <div className="bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.5)] py-3 flex flex-col mt-2">
               <Link to="/sinav-geri-sayimi" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">Sınav Geri Sayımı</Link>
               <Link to="/kanal-onerileri" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">Kanal Önerileri</Link>
@@ -103,19 +119,21 @@ export default function Navbar() {
               <Link to="/yks-puan-hesaplama" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">YKS Puan Hesaplama</Link>
               <Link to="/meslek-rehberi" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">Meslek Rehberi</Link>
               <Link to="/yok-atlas" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">YÖK Atlas</Link>
-              <a href="#" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">Tercih Robotu</a>
+              <Link to="/tercih-robotu" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">Tercih Robotu</Link>
               <Link to="/kyk-yurtlari" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">KYK Yurtları</Link>
             </div>
           </div>
         </div>
 
-        <div className="relative group">
-          <button className="flex items-center gap-1 hover:text-white transition-colors py-2 relative">
-            MEB <ChevronDown size={14} className="group-hover:rotate-180 transition-transform duration-300" />
-            <span className="absolute bottom-0 left-0 w-full h-8 translate-y-full"></span> {/* Invisible hover bridge */}
+        <div className="relative">
+          <button 
+            className="flex items-center gap-1 hover:text-white transition-colors py-2 relative"
+            onClick={() => setActiveDropdown(activeDropdown === 'meb' ? null : 'meb')}
+          >
+            MEB <ChevronDown size={14} className={`transition-transform duration-300 ${activeDropdown === 'meb' ? 'rotate-180' : ''}`} />
           </button>
           
-          <div className="absolute top-full left-0 mt-0 w-64 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 translate-y-2 group-hover:translate-y-0 z-50">
+          <div className={`absolute top-full left-0 mt-0 w-64 transition-all duration-300 z-50 ${activeDropdown === 'meb' ? 'opacity-100 visible translate-y-0' : 'opacity-0 invisible translate-y-2'}`}>
             <div className="bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.5)] py-3 flex flex-col mt-2">
               <Link to="/eba-akademik-destek" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">EBA Akademik Destek</Link>
               <Link to="/mebi" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">Bireysel Öğrenme Platformu (MEBİ)</Link>
@@ -126,30 +144,34 @@ export default function Navbar() {
           </div>
         </div>
 
-        <div className="relative group">
-          <button className="flex items-center gap-1 hover:text-white transition-colors py-2 relative">
-            Faaliyetlerimiz <ChevronDown size={14} className="group-hover:rotate-180 transition-transform duration-300" />
-            <span className="absolute bottom-0 left-0 w-full h-8 translate-y-full"></span> {/* Invisible hover bridge */}
+        <div className="relative">
+          <button 
+            className="flex items-center gap-1 hover:text-white transition-colors py-2 relative"
+            onClick={() => setActiveDropdown(activeDropdown === 'faaliyetler' ? null : 'faaliyetler')}
+          >
+            Faaliyetlerimiz <ChevronDown size={14} className={`transition-transform duration-300 ${activeDropdown === 'faaliyetler' ? 'rotate-180' : ''}`} />
           </button>
           
-          <div className="absolute top-full left-1/2 -translate-x-1/2 mt-0 w-56 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 translate-y-2 group-hover:translate-y-0 z-50">
+          <div className={`absolute top-full left-1/2 -translate-x-1/2 mt-0 w-56 transition-all duration-300 z-50 ${activeDropdown === 'faaliyetler' ? 'opacity-100 visible translate-y-0' : 'opacity-0 invisible translate-y-2'}`}>
             <div className="bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.5)] py-3 flex flex-col mt-2">
               <Link to="/deneme-takibi" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">Deneme Takibi</Link>
               <Link to="/derin-deneme-analizi" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">Derin Deneme Analizi</Link>
               <Link to="/kisilik-analizleri" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">Kişilik Analizleri</Link>
-              <Link to="/sinav-metronomu" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">Sınav Metronomu</Link>
+              <Link to="/zaman-yonetimi" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">Zaman Yönetimi</Link>
               <Link to="/sinav-surec-takibi" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">Sınav Süreç Takibi</Link>
             </div>
           </div>
         </div>
 
-        <div className="relative group">
-          <button className="flex items-center gap-1 hover:text-white transition-colors py-2 relative">
-            Hakkımızda <ChevronDown size={14} className="group-hover:rotate-180 transition-transform duration-300" />
-            <span className="absolute bottom-0 left-0 w-full h-8 translate-y-full"></span> {/* Invisible hover bridge */}
+        <div className="relative">
+          <button 
+            className="flex items-center gap-1 hover:text-white transition-colors py-2 relative"
+            onClick={() => setActiveDropdown(activeDropdown === 'hakkimizda' ? null : 'hakkimizda')}
+          >
+            Hakkımızda <ChevronDown size={14} className={`transition-transform duration-300 ${activeDropdown === 'hakkimizda' ? 'rotate-180' : ''}`} />
           </button>
           
-          <div className="absolute top-full left-1/2 -translate-x-1/2 mt-0 w-60 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 translate-y-2 group-hover:translate-y-0 z-50">
+          <div className={`absolute top-full left-1/2 -translate-x-1/2 mt-0 w-60 transition-all duration-300 z-50 ${activeDropdown === 'hakkimizda' ? 'opacity-100 visible translate-y-0' : 'opacity-0 invisible translate-y-2'}`}>
             <div className="bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.5)] py-3 flex flex-col mt-2">
               <Link to="/hakkimizda" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">Biz Kimiz?</Link>
               <Link to="/vizyon-misyon" className="px-5 py-2.5 hover:bg-white/5 hover:text-blue-400 transition-colors">Vizyon & Misyon</Link>
@@ -176,12 +198,16 @@ export default function Navbar() {
                 )}
               </Link>
             )}
+            <ChatWidget />
             <NotificationBell notifications={notifications} />
           </div>
         )}
         {user ? (
-          <div className="relative group hidden lg:block">
-            <button className="flex items-center gap-2 px-4 py-2 rounded-full bg-blue-600/10 border border-blue-500/30 text-sm font-semibold text-blue-400 hover:bg-blue-600/20 transition-all">
+          <div className="relative hidden lg:block">
+            <button 
+              className="flex items-center gap-2 px-4 py-2 rounded-full bg-blue-600/10 border border-blue-500/30 text-sm font-semibold text-blue-400 hover:bg-blue-600/20 transition-all"
+              onClick={() => setActiveDropdown(activeDropdown === 'profil' ? null : 'profil')}
+            >
               <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] overflow-hidden">
                 {userData?.photoURL ? (
                   <img src={userData.photoURL} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -190,10 +216,10 @@ export default function Navbar() {
                 )}
               </div>
               <span className="hidden sm:inline">{userData?.firstName}</span>
-              <ChevronDown size={14} className="group-hover:rotate-180 transition-transform duration-300" />
+              <ChevronDown size={14} className={`transition-transform duration-300 ${activeDropdown === 'profil' ? 'rotate-180' : ''}`} />
             </button>
             
-            <div className="absolute top-full right-0 mt-2 w-48 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 translate-y-2 group-hover:translate-y-0 z-50">
+            <div className={`absolute top-full right-0 mt-2 w-48 transition-all duration-300 z-50 ${activeDropdown === 'profil' ? 'opacity-100 visible translate-y-0' : 'opacity-0 invisible translate-y-2'}`}>
               <div className="bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.5)] py-2 flex flex-col overflow-hidden">
                 <div className="px-4 py-3 border-b border-white/5 mb-1">
                   <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Kullanıcı Hesabı</p>
@@ -283,6 +309,13 @@ export default function Navbar() {
             <User size={18} />
             Giriş Yap
           </Link>
+        )}
+        
+        {/* Mobile Chat button */}
+        {user && (
+          <div className="lg:hidden">
+            <ChatWidget />
+          </div>
         )}
         
         {/* Mobile Menu Cart button */}
@@ -375,6 +408,7 @@ export default function Navbar() {
                   <Link to="/yks-puan-hesaplama" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">YKS Puan Hesaplama</Link>
                   <Link to="/meslek-rehberi" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Meslek Rehberi</Link>
                   <Link to="/yok-atlas" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">YÖK Atlas</Link>
+                  <Link to="/tercih-robotu" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Tercih Robotu</Link>
                   <Link to="/kyk-yurtlari" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">KYK Yurtları</Link>
                 </div>
               )}
@@ -414,7 +448,7 @@ export default function Navbar() {
                   <Link to="/deneme-takibi" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Deneme Takibi</Link>
                   <Link to="/derin-deneme-analizi" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Derin Deneme Analizi</Link>
                   <Link to="/kisilik-analizleri" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Kişilik Analizleri</Link>
-                  <Link to="/sinav-metronomu" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Sınav Metronomu</Link>
+                  <Link to="/zaman-yonetimi" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Zaman Yönetimi</Link>
                   <Link to="/sinav-surec-takibi" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Sınav Süreç Takibi</Link>
                 </div>
               )}
@@ -458,6 +492,11 @@ export default function Navbar() {
                 <Link to="/profil" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
                    <User size={18} /> Profil Ayarları
                 </Link>
+                {userData?.role === 'parent' && (
+                  <Link to="/panel/veli" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
+                    <LayoutDashboard size={18} className="text-emerald-500" /> Veli Paneli
+                  </Link>
+                )}
                 {userData?.role === 'student' && (
                   <Link to="/panel/ogrenci" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
                     <LayoutDashboard size={18} /> Öğrenci Paneli
@@ -480,6 +519,9 @@ export default function Navbar() {
                     </Link>
                     <Link to="/panel/koc" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
                       <LayoutDashboard size={18} /> Koç Paneli
+                    </Link>
+                    <Link to="/panel/veli" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
+                      <LayoutDashboard size={18} className="text-emerald-500" /> Veli Paneli
                     </Link>
                     <Link to="/panel/ogrenci" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
                       <LayoutDashboard size={18} /> Öğrenci Paneli

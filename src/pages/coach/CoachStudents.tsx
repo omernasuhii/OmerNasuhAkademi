@@ -4,6 +4,7 @@ import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
 import { useStudent } from '../../lib/StudentContext';
 import { useNavigate } from 'react-router-dom';
+import { safeStorage } from '../../lib/localStorage';
 import { 
   Users, 
   Search, 
@@ -43,6 +44,22 @@ export default function CoachStudents() {
       }));
 
       const enrichedStudents = await Promise.all(data.map(async (student) => {
+         // Fetch parent info
+         let parentUid = undefined;
+         let parentFirstName = undefined;
+         let parentLastName = undefined;
+         try {
+           const usersRef = collection(db, 'users');
+           const qParent = query(usersRef, where('role', '==', 'parent'), where('studentUid', '==', student.uid));
+           const parentSnap = await getDocs(qParent);
+           if (!parentSnap.empty) {
+             const parentData = parentSnap.docs[0].data();
+             parentUid = parentSnap.docs[0].id;
+             parentFirstName = parentData.firstName;
+             parentLastName = parentData.lastName;
+           }
+         } catch(e) {}
+
          const examsRef = collection(db, 'exam_results');
          const qExams = query(examsRef, where('studentId', '==', student.uid));
          const examsSnap = await getDocs(qExams);
@@ -84,7 +101,7 @@ export default function CoachStudents() {
          
          let nextAppt = null;
          try {
-             const userStr = localStorage.getItem('user');
+             const userStr = safeStorage.getItem('user');
              const currentUser = userStr ? JSON.parse(userStr) : null;
              const apptsRef = collection(db, 'appointments');
              const qAppts = query(apptsRef, where('studentId', '==', student.uid));
@@ -105,7 +122,10 @@ export default function CoachStudents() {
              ...student,
              latestScore,
              progress,
-             nextAppt
+             nextAppt,
+             parentUid,
+             parentFirstName,
+             parentLastName
          };
       }));
 

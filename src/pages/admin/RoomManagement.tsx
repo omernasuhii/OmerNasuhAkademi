@@ -155,7 +155,7 @@ export default function RoomManagement() {
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-slate-900 border border-white/10 w-full max-w-md rounded-[40px] shadow-2xl overflow-hidden z-10 p-10"
+            className="bg-slate-900 border border-white/10 w-full max-w-md sm:rounded-[40px] shadow-2xl overflow-y-auto z-10 p-10 h-full sm:h-auto sm:max-h-[90vh]"
           >
             <div className="flex items-center justify-between mb-8">
               <h2 className="text-2xl font-bold text-white">{editingRoom ? 'Odayı Düzenle' : 'Yeni Oda'}</h2>
@@ -174,7 +174,7 @@ export default function RoomManagement() {
                   required
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                  <div className="space-y-2">
                   <label className="text-xs font-black text-slate-500 uppercase tracking-widest ml-1">Kapasite</label>
                   <input 

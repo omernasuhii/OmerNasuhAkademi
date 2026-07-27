@@ -62,6 +62,15 @@ const getBranchMax = (branchName: string) => {
   return 40;
 };
 
+const safeGetTime = (dateVal: any) => {
+  if (!dateVal) return 0;
+  if (dateVal.toDate && typeof dateVal.toDate === 'function') {
+    return dateVal.toDate().getTime();
+  }
+  const d = new Date(dateVal);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+};
+
 export default function StudentExamResults() {
   const { selectedStudent } = useStudent();
   const [exams, setExams] = useState<any[]>([]);
@@ -189,7 +198,11 @@ export default function StudentExamResults() {
     return exams.filter(e => {
         if (activeTab === 'BRANŞ') return e.examType === 'BRANŞ';
         return e.examType === activeTab || (e.examType === 'YKS' && activeTab !== 'YKS');
-    }).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }).sort((a,b) => {
+        const dateA = (activeTab === 'AYT' || activeTab === 'YDT') && a.examType === 'YKS' ? (a.aytDate || a.date) : a.date;
+        const dateB = (activeTab === 'AYT' || activeTab === 'YDT') && b.examType === 'YKS' ? (b.aytDate || b.date) : b.date;
+        return safeGetTime(dateB) - safeGetTime(dateA);
+    });
   };
 
   useEffect(() => {
@@ -274,7 +287,12 @@ export default function StudentExamResults() {
                         {exam.examType}
                       </span>
                     </td>
-                    <td className="px-6 py-6 text-sm text-slate-400 font-medium">{exam.date}</td>
+                    <td className="px-6 py-6 text-sm text-slate-400 font-medium">
+                      <div className="flex flex-col">
+                        <span>{exam.examType === 'YKS' ? 'TYT: ' : ''}{exam.date}</span>
+                        {exam.aytDate && <span className="text-xs mt-0.5">AYT/YDT: {exam.aytDate}</span>}
+                      </div>
+                    </td>
                     <td className="px-6 py-6">
                       {activeTab === 'AYT' || activeTab === 'YKS' ? (
                         <div className="flex flex-col gap-1 min-w-[120px]">

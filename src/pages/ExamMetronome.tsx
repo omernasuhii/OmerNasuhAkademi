@@ -246,8 +246,8 @@ export default function ExamMetronome() {
             </div>
 
             <div className="mt-16 flex justify-center">
-                <Link to="/kayit/ogrenci" className="inline-flex items-center justify-center gap-3 bg-white text-slate-900 px-8 py-4 rounded-2xl font-black text-lg hover:bg-indigo-50 transition-all hover:scale-105 shadow-xl shadow-white/10">
-                    <Play fill="currentColor" size={20} /> Metronomu Başlat
+              <Link to="/zaman-yonetimi" className="inline-flex items-center justify-center gap-3 bg-white text-slate-900 px-8 py-4 rounded-2xl font-black text-lg hover:bg-indigo-50 transition-all hover:scale-105 shadow-xl shadow-white/10">
+                    <Play fill="currentColor" size={20} /> Zaman Yönetimini Başlat
                 </Link>
             </div>
         </div>

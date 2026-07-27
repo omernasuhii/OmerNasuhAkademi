@@ -8,7 +8,11 @@ import { studentDataService } from '../../services/studentDataService';
 import { referralService } from '../../services/referralService';
 import { programService } from '../../services/programService';
 import { eventService } from '../../services/eventService';
+import { notificationService } from '../../services/notificationService';
+import { SUBSCRIPTION_PACKAGES } from '../students/Subscription';
 import { motion, AnimatePresence } from 'motion/react';
+import { getDoc, doc } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 
 export default function Cart() {
   const { user, userData } = useAuth();
@@ -24,17 +28,20 @@ export default function Cart() {
   const [discountPercent, setDiscountPercent] = useState(0);
   const [discountTL, setDiscountTL] = useState(0);
   const [appliedReferrerId, setAppliedReferrerId] = useState<string | null>(null);
+  const [appliedCouponId, setAppliedCouponId] = useState<string | null>(null);
 
   const finalPrice = Math.max(0, totalPrice - (totalPrice * discountPercent / 100) - discountTL);
 
   const handleApplyCoupon = async () => {
     if (!user?.uid || !couponCode) return;
     try {
-      const res = await referralService.applyCouponOrReferral(couponCode, user.uid, totalPrice);
+      const itemTypes = cartItems.map(i => i.type);
+      const res = await referralService.applyCouponOrReferral(couponCode, user.uid, totalPrice, itemTypes);
       if (res) {
         setDiscountPercent(res.discountPercent || 0);
         setDiscountTL(res.discountTL || 0);
         setAppliedReferrerId(res.referrerId || null);
+        if (res.couponId) setAppliedCouponId(res.couponId);
         
         const message = res.discountPercent > 0 
            ? `%${res.discountPercent} indirim uygulandı!` 
@@ -44,6 +51,7 @@ export default function Cart() {
         setDiscountPercent(0);
         setDiscountTL(0);
         setAppliedReferrerId(null);
+        setAppliedCouponId(null);
         setError('Geçersiz veya süresi dolmuş kupon kodu.');
       }
     } catch (err: any) {
@@ -71,21 +79,64 @@ export default function Cart() {
         throw new Error('Bakiyeniz yetersiz. Koçunuz üzerinden bakiye yükleyebilirsiniz.');
       }
 
-      let activeDiscountRatio = totalPrice > 0 ? (finalPrice / totalPrice) : 1;
+      const totalDiscount = totalPrice - finalPrice;
       let totalCoachDeduction = 0;
+
+      // Fetch dynamic deduction rate
+      let dRate = 20;
+      let minRateBronze = 1000;
+      let minRateSilver = 1500;
+      let minRateGold = 2000;
+      const rootSnap = await getDoc(doc(db, 'settings', 'financial'));
+      if (rootSnap.exists()) {
+         const data = rootSnap.data();
+         if (data.systemDeductionRate !== undefined) dRate = data.systemDeductionRate;
+         if (data.minSystemDeductionBronze !== undefined) minRateBronze = data.minSystemDeductionBronze;
+         if (data.minSystemDeductionSilver !== undefined) minRateSilver = data.minSystemDeductionSilver;
+         if (data.minSystemDeductionGold !== undefined) minRateGold = data.minSystemDeductionGold;
+      }
       
       for (const item of cartItems) {
          let itemTotalPrice = item.price * item.quantity;
-         let itemFinalPrice = itemTotalPrice * activeDiscountRatio;
          
          if (item.type === 'subscription') {
-            totalCoachDeduction += itemFinalPrice / 3;
+            const pkg = SUBSCRIPTION_PACKAGES.find(p => p.name === item.title);
+            
+            let minRate = minRateBronze;
+            if (item.title.toLowerCase().includes('bronz')) minRate = minRateBronze;
+            else if (item.title.toLowerCase().includes('gümüş')) minRate = minRateSilver;
+            else if (item.title.toLowerCase().includes('altın')) minRate = minRateGold;
+
+            if (pkg && pkg.systemDeduction !== undefined) {
+               totalCoachDeduction += Math.max(Math.floor(itemTotalPrice * (dRate / 100)), minRate * item.quantity);
+            } else {
+               totalCoachDeduction += Math.max(Math.floor(itemTotalPrice * (dRate / 100)), minRate * item.quantity); // Fallback
+            }
          } else {
-            totalCoachDeduction += itemFinalPrice;
+            totalCoachDeduction += itemTotalPrice; 
          }
       }
       
-      totalCoachDeduction = Math.max(0, Math.round(totalCoachDeduction));
+      // Referans ayarlarından indirimin kimden kesileceğini öğren
+      const refSettings = await referralService.getSettings();
+      const payerMode = refSettings?.discountPayer || 'system';
+
+      if (totalDiscount > 0) {
+         if (payerMode === 'system') {
+            // İndirimi tamamen koçtan alınan ödemeden düşüyoruz (sistem indirim yapıyor, koç zarar etmiyor)
+            totalCoachDeduction = Math.max(0, totalCoachDeduction - totalDiscount);
+         } else if (payerMode === 'coach') {
+            // Koç zarar eder (indirim koça sağlanan tutardan değil sistem dahil hesaplanır, base math holds)
+            // Or just leave deduction as is since it was full totalCoachDeduction.
+            // Ama indirim koçtan kesilecekse koçun geliri o kadar azalmaz mı? Aslında koçtan sistem komisyonu kesilir.
+            // If coach pays the discount, system gets its usual cut. So System gets (FinalPrice - Discount) but wait...
+         } else if (payerMode === 'proportional') {
+            const activeRatio = totalPrice > 0 ? (finalPrice / totalPrice) : 1;
+            totalCoachDeduction = totalCoachDeduction * activeRatio;
+         }
+      }
+
+      totalCoachDeduction = Math.round(totalCoachDeduction);
 
       if (finalPrice > 0) {
          const res = await studentDataService.addWalletTransaction(user!.uid, {
@@ -104,7 +155,7 @@ export default function Cart() {
          if (!res.success) {
            const errMsg = res.error || '';
            if (errMsg.includes('Koç bulunamadı') || errMsg.includes('paket güncellemesi') || errMsg.includes('koçun')) {
-             throw new Error('Bu işlemi şuan gerçekleştiremiyoruz. Bu işlem için koçunuzla iletişime geçin.');
+             throw new Error('⚠️ İşlem Tamamlanamadı: Koçunuz kaynaklı bir durum sebebiyle satın alımınız/yenilemeniz şu an yapılamıyor. Lütfen doğrudan koçunuzla iletişime geçin.');
            } else {
              throw new Error('İşlem gerçekleştirilemedi: ' + errMsg);
            }
@@ -120,12 +171,34 @@ export default function Cart() {
           const now = new Date();
           const durationDays = item.metadata?.durationDays || 30;
           const expiration = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
+          
+          const isUpgrade = userData?.subscriptionStatus === 'active' && userData?.subscriptionPlan !== item.itemId;
+
           await studentDataService.updateStudentProfile(user!.uid, {
             subscriptionPlan: item.itemId,
             subscriptionStartDate: now.toISOString(),
             subscriptionEndDate: expiration.toISOString(),
             subscriptionStatus: 'active',
             autoRenew: true
+          });
+
+          await studentDataService.logSubscriptionHistory({
+            studentId: user!.uid,
+            studentName: `${userData?.firstName || ''} ${userData?.lastName || ''}`.trim(),
+            oldPlan: isUpgrade ? userData?.subscriptionPlan : undefined,
+            newPlan: item.itemId,
+            action: isUpgrade ? 'upgraded' : 'started',
+            startDate: now.toISOString(),
+            endDate: expiration.toISOString()
+          });
+
+          await notificationService.addNotification(user!.uid, {
+              title: isUpgrade ? 'Abonelik Yükseltme' : 'Abonelik Başlangıcı',
+              message: isUpgrade 
+                 ? `Tebrikler! ${item.itemId} paketine başarıyla geçiş yaptın. Gelişmiş özelliklerin tadını çıkar.` 
+                 : `Harika bir karar! ${item.itemId} planı ile sistemin sınırsız imkanlarına eriştin.`,
+              type: 'success',
+              link: '/panel/ogrenci/abonelik'
           });
         } else if (item.type === 'event') {
            if (item.metadata?.ticketTypeId && item.metadata?.eventId) {
@@ -144,6 +217,13 @@ export default function Cart() {
       if (appliedReferrerId) {
         await referralService.markReferralUsed(appliedReferrerId, user!.uid);
       }
+      
+      if (appliedCouponId) {
+        await referralService.markCouponUsed(appliedCouponId, user!.uid);
+      }
+
+      // Check and activate referrer coupons if this user was a referee
+      await referralService.activatePendingCouponsForReferee(user!.uid);
 
       setSuccessMessage('Siparişiniz başarıyla tamamlandı!');
       clearCart();

@@ -1,5 +1,14 @@
 import { studentDataService } from '../services/studentDataService';
 
+export const safeGetTime = (dateVal: any) => {
+  if (!dateVal) return 0;
+  if (dateVal.toDate && typeof dateVal.toDate === 'function') {
+    return dateVal.toDate().getTime();
+  }
+  const d = new Date(dateVal);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+};
+
 export const TASK_WEIGHTS = {
   'Soru Çözümü': 3,
   'Konu Çalışması': 1,
@@ -70,7 +79,7 @@ export const calculateSubjectMultipliers = (exams: any[], studentBranch?: string
   
   // Sadece son 4 denemeyi al (tarihe göre azalan sırayla)
   const recentExams = [...exams]
-    .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+    .sort((a, b) => safeGetTime(b.date) - safeGetTime(a.date))
     .slice(0, 4);
   
   recentExams.forEach(exam => {

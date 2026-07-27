@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
+import { NotificationPrompt } from '../components/NotificationPrompt';
 import { 
   Users, 
   Calendar, 
@@ -40,11 +41,33 @@ export default function CoachDashboard() {
         : query(collection(db, 'users'), where('coachId', '==', user!.uid));
       
       const snap = await getDocs(q);
-      const studentData = snap.docs.map(doc => ({ 
-        uid: doc.id, 
-        ...doc.data(),
-        displayName: doc.data().displayName || `${doc.data().firstName} ${doc.data().lastName}`
-      }));
+      const studentDataPromises = snap.docs.map(async (docSnap) => {
+        const student = { uid: docSnap.id, ...docSnap.data() } as any;
+        student.displayName = student.displayName || `${student.firstName} ${student.lastName}`;
+        
+        let parentUid = undefined;
+        let parentFirstName = undefined;
+        let parentLastName = undefined;
+        try {
+           const usersRef = collection(db, 'users');
+           const qParent = query(usersRef, where('role', '==', 'parent'), where('studentUid', '==', student.uid));
+           const parentSnap = await getDocs(qParent);
+           if (!parentSnap.empty) {
+             const parentData = parentSnap.docs[0].data();
+             parentUid = parentSnap.docs[0].id;
+             parentFirstName = parentData.firstName;
+             parentLastName = parentData.lastName;
+           }
+        } catch(e) {}
+        
+        return {
+           ...student,
+           parentUid,
+           parentFirstName,
+           parentLastName
+        };
+      });
+      const studentData = await Promise.all(studentDataPromises);
       setStudents(studentData);
 
       // Fetch appointments
@@ -83,6 +106,7 @@ export default function CoachDashboard() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 max-w-7xl mx-auto">
+      <NotificationPrompt />
       {/* HEADER SECTION */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-white/5">
         <motion.div 

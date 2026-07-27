@@ -23,12 +23,16 @@ import { useAuth } from '../../lib/AuthContext';
 interface AppointmentListProps {
   role: 'student' | 'coach' | 'admin';
   studentId?: string;
+  studentIds?: string[];
+  targetUserId?: string;
   onReschedule?: (booking: Booking) => void;
   limit?: number;
   statuses?: string[];
+  readOnly?: boolean;
+  filterRequesterRole?: 'parent' | 'student';
 }
 
-export default function AppointmentList({ role, studentId, onReschedule, limit, statuses }: AppointmentListProps) {
+export default function AppointmentList({ role, studentId, studentIds, targetUserId, onReschedule, limit, statuses, readOnly, filterRequesterRole }: AppointmentListProps) {
   const { user } = useAuth();
   const [appointments, setAppointments] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,29 +40,33 @@ export default function AppointmentList({ role, studentId, onReschedule, limit, 
 
   useEffect(() => {
     if (!user) return;
-    fetchAppointments();
-  }, [user, studentId]);
-
-  const fetchAppointments = async () => {
+    
     setLoading(true);
-    try {
-      let data = await appointmentService.getAppointments(user!.uid, role);
+    const fetchId = targetUserId || user.uid;
+    const unsubscribe = appointmentService.onAppointmentsChange(role, fetchId, async (data) => {
+      let filteredData = data;
       
       if (studentId) {
-        data = data.filter(app => app.studentId === studentId);
+        filteredData = filteredData.filter(app => app.studentId === studentId);
+      }
+      if (studentIds && studentIds.length > 0) {
+        filteredData = filteredData.filter(app => studentIds.includes(app.studentId));
+      }
+      if (filterRequesterRole === 'parent') {
+        filteredData = filteredData.filter(app => app.requesterRole === 'parent');
+      } else if (filterRequesterRole === 'student') {
+        filteredData = filteredData.filter(app => app.requesterRole !== 'parent');
       }
       
       const now = new Date();
-      let hasUpdates = false;
 
-      let processedData = await Promise.all(data.map(async (app) => {
+      let processedData = await Promise.all(filteredData.map(async (app) => {
         if (app.status === 'confirmed' && app.date && app.startTime) {
           try {
             // Compare date and time
             const appointmentDateTime = new Date(`${app.date}T${app.endTime || app.startTime}`);
             if (appointmentDateTime < now) {
               await appointmentService.updateAppointmentStatus(app.id!, 'completed');
-              hasUpdates = true;
               return { ...app, status: 'completed' } as Booking;
             }
           } catch (e) {
@@ -77,12 +85,11 @@ export default function AppointmentList({ role, studentId, onReschedule, limit, 
       }
 
       setAppointments(processedData);
-    } catch (err) {
-      console.error("Fetch appointments error:", err);
-    } finally {
       setLoading(false);
-    }
-  };
+    });
+
+    return () => unsubscribe();
+  }, [user, studentId, targetUserId, studentIds, filterRequesterRole, role, limit, statuses]);
 
   const handleStatusUpdate = async (id: string, status: Booking['status']) => {
     // Policy check for student cancellation
@@ -104,7 +111,7 @@ export default function AppointmentList({ role, studentId, onReschedule, limit, 
 
   const canRescheduleOrCancel = (app: Booking) => {
     if (role === 'admin' || role === 'coach') return true;
-    if (app.status === 'completed' || app.status === 'cancelled') return false;
+    if (app.status === 'completed' || app.status === 'cancelled' || app.status === 'missed') return false;
     
     try {
       const appDateTime = new Date(`${app.date}T${app.startTime}`);
@@ -140,7 +147,9 @@ export default function AppointmentList({ role, studentId, onReschedule, limit, 
       case 'cancelled':
         return <span className="bg-red-500/10 text-red-400 border border-red-500/20 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5"><XCircle size={12} /> İptal Edildi</span>;
       case 'completed':
-        return <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5"><CheckCircle size={12} /> Tamamlandı</span>;
+        return <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5"><CheckCircle size={12} /> Katıldı</span>;
+      case 'missed':
+        return <span className="bg-red-500/10 text-red-400 border border-red-500/20 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5"><XCircle size={12} /> Katılmadı</span>;
       default:
         return <span className="bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5"><Clock3 size={12} /> Beklemede</span>;
     }
@@ -181,8 +190,13 @@ export default function AppointmentList({ role, studentId, onReschedule, limit, 
             </div>
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <h4 className="font-bold text-white tracking-tight">
+                <h4 className="font-bold text-white tracking-tight flex items-center gap-2">
                   {role === 'student' ? app.coachName : app.studentName}
+                  {role !== 'student' && app.requesterRole === 'parent' && (
+                    <span className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                      <User size={10} /> Veli
+                    </span>
+                  )}
                 </h4>
                 {getStatusBadge(app.status)}
                 {app.isOnline && (
@@ -194,7 +208,9 @@ export default function AppointmentList({ role, studentId, onReschedule, limit, 
               <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-500">
                 <span className="flex items-center gap-1.5"><Calendar size={14} className="text-slate-600" /> {app.date}</span>
                 <span className="flex items-center gap-1.5"><Clock size={14} className="text-slate-600" /> {app.startTime}</span>
-                <span className="flex items-center gap-1.5 text-blue-400/70 border-l border-white/10 pl-4">{app.serviceType === 'one-on-one' ? 'Birebir' : 'Grup'}</span>
+                <span className="flex items-center gap-1.5 text-blue-400/70 border-l border-white/10 pl-4">
+                  {app.serviceType === 'one-on-one' ? (app.requesterRole === 'parent' ? 'Veli Görüşmesi' : 'Öğrenci Koçluğu') : 'Grup'}
+                </span>
                 {app.participantCount > 1 && (
                   <span className="flex items-center gap-1.5"><Users size={14} /> {app.participantCount} Katılımcı</span>
                 )}
@@ -202,84 +218,88 @@ export default function AppointmentList({ role, studentId, onReschedule, limit, 
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {(role === 'coach' || role === 'admin') && app.status === 'pending' && (
-              <>
-                <button 
-                  onClick={() => handleStatusUpdate(app.id!, 'confirmed')}
-                  className="bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white border border-emerald-500/20 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
-                >
-                  <Check size={14} /> Onayla
-                </button>
+          {!readOnly && (
+            <div className="flex items-center gap-2">
+              {(role === 'coach' || role === 'admin') && app.status === 'pending' && (
+                <>
+                  <button 
+                    onClick={() => handleStatusUpdate(app.id!, 'confirmed')}
+                    className="bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white border border-emerald-500/20 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
+                  >
+                    <Check size={14} /> Onayla
+                  </button>
+                  <button 
+                    onClick={() => handleStatusUpdate(app.id!, 'cancelled')}
+                    className="bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/20 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
+                  >
+                    <XCircle size={14} /> Reddet
+                  </button>
+                </>
+              )}
+              
+              {app.status === 'confirmed' && (role === 'coach' || role === 'admin') && (
+                <>
+                  <button 
+                    onClick={() => handleStatusUpdate(app.id!, 'completed')}
+                    className="bg-blue-500/10 hover:bg-blue-500 text-blue-500 hover:text-white border border-blue-500/20 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
+                  >
+                    <CheckCircle size={14} /> Katıldı
+                  </button>
+                </>
+              )}
+
+              {app.status !== 'cancelled' && app.status !== 'completed' && app.status !== 'missed' && (
                 <button 
                   onClick={() => handleStatusUpdate(app.id!, 'cancelled')}
-                  className="bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/20 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
+                  className={`p-2 rounded-xl transition-all border ${
+                    role === 'student' && !canRescheduleOrCancel(app)
+                      ? 'bg-slate-950 text-slate-700 border-white/5 cursor-not-allowed opacity-50'
+                      : 'bg-slate-950 hover:bg-red-500/10 text-slate-500 hover:text-red-400 border-white/5 shadow-sm'
+                  }`}
+                  title={role === 'student' && !canRescheduleOrCancel(app) ? "24 saat kala iptal edilemez" : "İptal Et"}
+                  disabled={role === 'student' && !canRescheduleOrCancel(app)}
                 >
-                  <XCircle size={14} /> Reddet
+                  <Trash2 size={16} />
                 </button>
-              </>
-            )}
-            
-            {app.status === 'confirmed' && (role === 'coach' || role === 'admin') && (
-              <button 
-                onClick={() => handleStatusUpdate(app.id!, 'completed')}
-                className="bg-blue-500/10 hover:bg-blue-500 text-blue-500 hover:text-white border border-blue-500/20 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
-              >
-                <CheckCircle size={14} /> Tamamlandı
-              </button>
-            )}
+              )}
 
-            {app.status !== 'cancelled' && (app.status !== 'completed') && (
-              <button 
-                onClick={() => handleStatusUpdate(app.id!, 'cancelled')}
-                className={`p-2 rounded-xl transition-all border ${
-                  role === 'student' && !canRescheduleOrCancel(app)
-                    ? 'bg-slate-950 text-slate-700 border-white/5 cursor-not-allowed opacity-50'
-                    : 'bg-slate-950 hover:bg-red-500/10 text-slate-500 hover:text-red-400 border-white/5 shadow-sm'
-                }`}
-                title={role === 'student' && !canRescheduleOrCancel(app) ? "24 saat kala iptal edilemez" : "İptal Et"}
-                disabled={role === 'student' && !canRescheduleOrCancel(app)}
-              >
-                <Trash2 size={16} />
-              </button>
-            )}
+              {role === 'student' && (app.status === 'confirmed' || app.status === 'pending') && onReschedule && (
+                <button 
+                  onClick={() => {
+                    if (canRescheduleOrCancel(app)) {
+                      onReschedule(app);
+                    } else {
+                      alert("Politika Gereği: Randevunuza 24 saatten az süre kaldığı için değişiklik yapamazsınız.");
+                    }
+                  }}
+                  className={`p-2 rounded-xl transition-all border ${
+                    !canRescheduleOrCancel(app)
+                      ? 'bg-slate-950 text-slate-700 border-white/5 cursor-not-allowed opacity-50'
+                      : 'bg-slate-950 hover:bg-blue-500/10 text-slate-500 hover:text-blue-400 border-white/5'
+                  }`}
+                  title={!canRescheduleOrCancel(app) ? "24 saat kala değişiklik yapılamaz" : "Tarih Değiştir"}
+                >
+                  <Edit2 size={16} />
+                </button>
+              )}
 
-            {role === 'student' && (app.status === 'confirmed' || app.status === 'pending') && onReschedule && (
-              <button 
-                onClick={() => {
-                  if (canRescheduleOrCancel(app)) {
-                    onReschedule(app);
-                  } else {
-                    alert("Politika Gereği: Randevunuza 24 saatten az süre kaldığı için değişiklik yapamazsınız.");
-                  }
-                }}
-                className={`p-2 rounded-xl transition-all border ${
-                  !canRescheduleOrCancel(app)
-                    ? 'bg-slate-950 text-slate-700 border-white/5 cursor-not-allowed opacity-50'
-                    : 'bg-slate-950 hover:bg-blue-500/10 text-slate-500 hover:text-blue-400 border-white/5'
-                }`}
-                title={!canRescheduleOrCancel(app) ? "24 saat kala değişiklik yapılamaz" : "Tarih Değiştir"}
-              >
-                <Edit2 size={16} />
-              </button>
-            )}
-
-            {(role === 'admin' || role === 'coach') && (
-              <button 
-                onClick={() => setEditingAppointment({ ...app })}
-                className="bg-slate-950 hover:bg-blue-500/10 text-slate-500 hover:text-blue-400 border border-white/5 p-2 rounded-xl transition-all"
-                title="Düzenle"
-              >
-                <Edit2 size={16} />
-              </button>
-            )}
-          </div>
+              {(role === 'admin' || role === 'coach') && (
+                <button 
+                  onClick={() => setEditingAppointment({ ...app })}
+                  className="bg-slate-950 hover:bg-blue-500/10 text-slate-500 hover:text-blue-400 border border-white/5 p-2 rounded-xl transition-all"
+                  title="Düzenle"
+                >
+                  <Edit2 size={16} />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       ))}
 
       {editingAppointment && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-white/10 rounded-3xl p-6 w-full max-w-md animate-in fade-in zoom-in duration-200">
+          <div className="bg-slate-900 border border-white/10 sm:rounded-3xl p-6 w-full h-full sm:h-auto max-h-screen sm:max-h-[90vh] overflow-y-auto max-w-md animate-in fade-in zoom-in duration-200">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-bold text-white">Randevuyu Düzenle</h3>
               <button onClick={() => setEditingAppointment(null)} className="text-slate-500 hover:text-white transition-colors">
@@ -292,9 +312,15 @@ export default function AppointmentList({ role, studentId, onReschedule, limit, 
                 <label className="block text-xs font-black text-slate-500 uppercase tracking-widest ml-1 mb-2">Tarih</label>
                 <input 
                   type="date" 
+                  min={new Date().toISOString().split('T')[0]}
                   value={editingAppointment.date}
+                  onClick={(e) => {
+                    const target = e.target as HTMLInputElement;
+                    // showPicker is blocked in cross-origin iframes
+                  }}
                   onChange={e => setEditingAppointment({...editingAppointment, date: e.target.value})}
                   className="w-full bg-slate-950 border border-white/5 rounded-2xl p-4 text-white font-bold outline-none"
+                  style={{ colorScheme: 'dark' }}
                   required
                 />
               </div>
@@ -319,7 +345,8 @@ export default function AppointmentList({ role, studentId, onReschedule, limit, 
                 >
                   <option value="pending">Beklemede</option>
                   <option value="confirmed">Onaylandı</option>
-                  <option value="completed">Tamamlandı</option>
+                  <option value="completed">Katıldı</option>
+                  <option value="missed">Katılmadı</option>
                   <option value="cancelled">İptal Edildi</option>
                 </select>
               </div>

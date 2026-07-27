@@ -213,9 +213,66 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "analysisType", "data", "timestamp"]
+    },
+    "bolumler": {
+      "title": "Department",
+      "description": "YKS preferences departments listing",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "university": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" }
+          }
+        },
+        "typeName": { "type": "string" },
+        "city": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" }
+          }
+        },
+        "pointName": { "type": "string" },
+        "departmentPoints": {
+          "type": "object",
+          "properties": {
+            "basePoint": { "type": "number" },
+            "basePointOrder": { "type": "number" }
+          }
+        },
+        "quota": { "type": "number" },
+        "feeType": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "whatsapp_template": {
+      "title": "WhatsApp Template",
+      "description": "WhatsApp Cloud API approved templates",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "category": { "type": "string", "enum": ["UTILITY", "MARKETING", "AUTHENTICATION"] },
+        "language": { "type": "string" },
+        "status": { "type": "string", "enum": ["APPROVED", "PENDING", "REJECTED"] },
+        "headerType": { "type": "string", "enum": ["TEXT", "IMAGE", "NONE"] },
+        "headerText": { "type": "string" },
+        "body": { "type": "string" },
+        "footer": { "type": "string" },
+        "buttons": {
+          "type": "array",
+          "description": "List of template buttons: { type, text, value }"
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "category", "language", "status", "headerType", "body"]
     }
   },
   "firestore": {
+    "/bolumler/{bolumId}": {
+      "schema": "bolumler",
+      "description": "College and university departments for YKS"
+    },
     "/users/{userId}": {
       "schema": "user",
       "description": "User profiles"
@@ -271,6 +328,10 @@
     "/user_analyses/{analysisId}": {
       "schema": "user_analysis",
       "description": "Analysis results for students"
+    },
+    "/whatsapp_templates/{templateId}": {
+      "schema": "whatsapp_template",
+      "description": "WhatsApp message templates"
     }
   }
 }
