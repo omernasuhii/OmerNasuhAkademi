@@ -133,6 +133,52 @@ const preferredOrder = [
   'id', 'displayName', 'name', 'title', 'email', 'role', 'status', 'type', 'subject', 'date', 'amount', 'studentId', 'coachId', 'userId', 'bookName', 'examName', 'code'
 ];
 
+const EditableCell = ({ item, colKey, onSave, formatValue }: any) => {
+  const [editing, setEditing] = useState(false);
+  const initialValue = item[colKey];
+  const [val, setVal] = useState('');
+
+  const handleDoubleClick = () => {
+    if (colKey === 'id') return;
+    setVal(typeof initialValue === 'object' && initialValue !== null ? JSON.stringify(initialValue) : (initialValue?.toString() ?? ''));
+    setEditing(true);
+  };
+
+  const handleBlur = () => {
+    setEditing(false);
+    const initialStr = typeof initialValue === 'object' && initialValue !== null ? JSON.stringify(initialValue) : (initialValue?.toString() ?? '');
+    if (val !== initialStr) {
+      onSave(item.id, colKey, val);
+    }
+  };
+
+  if (editing) {
+     return (
+        <input 
+          autoFocus
+          className="w-full bg-slate-900 border border-red-500 rounded px-2 py-1 text-xs text-white"
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          onBlur={handleBlur}
+          onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setEditing(false); }}
+        />
+     );
+  }
+  
+  const displayVal = formatValue(initialValue);
+  
+  return (
+    <div 
+      className={`text-xs font-bold truncate max-w-[220px] p-1 rounded transition-colors
+        ${colKey === 'id' ? 'font-mono text-[10px] text-slate-500 opacity-70 cursor-default' : 'text-slate-300 cursor-text hover:bg-white/10 hover:ring-1 hover:ring-white/20'}`}
+      onDoubleClick={handleDoubleClick}
+      title={colKey !== 'id' ? "Düzenlemek için çift tıklayın" : ""}
+    >
+      {displayVal === '-' ? <span className="text-slate-600 italic opacity-50">Boş</span> : displayVal}
+    </div>
+  );
+};
+
 export default function CMSManagement() {
   const [selectedCategory, setSelectedCategory] = useState('Tümü');
   const [collectionSearch, setCollectionSearch] = useState('');
@@ -142,6 +188,11 @@ export default function CMSManagement() {
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortField, setSortField] = useState('updatedAt');
+
+  // Custom columns for table
+  const [customColumns, setCustomColumns] = useState<string[]>([]);
+  const [addingColumn, setAddingColumn] = useState(false);
+  const [newColName, setNewColName] = useState('');
 
   // Modals state
   const [inspectItem, setInspectItem] = useState<any | null>(null);
@@ -179,6 +230,7 @@ export default function CMSManagement() {
   const fetchData = async () => {
     if (!activeCollectionId) return;
     setLoading(true);
+    setCustomColumns([]);
     try {
       const results = await cmsService.getCollectionData(activeCollectionId, sortField, 250);
       setData(results);
@@ -221,7 +273,7 @@ export default function CMSManagement() {
     });
   };
 
-  const keys = getKeys();
+  const keys = Array.from(new Set([...getKeys(), ...customColumns]));
 
   const formatValue = (value: any) => {
     if (value === null || value === undefined) return '-';
@@ -332,6 +384,26 @@ export default function CMSManagement() {
       alert('Kayıt sırasında bir hata oluştu: ' + (err.message || 'Bilinmeyen hata'));
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleInlineSave = async (docId: string, fieldKey: string, newValue: string) => {
+    if (!activeCollectionId) return;
+    
+    let finalValue: any = newValue;
+    if (newValue === 'true') finalValue = true;
+    else if (newValue === 'false') finalValue = false;
+    else if (!isNaN(Number(newValue)) && newValue.trim() !== '') finalValue = Number(newValue);
+    else if (newValue.startsWith('{') || newValue.startsWith('[')) {
+      try { finalValue = JSON.parse(newValue); } catch { /* ignore */ }
+    }
+
+    try {
+      await cmsService.saveDocument(activeCollectionId, docId, { [fieldKey]: finalValue });
+      setData(prev => prev.map(item => item.id === docId ? { ...item, [fieldKey]: finalValue } : item));
+    } catch (e) {
+      console.error('Inline save error:', e);
+      alert('Hücre kaydedilirken hata oluştu.');
     }
   };
 
@@ -583,6 +655,41 @@ export default function CMSManagement() {
                                {columnTranslations[key] || key.toUpperCase()}
                             </th>
                           ))}
+                          <th className="px-5 py-5 text-left text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                             {addingColumn ? (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    autoFocus
+                                    type="text"
+                                    value={newColName}
+                                    onChange={e => setNewColName(e.target.value)}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter' && newColName.trim()) {
+                                        setCustomColumns(prev => [...prev, newColName.trim()]);
+                                        setAddingColumn(false);
+                                        setNewColName('');
+                                      } else if (e.key === 'Escape') {
+                                        setAddingColumn(false);
+                                        setNewColName('');
+                                      }
+                                    }}
+                                    onBlur={() => {
+                                      if (newColName.trim()) {
+                                        setCustomColumns(prev => [...prev, newColName.trim()]);
+                                      }
+                                      setAddingColumn(false);
+                                      setNewColName('');
+                                    }}
+                                    className="bg-slate-900 border border-red-500 rounded px-2 py-1 text-xs text-white w-24 outline-none"
+                                    placeholder="Kolon adı"
+                                  />
+                                </div>
+                             ) : (
+                                <button onClick={() => setAddingColumn(true)} className="flex items-center gap-1 text-red-500 hover:text-red-400 transition-colors">
+                                  <Plus size={12} /> YENİ KOLON
+                                </button>
+                             )}
+                          </th>
                           <th className="px-6 py-5 text-right text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">İŞLEMLER</th>
                        </tr>
                     </thead>
@@ -590,14 +697,14 @@ export default function CMSManagement() {
                        {loading ? (
                          Array.from({ length: 6 }).map((_, i) => (
                            <tr key={i} className="animate-pulse">
-                              <td colSpan={keys.length + 2} className="px-8 py-6">
+                              <td colSpan={keys.length + 3} className="px-8 py-6">
                                  <div className="h-4 bg-white/5 rounded-full w-full"></div>
                               </td>
                            </tr>
                          ))
                        ) : filteredData.length === 0 ? (
                          <tr>
-                            <td colSpan={keys.length + 2} className="px-8 py-28 text-center">
+                            <td colSpan={keys.length + 3} className="px-8 py-28 text-center">
                                <div className="flex flex-col items-center gap-4">
                                   <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center">
                                      <TableIcon size={36} className="text-slate-700" />
@@ -621,14 +728,15 @@ export default function CMSManagement() {
                               <td className="px-6 py-4 text-xs font-bold text-slate-700">{index + 1}</td>
                               {keys.map((key) => (
                                 <td key={key} className="px-5 py-4">
-                                   <div className={`text-xs font-bold truncate max-w-[220px] 
-                                      ${key === 'id' ? 'font-mono text-[10px] text-slate-500 opacity-70' : 'text-slate-300'}
-                                      ${(key === 'email' || key === 'displayName' || key === 'name' || key === 'title') ? 'text-white' : ''}
-                                   `}>
-                                      {formatValue(item[key])}
-                                   </div>
+                                   <EditableCell
+                                      item={item}
+                                      colKey={key}
+                                      onSave={handleInlineSave}
+                                      formatValue={formatValue}
+                                   />
                                 </td>
                               ))}
+                              <td className="px-5 py-4"></td>
                               <td className="px-6 py-4 text-right">
                                  <div className="flex items-center justify-end gap-1">
                                     <button 

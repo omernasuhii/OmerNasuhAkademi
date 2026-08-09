@@ -18,6 +18,7 @@ export default function ChatWidget() {
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   const prevUnreadCount = useRef(0);
 
   // Dynamic user photo cache for chat participants
@@ -160,7 +161,9 @@ export default function ChatWidget() {
         const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setMessages(msgs);
         setTimeout(() => {
-          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+          if (chatContainerRef.current) {
+            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+          }
         }, 100);
       }, (error) => {
         console.error("Error in messages listener:", error);
@@ -628,7 +631,11 @@ export default function ChatWidget() {
                     </div>
                   </div>
                   
-                  <div className="flex-1 overflow-y-auto space-y-4 mb-4 custom-scrollbar pr-2">
+                  <div 
+                    ref={chatContainerRef}
+                    data-no-auto-scroll-top="true"
+                    className="flex-1 overflow-y-auto space-y-4 mb-4 custom-scrollbar pr-2"
+                  >
                     {messages.length > 0 ? (
                       messages.map(msg => {
                         const isMe = msg.senderId === userData.uid;

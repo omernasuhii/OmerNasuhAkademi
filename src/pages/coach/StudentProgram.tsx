@@ -18,6 +18,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { useAuth } from '../../lib/AuthContext';
 import { useStudent } from '../../lib/StudentContext';
+import { tourService } from '../../services/tourService';
 import { studentDataService } from '../../services/studentDataService';
 import { safeStorage } from '../../lib/localStorage';
 import { Sparkles, Calendar, Clock, CheckCircle2, Plus, Trash2, Save, Target, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Printer, Loader2, Copy, Folder, FolderOpen, ChevronDown, Book, FileText, LayoutList, Youtube, StickyNote, Eye, EyeOff, RotateCcw } from 'lucide-react';
@@ -26,7 +27,10 @@ import { BRANCH_CONFIG } from '../../constants/branchConfig';
 import { SUBTOPICS } from '../../constants/subtopics';
 import { calculateSubjectMultipliers, calculateDailyCompletionWithMultipliers } from '../../lib/programCalculations';
 
+import { useLocation, useNavigate } from 'react-router-dom';
+import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
 import { notificationService } from '../../services/notificationService';
+import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
 
 const TASK_TYPES = ['Soru Çözümü', 'Konu Çalışması', 'YouTube Video'];
 const BRANCHES = ['TYT', 'AYT', '10. Sınıf', 'Denemeler'];
@@ -118,7 +122,7 @@ export const DENEME_TYPES = [
 ];
 
 const TopicDraggable = (props: any) => {
-    const { topic, subject, branch, type, bookId, isCompleted, targetCount, bookData, updateBookTopicCount } = props;
+    const { topic, subject, branch, type, bookId, isCompleted, targetCount, bookData, updateBookTopicCount, isFirstTopic } = props;
     
     const defaultTopicCount = bookData?.topicQuestionCounts?.[topic] || targetCount || '';
     const [topicCount, setTopicCount] = useState<string | number>(defaultTopicCount);
@@ -156,11 +160,12 @@ const TopicDraggable = (props: any) => {
     }[tColor] || 'bg-indigo-500/10 text-white border border-transparent';
 
     return (
-        <div ref={setNodeRef} {...attributes} {...listeners} className={`relative p-2 rounded-lg cursor-grab ${isDragging ? 'opacity-50' : ''} ${isCompleted ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : bgClasses}`}>
+        <div id={isFirstTopic ? "tour-program-draggable-topic" : undefined} ref={setNodeRef} {...attributes} {...listeners} className={`relative p-2 rounded-lg cursor-grab ${isDragging ? 'opacity-50' : ''} ${isCompleted ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : bgClasses}`}>
            <div className="flex items-center justify-between">
                <p className="text-[10px] font-bold truncate max-w-[200px]" title={topic}>{topic}</p>
                {bookData && (
                    <input 
+                      id={isFirstTopic ? "tour-program-global-target" : undefined}
                       type="number"
                       value={topicCount}
                       onChange={e => setTopicCount(e.target.value)}
@@ -197,11 +202,66 @@ const FolderItem = ({ label, isOpen, onClick, children, icon: Icon = Folder, act
     );
 };
 
-const SidebarHierarchy = ({ CURRICULUM, tytSubjects, aytSubjects, books, updateBookTopicCount, studentBranch, studentGrade }: { CURRICULUM: any, tytSubjects: string[], aytSubjects: string[], books: any[], updateBookTopicCount: (bookId: string, topic: string, count: number | null) => void, studentBranch: string, studentGrade: string }) => {
-    const [selectedType, setSelectedType] = useState<string | null>(null);
-    const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
-    const [selectedSubject, setSelectedSubject] = useState<string | null>(null);
-    const [selectedBook, setSelectedBook] = useState<string | null>(null);
+const SHOW_TOPICS_TOUR_TARGETS = [
+    'tour-program-draggable-topic',
+    'tour-program-global-target',
+    'tour-program-uncompleted-tasks',
+    'tour-program-import'
+];
+
+const SidebarHierarchy = ({ 
+    CURRICULUM, 
+    tytSubjects, 
+    aytSubjects, 
+    books, 
+    updateBookTopicCount, 
+    studentBranch, 
+    studentGrade,
+    isTourOpen = false,
+    currentTourTargetId = null
+}: { 
+    CURRICULUM: any, 
+    tytSubjects: string[], 
+    aytSubjects: string[], 
+    books: any[], 
+    updateBookTopicCount: (bookId: string, topic: string, count: number | null) => void, 
+    studentBranch: string, 
+    studentGrade: string,
+    isTourOpen?: boolean,
+    currentTourTargetId?: string | null
+}) => {
+    const [selectedType, setSelectedType] = useState<string | null>('Soru Çözümü');
+    const [selectedBranch, setSelectedBranch] = useState<string | null>('TYT');
+    const [selectedSubject, setSelectedSubject] = useState<string | null>('Biyoloji');
+    const [selectedBook, setSelectedBook] = useState<string | null>('demo-biyotik-1');
+
+    useEffect(() => {
+        if (selectedSubject === 'Biyoloji') {
+            const bioBook = books.find(b => b.subject === 'Biyoloji' && (b.resourceType || 'soru') === 'soru');
+            if (bioBook) {
+                setSelectedBook(bioBook.id);
+            } else {
+                setSelectedBook('demo-biyotik-1');
+            }
+        }
+    }, [books, selectedSubject]);
+
+    useEffect(() => {
+        if (isTourOpen) {
+            setSelectedType('Soru Çözümü');
+            setSelectedBranch('TYT');
+            setSelectedSubject('Biyoloji');
+            const bioBook = books.find(b => b.subject === 'Biyoloji' && (b.resourceType || 'soru') === 'soru');
+            if (bioBook) {
+                setSelectedBook(bioBook.id);
+            } else {
+                setSelectedBook('demo-biyotik-1');
+            }
+        }
+    }, [isTourOpen, books]);
+
+    const isTopicsStepInTour = currentTourTargetId ? SHOW_TOPICS_TOUR_TARGETS.includes(currentTourTargetId) : false;
+    const allowBookTopicsOpen = !isTourOpen || isTopicsStepInTour;
 
     const toggleType = (t: string) => { if(selectedType === t) setSelectedType(null); else { setSelectedType(t); setSelectedBranch(null); setSelectedSubject(null); setSelectedBook(null); } };
     const toggleBranch = (b: string) => { if(selectedBranch === b) setSelectedBranch(null); else { setSelectedBranch(b); setSelectedSubject(null); setSelectedBook(null); } };
@@ -233,9 +293,10 @@ const SidebarHierarchy = ({ CURRICULUM, tytSubjects, aytSubjects, books, updateB
     };
 
     return (
-        <div className="space-y-1 bg-slate-900/50 p-3 rounded-2xl border border-white/5 shadow-inner">
+        <div id="tour-program-sidebar" className="space-y-1 bg-slate-900/50 p-3 rounded-2xl border border-white/5 shadow-inner">
             <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-2 mb-3">Görev Seçimi</h3>
-            {TASK_TYPES.map(type => (
+            <div id="tour-program-task-types" className="space-y-1">
+            {TASK_TYPES.map((type, tIdx) => (
                 <FolderItem 
                     key={type} 
                     label={type} 
@@ -244,7 +305,8 @@ const SidebarHierarchy = ({ CURRICULUM, tytSubjects, aytSubjects, books, updateB
                     onClick={() => toggleType(type)}
                     icon={LayoutList}
                 >
-                    {dynamicBranches.map(branch => (
+                    <div id={tIdx === 0 ? "tour-program-branches" : undefined} className="space-y-1">
+                    {dynamicBranches.map((branch, bIdx) => (
                         <FolderItem 
                             key={branch} 
                             label={branch} 
@@ -252,7 +314,8 @@ const SidebarHierarchy = ({ CURRICULUM, tytSubjects, aytSubjects, books, updateB
                             active={selectedBranch === branch}
                             onClick={() => toggleBranch(branch)}
                         >
-                            {getAvailableSubjects(branch).map(subject => (
+                            <div id={tIdx === 0 && bIdx === 0 ? "tour-program-subjects" : undefined} className="space-y-1">
+                            {getAvailableSubjects(branch).map((subject, sIdx) => (
                                 <FolderItem 
                                     key={subject} 
                                     label={formatSubjectName(subject, branch)} 
@@ -274,7 +337,7 @@ const SidebarHierarchy = ({ CURRICULUM, tytSubjects, aytSubjects, books, updateB
                                         <>
                                             <FolderItem
                                                 label="Kaynaksız (Genel Görev)"
-                                                isOpen={selectedBook === 'none'}
+                                                isOpen={allowBookTopicsOpen && selectedBook === 'none'}
                                                 active={selectedBook === 'none'}
                                                 onClick={() => toggleBook('none')}
                                                 icon={FileText}
@@ -310,28 +373,29 @@ const SidebarHierarchy = ({ CURRICULUM, tytSubjects, aytSubjects, books, updateB
                                                 const orderA = a.order !== undefined ? a.order : Number.MAX_SAFE_INTEGER;
                                                 const orderB = b.order !== undefined ? b.order : Number.MAX_SAFE_INTEGER;
                                                 return orderA - orderB;
-                                            }).map(book => {
+                                            }).map((book, bookIdx) => {
                                                 const bookData = books.find(b => b.id === book.id);
                                                 return (
                                                 <FolderItem
                                                     key={book.id}
                                                     label={`${book.bookName} (%${book.completionPercentage || 0})`}
-                                                    isOpen={selectedBook === book.id}
+                                                    isOpen={allowBookTopicsOpen && selectedBook === book.id}
                                                     active={selectedBook === book.id}
                                                     onClick={() => toggleBook(book.id)}
                                                     icon={book.resourceType === 'youtube' ? Youtube : book.resourceType === 'konu' ? FileText : Book}
                                                 >
                                                     <div className="space-y-1 p-2 bg-slate-900/80 rounded-xl border border-white/5 mt-1">
-                                                        <TopicDraggable key={`${book.id}-Genel Tekrar`} topic="Genel Tekrar / Çalışma" subject={subject} branch={branch} type={type} bookId={book.id} isCompleted={false} bookData={bookData} updateBookTopicCount={updateBookTopicCount} />
-                                                        {(CURRICULUM[subject] || []).map((topic: string) => {
+                                                        <TopicDraggable key={`${book.id}-Genel Tekrar`} topic="Genel Tekrar / Çalışma" subject={subject} branch={branch} type={type} bookId={book.id} isCompleted={false} bookData={bookData} updateBookTopicCount={updateBookTopicCount} isFirstTopic={false} />
+                                                        {(CURRICULUM[subject] || []).map((topic: string, topicIdx: number) => {
                                                             let isCompleted = (bookData?.completedTopics || []).includes(topic);
                                                             const subtopics = SUBTOPICS[topic] || [];
                                                             if (!isCompleted && subtopics.length > 0) {
                                                                 isCompleted = subtopics.every(sub => (bookData?.completedTopics || []).includes(sub));
                                                             }
+                                                            const isTargetTopic = (subject === 'Biyoloji' && (book.id === 'demo-biyotik-1' || book.bookName?.includes('Biyotik')) && topicIdx === 0) || (tIdx === 0 && bIdx === 0 && sIdx === 0 && bookIdx === 0 && topicIdx === 0);
                                                             return (
                                                                 <div key={`${book.id}-${topic}`}>
-                                                                    <TopicDraggable topic={topic} subject={subject} branch={branch} type={type} bookId={book.id} isCompleted={isCompleted} bookData={bookData} updateBookTopicCount={updateBookTopicCount} />
+                                                                    <TopicDraggable topic={topic} subject={subject} branch={branch} type={type} bookId={book.id} isCompleted={isCompleted} bookData={bookData} updateBookTopicCount={updateBookTopicCount} isFirstTopic={isTargetTopic} />
                                                                     {subtopics.length > 0 && (
                                                                         <div className="pl-4 mt-1 space-y-1 border-l border-white/5 ml-2">
                                                                             {subtopics.map(subtopic => {
@@ -352,10 +416,13 @@ const SidebarHierarchy = ({ CURRICULUM, tytSubjects, aytSubjects, books, updateB
                                     )}
                                 </FolderItem>
                             ))}
+                            </div>
                         </FolderItem>
                     ))}
+                    </div>
                 </FolderItem>
             ))}
+            </div>
         </div>
     );
 };
@@ -431,7 +498,7 @@ const DroppableDay = (props: React.PropsWithChildren<{ id: string, label: string
 
 
 const SortableTask = (props: any) => {
-  const { task, updateTask, removeTask, duplicateTask, currentSubjects, subjects, CURRICULUM, books } = props;
+  const { task, updateTask, removeTask, duplicateTask, currentSubjects, subjects, CURRICULUM, books, isFirstTaskCard, isTourOpen } = props;
   const {
     attributes,
     listeners,
@@ -488,7 +555,7 @@ const SortableTask = (props: any) => {
       : (task.isExtra ? 'bg-gradient-to-br from-emerald-500/10 to-transparent border-emerald-500/30' : 'bg-white/5 border-white/10');
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className={`${cardContainerClass} border rounded-xl p-2 relative group/task cursor-grab active:cursor-grabbing`}>
+    <div id={isFirstTaskCard ? "tour-sample-task-card" : undefined} ref={setNodeRef} style={style} {...attributes} {...listeners} className={`${cardContainerClass} border rounded-xl p-2 relative group/task cursor-grab active:cursor-grabbing`}>
       {task.isExtra && (
         <div className="absolute -top-2 -left-2 bg-emerald-500 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-lg z-10 flex items-center gap-0.5">
            <Sparkles size={8} /> Öğrenci Ekledi
@@ -501,8 +568,16 @@ const SortableTask = (props: any) => {
            {isWaitingExpired ? 'Sonuç Bekleniyor (5+ Gün - Yapılmadı)' : 'Sonuç Bekleniyor'}
         </div>
       )}
-      <div className="absolute -top-2 -right-2 flex items-center gap-1 opacity-0 group-hover/task:opacity-100 transition-all z-10 scale-75 group-hover/task:scale-100">
+      <div 
+        id={isFirstTaskCard ? "tour-task-actions" : undefined} 
+        className={`absolute -top-2 -right-2 flex items-center gap-1 transition-all z-10 ${
+          isFirstTaskCard 
+            ? 'opacity-100 scale-100' 
+            : 'opacity-90 sm:opacity-0 group-hover/task:opacity-100 scale-90 sm:scale-75 group-hover/task:scale-100'
+        }`}
+      >
         <button 
+          id={isFirstTaskCard ? "tour-task-note" : undefined}
           onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setShowTaskNote(!showTaskNote); }}
           className={`w-6 h-6 rounded-full ${showTaskNote || task.coachNote || task.studentNote ? 'bg-amber-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-amber-500 hover:text-white'} flex items-center justify-center shadow-lg transition-colors`}
           title="Koç Notu Ekle"
@@ -510,6 +585,7 @@ const SortableTask = (props: any) => {
           <StickyNote size={10} />
         </button>
         <button 
+          id={isFirstTaskCard ? "tour-task-copy" : undefined}
           onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); duplicateTask?.(task); }}
           className="w-6 h-6 rounded-full bg-blue-500 hover:bg-blue-400 text-white flex items-center justify-center shadow-lg transition-colors"
           title="Görevi Kopyala"
@@ -518,6 +594,7 @@ const SortableTask = (props: any) => {
         </button>
         {(task.type === 'Soru Çözümü' || task.type === 'Konu Çalışması' || task.type === 'YouTube Video' || task.branch === 'Denemeler') && (
            <button 
+             id={isFirstTaskCard ? "tour-task-distribute" : undefined}
              onPointerDown={(e) => { 
                 e.stopPropagation(); 
                 e.preventDefault(); 
@@ -534,6 +611,7 @@ const SortableTask = (props: any) => {
            </button>
         )}
         <button 
+          id={isFirstTaskCard ? "tour-task-delete" : undefined}
           onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); removeTask(task.id); }}
           className="w-6 h-6 rounded-full bg-red-500 hover:bg-red-400 text-white flex items-center justify-center shadow-lg transition-colors"
           title="Görevi Sil"
@@ -688,10 +766,208 @@ const SortableTask = (props: any) => {
 
 export default function StudentProgram() {
   const { curriculum: CURRICULUM } = useCurriculum();
-  const { selectedStudent } = useStudent();
-  const { userData } = useAuth();
+  const { selectedStudent, setSelectedStudent } = useStudent();
+  const { user, userData } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
-  
+  const [isTourOpen, setIsTourOpen] = useState(false);
+  const [currentTourTargetId, setCurrentTourTargetId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (tourService.shouldAutoStartTour('student_program', userData, location.state?.startTour)) {
+      if (!selectedStudent) {
+        setSelectedStudent(SAMPLE_DEMO_STUDENT);
+      }
+      const timer = setTimeout(() => {
+        setIsTourOpen(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedStudent, setSelectedStudent, location.state, userData]);
+
+  const handleEndTour = () => {
+    setIsTourOpen(false);
+    setCurrentTourTargetId(null);
+    tourService.markTourCompleted('student_program', user?.uid);
+    if (selectedStudent?.isDemo) {
+      setSelectedStudent(null);
+      navigate('/panel/koc');
+    }
+  };
+
+  const tourSteps: TourStep[] = [
+    {
+      targetId: 'tour-program-header',
+      title: 'Haftalık Çalışma Programı',
+      description: 'Öğrencinizin haftalık ders ve görev programını sürükle-bırak yöntemiyle hazırlayabileceğiniz ana yönetim alanıdır. Tarih butonları ve ok tuşları ile geçmiş ve gelecek haftalar arasında kolayca geçiş yapabilirsiniz.',
+      position: 'bottom',
+      badge: 'Program Yapıcı'
+    },
+    {
+      targetId: 'tour-program-pdf',
+      title: 'PDF Formatında İndirme',
+      description: 'Hazırladığınız haftalık çalışma programını şık ve basılabilir bir PDF dosyası olarak tek tıkla indirebilir, doğrudan öğrencinize veya velisine iletebilirsiniz.',
+      position: 'bottom',
+      badge: 'Çıktı & Paylaşım'
+    },
+    {
+      targetId: 'tour-program-template',
+      title: 'Hazır Akademik Şablonlar',
+      description: 'Müfredata uygun hazırlanmış hazır ders şablonlarından istediğiniz haftayı seçerek tek hamlede tüm haftalık görevleri öğrenciye atayabilirsiniz.',
+      position: 'bottom',
+      badge: 'Hızlı Planlama'
+    },
+    {
+      targetId: 'tour-program-save',
+      title: 'Programı Kaydetme & Canlı Senkronizasyon',
+      description: 'Yaptığınız tüm düzenlemeleri veritabanına kaydeder. Kaydedilen program anında öğrenci ve velinin mobil/web panelinde canlı olarak görünür.',
+      position: 'bottom',
+      badge: 'Veritabanı Kayıt'
+    },
+    {
+      targetId: 'tour-program-summary',
+      title: 'Haftalık Soru & Başarı Metrikleri',
+      description: 'O haftaya tanımlanan toplam soru sayısını, toplam görev adedini ve öğrencinin son 7 günlük ödev tamamlama başarı yüzdesini anlık olarak takip edebilirsiniz.',
+      position: 'right',
+      badge: 'Canlı İlerleme'
+    },
+    {
+      targetId: 'tour-program-routines',
+      title: 'Günlük Rutin Görevler (Paragraf & Problem)',
+      description: 'Öğrencinin her gün düzenli çözmesi gereken Paragraf ve Problem hedeflerini belirleyip "Bu Haftaya Ekle" butonuyla haftanın 7 gününe otomatik dağıtabilirsiniz.',
+      position: 'right',
+      badge: 'Düzenli Rutinler'
+    },
+    {
+      targetId: 'tour-program-days',
+      title: 'Günlük Program Kartları (Pazartesi - Pazar)',
+      description: 'Pazartesi\'den Pazar\'a 7 günün çalışma takvimidir. Sol kütüphaneden sürüklenecek görevler buraya düşer. Her günün altında günün soru toplamını görebilir ve koç değerlendirme notu yazabilirsiniz.',
+      position: 'top',
+      badge: 'Haftalık Takvim'
+    }
+  ];
+
+  if (selectedStudent?.isDemo || location.state?.startTour) {
+    tourSteps.push(
+      {
+        targetId: 'tour-sample-task-card',
+        title: 'Örnek Ödev / Görev Kartı',
+        description: 'Programlanan her ders ve ödev takvimde şık bir kart olarak gösterilir. Üzerinde ders adı, konu başlığı, hedef soru sayısı ve tanımlanan koç notu yer alır.',
+        position: 'bottom',
+        badge: 'Örnek Görev'
+      },
+      {
+        targetId: 'tour-task-actions',
+        title: 'Görev Kartı Üzerindeki Hızlı İşlemler',
+        description: 'Programdaki her görevin sağ üst köşesinde görev eylemleri yer alır. Buradan görevi günlere dağıtabilir, kopyalayabilir, silebilir veya göreve özel koç notu yazabilirsiniz.',
+        position: 'bottom',
+        badge: 'Görev Yönetimi'
+      },
+      {
+        targetId: 'tour-task-distribute',
+        title: 'Görevi Günlere Dağıtma / Bölme',
+        description: 'Soru hedefini tek bir güne yığmak yerine, bu ikona tıklayarak hedef soru sayısını haftanın seçtiğiniz diğer günlerine eşit veya özel miktarlarda otomatik bölebilir ve dağıtabilirsiniz.',
+        position: 'bottom',
+        badge: 'Akıllı Bölüştürme'
+      },
+      {
+        targetId: 'tour-task-copy',
+        title: 'Görevi Kopyalama & Çoğaltma',
+        description: 'Aynı görevi ve hedefi tekrar tekrar oluşturmak yerine kopyalama butonuna basarak anında yeni bir kopyasını oluşturabilir ve istediğiniz güne taşıyabilirsiniz.',
+        position: 'bottom',
+        badge: 'Hızlı Çoğaltma'
+      },
+      {
+        targetId: 'tour-task-delete',
+        title: 'Görevi Programdan Silme',
+        description: 'Öğrencinin programından çıkarmak istediğiniz görevleri silme ikonuna tıklayarak haftalık takvimden kolayca kaldırabilirsiniz.',
+        position: 'bottom',
+        badge: 'Görev Silme'
+      },
+      {
+        targetId: 'tour-task-note',
+        title: 'Göreve Özgü Koç Notu & Açıklama',
+        description: 'Her bir ödeve özel detaylı talimat, püf noktası veya uyarı ekleyebilirsiniz. Öğrenci kendi panelinde bu ödevi incelerken yazdığınız koç notunu doğrudan görür ve yanıt yazabilir.',
+        position: 'bottom',
+        badge: 'Özel İletişim'
+      }
+    );
+  }
+
+  tourSteps.push(
+    {
+      targetId: 'tour-program-sidebar',
+      title: 'Görev Seçimi Kütüphanesi',
+      description: 'Programın sol tarafında yer alan gelişmiş ders, kaynak ve müfredat kütüphanesidir. Tüm dersler, soru bankaları, YouTube kanalları ve denemeler burada hiyerarşik olarak gruplanır.',
+      position: 'left',
+      badge: 'Müfredat Kütüphanesi'
+    },
+    {
+      targetId: 'tour-program-task-types',
+      title: 'Görev Türleri (Soru, Konu, YouTube)',
+      description: 'Öğrenciye tanımlayacağınız çalışma türünü seçebilirsiniz: \'Soru Çözümü\' soru bankası testleri için, \'Konu Çalışması\' fasikül ve konu özetleri için, \'YouTube Video\' ise video ders takibi içindir.',
+      position: 'left',
+      badge: 'Çalışma Tipi'
+    },
+    {
+      targetId: 'tour-program-branches',
+      title: 'Sınav & Ders Branşları',
+      description: 'TYT, AYT, YDT, Ara Sınıf (9, 10, 11. Sınıf) veya Branş/Genel Denemeler kategorilerinden hedef sınava uygun müfredat seviyesini filtreleyebilirsiniz.',
+      position: 'left',
+      badge: 'Branş Kategorisi'
+    },
+    {
+      targetId: 'tour-program-subjects',
+      title: 'Dersler ve Kaynak Kitaplar',
+      description: 'Seçilen branşa ait dersler (Biyoloji, Matematik, Fizik vb.) ve bu ders altında öğrenciye tanımlı olan orijinal soru bankaları veya kaynak fasikülleri listelenir.',
+      position: 'left',
+      badge: 'Kaynak Bağlantısı'
+    },
+    {
+      targetId: 'tour-program-draggable-topic',
+      title: 'Sürüklenebilir Konu Başlıkları',
+      description: 'Müfredattaki konuları ve alt başlıkları farenizle tutup sürükleyerek haftanın istediğiniz gününe sürükleyip bırakabilir, anında ödev olarak atayabilirsiniz.',
+      position: 'left',
+      badge: 'Sürükle & Bırak'
+    },
+    {
+      targetId: 'tour-program-global-target',
+      title: 'Konu / Kitap Hedef Soru Sayısı',
+      description: 'Her bir konu başlığının yanındaki kutucuğa varsayılan soru veya sayfa hedefini yazabilirsiniz. Konuyu takvime her sürüklediğinizde bu hedef otomatik olarak tanımlanır.',
+      position: 'left',
+      badge: 'Soru Sayısı Ayarı'
+    },
+    {
+      targetId: 'tour-program-uncompleted-tasks',
+      title: 'Eksik / Aksatılan Görevleri Aktarma',
+      description: 'Öğrencinin geçmiş haftada tamamlayamadığı veya eksik bıraktığı ödevleri tek tıkla tespit eder ve otomatik olarak bu haftanın ilk gününe kopyalayarak telafi edilmesini sağlar.',
+      position: 'left',
+      badge: 'Otomatik Devir'
+    },
+    {
+      targetId: 'tour-program-repetition-planner',
+      title: 'Akıllı Aralıklı Tekrar (Spaced Repetition)',
+      description: 'Öğrenilen bir konunun hafızada kalıcı olması için 1. Ay (4. Hafta) ve 3. Ay (12. Hafta) tekrarlarını otomatik hesaplar ve zamanı geldiğinde öğrencinin programına tekrar görevi olarak ekler.',
+      position: 'left',
+      badge: 'Unutmayı Önleme'
+    },
+    {
+      targetId: 'tour-program-virtual-books',
+      title: 'Sanal / Planlanan Kitap Desteği',
+      description: 'Öğrencinin 2. veya 3. soru bankası henüz sistemde kayıtlı olmasa bile "Planlanan Kitap" etiketiyle ileriki haftalara otomatik tekrar hedefleri koyabilmenizi sağlar.',
+      position: 'left',
+      badge: 'Kaynak Akışı'
+    },
+    {
+      targetId: 'tour-program-distribution-table',
+      title: 'Haftalık Ders Dağılım Matris Tablosu',
+      description: 'Haftadaki tüm ödev ve soru hedeflerinin ders bazında gün gün detaylı dökümünü sunar. Öğrencinin sayısal/sözel ders yükünü dengeli dağıttığınızdan emin olabilirsiniz.',
+      position: 'top',
+      badge: 'Detaylı Analiz'
+    }
+  );
+
   const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [tasks, setTasks] = useState<any[]>([]);
   const [dailyCoachNotes, setDailyCoachNotes] = useState<Record<string, string>>({});
@@ -1130,7 +1406,24 @@ export default function StudentProgram() {
         return tb;
     });
 
-    setBooks(mergedBooks);
+    let finalBooks = [...mergedBooks];
+    const bioBookExists = finalBooks.some((b: any) => b.subject === 'Biyoloji' && (b.id === 'demo-biyotik-1' || b.bookName?.includes('Biyotik')));
+    if (!bioBookExists || selectedStudent?.isDemo || location.state?.startTour) {
+        const sampleBiyotikBook = {
+            id: 'demo-biyotik-1',
+            bookName: 'Biyotik TYT Biyoloji Soru Bankası',
+            subject: 'Biyoloji',
+            resourceType: 'soru',
+            completionPercentage: 35,
+            completedTopics: ['Canlıların Ortak Özellikleri'],
+            topicQuestionCounts: {
+                'Hücre Bölünmeleri & Mayoz': 50,
+                'Kalıtımın Genel İlkeleri': 40
+            }
+        };
+        finalBooks = [sampleBiyotikBook, ...finalBooks.filter((b: any) => b.id !== 'demo-biyotik-1')];
+    }
+    setBooks(finalBooks);
 
     let allTasks: any[] = [];
     const loadedCoachNotes: Record<string, string> = {};
@@ -1154,6 +1447,39 @@ export default function StudentProgram() {
             }
         }
     });
+
+    if (selectedStudent?.isDemo || location.state?.startTour) {
+        allTasks = [
+            {
+                id: 'demo-sample-task-1',
+                date: dates[0],
+                branch: 'TYT',
+                subject: 'Biyoloji',
+                topic: 'Hücre Bölünmeleri & Mayoz',
+                type: 'Soru Çözümü',
+                bookId: 'demo-biyotik-1',
+                targetCount: 50,
+                completedCount: 0,
+                isDone: false,
+                coachNote: 'Biyotik TYT Biyoloji soru bankasından ilgili testler çözülecek. Yanlışlar kontrol edilsin.',
+                studentNote: ''
+            },
+            {
+                id: 'demo-sample-task-2',
+                date: dates[2] || dates[0],
+                branch: 'TYT',
+                subject: 'Matematik',
+                topic: 'Fonksiyonlar & Grafikler',
+                type: 'Soru Çözümü',
+                targetCount: 60,
+                completedCount: 0,
+                isDone: false,
+                coachNote: 'Fasiküldeki test 3 ve test 4 sorularını tamamlamalısın.',
+                studentNote: ''
+            },
+            ...allTasks
+        ];
+    }
 
     setTasks(allTasks);
     setDailyCoachNotes(loadedCoachNotes);
@@ -1685,9 +2011,24 @@ export default function StudentProgram() {
       onDragEnd={handleDragEnd}
     >
       <div className="flex flex-col-reverse xl:flex-row gap-6 pb-20 print:hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <OnboardingTour
+          steps={tourSteps}
+          isOpen={isTourOpen}
+          onClose={handleEndTour}
+          onComplete={handleEndTour}
+          onStepChange={(idx, step) => setCurrentTourTargetId(step?.targetId || null)}
+          onNextTour={() => {
+            setIsTourOpen(false);
+            tourService.markTourCompleted('student_program', user?.uid);
+            navigate('/panel/koc/ogrenci/sonuclar', { state: { startTour: true, isDemo: true } });
+          }}
+          nextTourLabel="Sınav Sonuçları Turu"
+          tourKey="student_program"
+        />
+
         <div className="flex-1 space-y-8 min-w-0">
           {/* Header */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div id="tour-program-header" className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div>
               <div className="flex items-center gap-3 mb-2">
                 <h1 className="text-2xl font-black italic text-white uppercase tracking-tighter">HAFTALIK PROGRAM</h1>
@@ -1709,6 +2050,7 @@ export default function StudentProgram() {
             </div>
             <div className="flex flex-wrap items-stretch md:items-center gap-3 w-full md:w-auto">
               <button 
+                id="tour-program-pdf"
                 onClick={downloadPDF}
                 className="w-full sm:w-auto print:hidden bg-slate-800 hover:bg-slate-700 text-white font-black py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20 uppercase tracking-widest text-[10px]"
               >
@@ -1716,6 +2058,7 @@ export default function StudentProgram() {
               </button>
               {plans && plans.filter(p => p.status !== 'Pasif').length > 0 && (
               <button 
+                id="tour-program-template"
                 onClick={() => setIsTemplateModalOpen(true)}
                 className="w-full sm:w-auto print:hidden bg-indigo-600 hover:bg-indigo-500 text-white font-black py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 uppercase tracking-widest text-[10px]"
               >
@@ -1723,6 +2066,7 @@ export default function StudentProgram() {
               </button>
               )}
               <button 
+                id="tour-program-save"
                 onClick={handleSave}
                 disabled={saving}
                 className="w-full sm:w-auto print:hidden bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 px-5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 uppercase tracking-widest text-[10px]"
@@ -1733,9 +2077,9 @@ export default function StudentProgram() {
           </div>
 
           {/* Program Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
+          <div id="tour-program-days" className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
              {/* Summary Slot */}
-             <div className="bg-indigo-900/40 border border-indigo-500/20 rounded-3xl p-5 flex flex-col gap-4 min-h-[400px]">
+             <div id="tour-program-summary" className="bg-indigo-900/40 border border-indigo-500/20 rounded-3xl p-5 flex flex-col gap-4 min-h-[400px]">
                 <div className="border-b border-indigo-500/20 pb-3">
                     <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">HAFTANIN</span>
                     <span className="text-xs font-bold text-slate-200 block mt-0.5">ÖZETİ</span>
@@ -1747,16 +2091,25 @@ export default function StudentProgram() {
                         <p className="text-4xl font-black text-white">{totalWeeklyQuestions} <span className="text-base text-indigo-400">Soru</span></p>
                         <div className="flex justify-between items-end mt-1">
                           <p className="text-xs font-bold text-slate-400">{tasks?.length || 0} Görev</p>
-                          <div className="flex items-center gap-1.5" title="Son 7 Günün Ortalama Tamamlama Oranı">
+                          <div className="flex items-center gap-1.5" title="Bugüne Kadarki Ortalama Tamamlama Oranı">
                              <span className="text-xs font-black text-emerald-400 uppercase tracking-widest">Başarı</span>
                              <span className="text-lg font-black text-white px-2 py-0.5 bg-emerald-500/20 rounded-md border border-emerald-500/30">
-                               %{(days.reduce((acc, day) => acc + calculateDailyCompletion(tasks?.filter((t: any) => t.date === day.date) || []), 0) / (days.length || 1)).toFixed(0)}
+                               %{(() => {
+                                 const todayStr = new Date().toISOString().split('T')[0];
+                                 const validDays = days.filter(d => {
+                                   if (d.date > todayStr) return false;
+                                   const dayTasks = tasks?.filter((t: any) => t.date === d.date) || [];
+                                   return dayTasks.length > 0;
+                                 });
+                                 const divisor = validDays.length > 0 ? validDays.length : 1;
+                                 return (validDays.reduce((acc, day) => acc + calculateDailyCompletion(tasks?.filter((t: any) => t.date === day.date) || []), 0) / divisor).toFixed(0);
+                               })()}
                              </span>
                           </div>
                         </div>
                     </div>
 
-                    <div className="bg-slate-800/50 rounded-xl p-4 border border-white/5 space-y-4">
+                    <div id="tour-program-routines" className="bg-slate-800/50 rounded-xl p-4 border border-white/5 space-y-4">
                        <div className="flex items-center gap-2 mb-2 border-b border-white/5 pb-2">
                            <Target size={16} className="text-emerald-400" />
                            <h3 className="text-xs font-black text-emerald-400 uppercase tracking-widest">Rutin Görevler</h3>
@@ -1825,7 +2178,7 @@ export default function StudentProgram() {
                     </div>
                  </div>
 
-            {tasks && days.map((day) => (
+            {tasks && days.map((day, dayIdx) => (
                 <DroppableDay 
                   key={day.date} 
                   id={`day-${day.date}`} 
@@ -1839,7 +2192,7 @@ export default function StudentProgram() {
                 >
                   <SortableContext items={sortTasks(tasks.filter((t: any) => t.date === day.date)).map((t: any) => t.id)} strategy={verticalListSortingStrategy}>
                     <div className="relative space-y-3 flex-1">
-                      {sortTasks(tasks.filter((t: any) => t.date === day.date)).map((task: any) => (
+                      {sortTasks(tasks.filter((t: any) => t.date === day.date)).map((task: any, taskIdx: number) => (
                           <SortableTask 
                             key={task.id} 
                             task={task} 
@@ -1852,6 +2205,8 @@ export default function StudentProgram() {
                             books={books} 
                             onDistribute={distributeTaskAcrossDays}
                             allDays={days}
+                            isFirstTaskCard={dayIdx === 0 && taskIdx === 0}
+                            isTourOpen={isTourOpen}
                           />
                       ))}
                     </div>
@@ -1862,7 +2217,7 @@ export default function StudentProgram() {
 
           {/* Haftalık Dağılım Tablosu */}
           {tasks && tasks.length > 0 && (
-          <div className="mt-8 bg-slate-900/40 border border-white/5 rounded-3xl p-6 overflow-x-auto print:hidden">
+          <div id="tour-program-distribution-table" className="mt-8 bg-slate-900/40 border border-white/5 rounded-3xl p-6 overflow-x-auto print:hidden">
              <div className="flex items-center gap-3 mb-6">
                  <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 shrink-0">
                     <Book size={20} />
@@ -2073,6 +2428,7 @@ export default function StudentProgram() {
             {/* En Üstteki Aksiyon Butonları (Eksik Görev & Tekrarlayıcı - Minimal Yan Yana) */}
             <div className="grid grid-cols-2 gap-2">
               <button 
+                id="tour-program-uncompleted-tasks"
                 onClick={carryForwardUncompletedTasks}
                 disabled={shiftingTasks}
                 className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold py-2 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 border border-amber-500/30 uppercase tracking-wider text-[9px] disabled:opacity-50"
@@ -2101,7 +2457,7 @@ export default function StudentProgram() {
             
             {/* Tekrar Sistemi Planlayıcısı */}
             {showRepetitionPlanner && (
-            <div className="bg-slate-950/60 p-4 rounded-2xl border border-white/10 space-y-4">
+            <div id="tour-program-repetition-planner" className="bg-slate-950/60 p-4 rounded-2xl border border-white/10 space-y-4">
               <div className="flex items-center justify-between border-b border-white/5 pb-2">
                 <div className="flex items-center gap-2">
                   <Sparkles size={16} className="text-indigo-400" />
@@ -2189,33 +2545,37 @@ export default function StudentProgram() {
                   </div>
 
                   {/* Sanal Kitaplar */}
-                  <div className="flex items-center justify-between pt-1 border-t border-white/5">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">
-                      Sanal Kitap Desteği
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setAllowVirtualBooks(!allowVirtualBooks)}
-                      className={`relative inline-flex h-4 w-8 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        allowVirtualBooks ? 'bg-emerald-600' : 'bg-slate-700'
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                          allowVirtualBooks ? 'translate-x-4' : 'translate-x-0'
+                  <div id="tour-program-virtual-books" className="pt-1 border-t border-white/5 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">
+                        Sanal Kitap Desteği
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setAllowVirtualBooks(!allowVirtualBooks)}
+                        className={`relative inline-flex h-4 w-8 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          allowVirtualBooks ? 'bg-emerald-600' : 'bg-slate-700'
                         }`}
-                      />
-                    </button>
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                            allowVirtualBooks ? 'translate-x-4' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    <p className="text-[9px] text-slate-500 italic pl-1 leading-tight">
+                      Öğrencinin 2. ve 3. kitabı henüz kayıtlı değilse bile "Planlanan Kitap" adıyla tekrar hedefleri ekler.
+                    </p>
                   </div>
-                  <p className="text-[9px] text-slate-500 italic pl-1 leading-tight">
-                    Öğrencinin 2. ve 3. kitabı henüz kayıtlı değilse bile "Planlanan Kitap" adıyla tekrar hedefleri ekler.
-                  </p>
                 </div>
               )}
             </div>
             )}
 
-            <SidebarHierarchy CURRICULUM={CURRICULUM} tytSubjects={BRANCH_CONFIG['TYT'].subjects} aytSubjects={currentBranch?.aytSubjects || []} books={books} updateBookTopicCount={updateBookTopicCount} studentBranch={selectedStudent?.branch || 'SAYISAL'} studentGrade={selectedStudent?.grade || ''} />
+            <div id="tour-program-sidebar">
+              <SidebarHierarchy CURRICULUM={CURRICULUM} tytSubjects={BRANCH_CONFIG['TYT'].subjects} aytSubjects={currentBranch?.aytSubjects || []} books={books} updateBookTopicCount={updateBookTopicCount} studentBranch={selectedStudent?.branch || 'SAYISAL'} studentGrade={selectedStudent?.grade || ''} isTourOpen={isTourOpen} currentTourTargetId={currentTourTargetId} />
+            </div>
         </aside>
       </div>
 

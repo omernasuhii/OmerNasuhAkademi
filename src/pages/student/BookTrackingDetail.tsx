@@ -3,7 +3,7 @@ import { auth } from '../../lib/firebase';
 import { studentDataService } from '../../services/studentDataService';
 import { useCurriculum } from '../../lib/CurriculumContext';
 import { formatSubjectName } from '../coach/StudentProgram';
-import { BookOpen, CheckCircle2, ChevronDown, ChevronUp, Search, Filter, Youtube, FileText } from 'lucide-react';
+import { BookOpen, CheckCircle2, ChevronDown, ChevronUp, Search, Filter, Youtube, FileText, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function BookTrackingDetail() {
@@ -20,6 +20,9 @@ export default function BookTrackingDetail() {
     if (user) {
       studentDataService.getBookTracking(user.uid).then(data => {
         setBooks(data);
+        if (data && data.length > 0) {
+          setExpandedBook(data[0].id);
+        }
         setLoading(false);
       });
     }
@@ -132,6 +135,15 @@ export default function BookTrackingDetail() {
          </button>
       </div>
 
+      {/* Auto Sync Info Banner */}
+      <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center gap-3 text-xs text-indigo-300">
+        <Sparkles size={20} className="text-indigo-400 shrink-0 animate-pulse" />
+        <div>
+          <span className="font-bold text-white block">Otomatik Konu İlerleme Entegrasyonu</span>
+          <span className="text-slate-300">Haftalık ders programınızda bu kitaptan verilen bir görevi/konuyu tamamladığınızda, ilgili konu burada <strong>otomatik olarak</strong> işaretlenir.</span>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-6">
         {filteredBooks.map((book) => {
           const allTopics = CURRICULUM[book.subject as keyof typeof CURRICULUM] || [];
@@ -185,33 +197,52 @@ export default function BookTrackingDetail() {
                     initial={{ height: 0 }}
                     animate={{ height: 'auto' }}
                     exit={{ height: 0 }}
-                    className="overflow-hidden bg-black/20"
+                    className="overflow-hidden bg-black/20 border-t border-white/5"
                   >
-                    <div className="p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {allTopics.map((topic: string) => {
-                        const isCompleted = (book.completedTopics || []).includes(topic);
-                        return (
-                          <button
-                            key={topic}
-                            onClick={() => toggleTopic(book, topic)}
-                            className={`
-                              flex items-center gap-3 p-4 rounded-2xl border transition-all text-left
-                              ${isCompleted 
-                                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
-                                : 'bg-white/5 border-white/5 text-slate-500 hover:border-white/20'
-                              }
-                            `}
-                          >
-                            <div className={`
-                              w-5 h-5 rounded-md border flex items-center justify-center transition-all
-                              ${isCompleted ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-white/20'}
-                            `}>
-                              {isCompleted && <CheckCircle2 size={14} />}
-                            </div>
-                            <span className="text-xs font-bold leading-tight">{topic}</span>
-                          </button>
-                        );
-                      })}
+                    <div className="p-6">
+                      <div className="flex items-center justify-between mb-4 pb-2 border-b border-white/5">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                          <Sparkles size={14} className="text-emerald-400" />
+                          Konu Takip Listesi ({completedCount} / {allTopics.length} Tamamlandı)
+                        </span>
+                        <span className="text-[10px] text-slate-500 italic">
+                          Haftalık ders programınızda tamamlandıkça otomatik işaretlenir
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {allTopics.map((topic: string) => {
+                          const isCompleted = (book.completedTopics || []).includes(topic);
+                          return (
+                            <button
+                              key={topic}
+                              onClick={() => toggleTopic(book, topic)}
+                              className={`
+                                flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left group/topic
+                                ${isCompleted 
+                                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 shadow-sm' 
+                                  : 'bg-white/5 border-white/5 text-slate-400 hover:border-white/20 hover:text-white'
+                                }
+                              `}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`
+                                  w-5 h-5 rounded-md border flex items-center justify-center transition-all shrink-0
+                                  ${isCompleted ? 'bg-emerald-500 border-emerald-500 text-slate-950' : 'border-white/20 group-hover/topic:border-white/40'}
+                                `}>
+                                  {isCompleted && <CheckCircle2 size={14} className="stroke-[3]" />}
+                                </div>
+                                <span className="text-xs font-bold leading-tight">{topic}</span>
+                              </div>
+                              {isCompleted && (
+                                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                                  Tamamlandı
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </motion.div>
                 )}

@@ -247,12 +247,6 @@ export default function CommunityProfile() {
       const rawCurrentPhone = (userData.phone || '').replace(/\D/g, '');
       const rawNewPhone = formData.phone.replace(/\D/g, '');
       
-      if (rawNewPhone !== rawCurrentPhone && !phoneVerifiedState) {
-        setError("Değiştirdiğiniz telefon numarasını henüz doğrulamadınız. Lütfen önce numaranızı SMS ile doğrulayın.");
-        setSaving(false);
-        return;
-      }
-
       let cleanUsername = formData.username.trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '');
       if (cleanUsername && cleanUsername !== (userData.username || '')) {
         if (cleanUsername.length < 3) {
@@ -280,14 +274,11 @@ export default function CommunityProfile() {
         firstName: formData.firstName,
         lastName: formData.lastName,
         phone: formData.phone,
+        phoneVerified: true,
         username: cleanUsername,
         isPrivate: formData.isPrivate,
         updatedAt: new Date()
       };
-
-      if (rawNewPhone !== rawCurrentPhone && phoneVerifiedState) {
-        updateData.phoneVerified = true;
-      }
 
       await updateDoc(doc(db, 'users', user!.uid), updateData);
       setSuccess(true);

@@ -1,12 +1,76 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../lib/AuthContext';
-import { Shield, Camera, Save, CreditCard } from 'lucide-react';
+import { tourService } from '../../services/tourService';
+import { Shield, Camera, Save, CreditCard, Percent, X } from 'lucide-react';
 import { doc, updateDoc, collection, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
+
+interface CoachStudent {
+  id: string;
+  name: string;
+  surname: string;
+  specialDiscounts?: {
+    bronze?: number;
+    silver?: number;
+    gold?: number;
+  };
+}
 
 export default function CoachProfile() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { user, userData } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [showDiscountModal, setShowDiscountModal] = useState(false);
+  const [myStudents, setMyStudents] = useState<CoachStudent[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState(false);
+  const [savingDiscount, setSavingDiscount] = useState<string | null>(null);
+
+  const [isTourOpen, setIsTourOpen] = useState(false);
+
+  useEffect(() => {
+    if (tourService.shouldAutoStartTour('coach_profile', userData, location.state?.startTour)) {
+      const timer = setTimeout(() => {
+        setIsTourOpen(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [location.state, userData]);
+
+  const handleEndTour = () => {
+    setIsTourOpen(false);
+    tourService.markTourCompleted('coach_profile', user?.uid);
+  };
+
+  const tourSteps: TourStep[] = [
+    {
+      targetId: 'tour-coach-profile-header',
+      title: 'Profil Ayarları & Yönetim',
+      description: 'Koçluk bilgilerinizi, kişisel bilgilerinizi ve abonelik fiyatlandırma tercihlerinizi yönetebileceğiniz merkez paneldir.',
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-coach-profile-photo',
+      title: 'Kişisel Profil & Unvan',
+      description: 'Profil fotoğrafınızı güncelleyebilir, platform üzerindeki ad ve unvan bilgilerinizi kontrol edebilirsiniz.',
+      position: 'right'
+    },
+    {
+      targetId: 'tour-coach-profile-code',
+      title: 'Koç Kodu & İndirimler',
+      description: 'Öğrencilerinizin sisteme kaydolurken sizi seçmelerini sağlayan 5 haneli özel kodunuz. Ayrıca öğrencilerinize özel burs ve indirim tanımları yapabilirsiniz.',
+      position: 'right'
+    },
+    {
+      targetId: 'tour-coach-profile-pricing',
+      title: 'Abonelik Paket Fiyatlandırmaları',
+      description: 'Bronz, Gümüş ve Altın paketler için aylık satış ücretlerinizi belirleyin. Sistem kesintisi sonrası brüt net kazancınız anlık hesaplanır.',
+      position: 'left'
+    }
+  ];
+
   const [systemDeductionRate, setSystemDeductionRate] = useState(20);
   const [minSystemDeductionBronze, setMinSystemDeductionBronze] = useState(1000);
   const [minSystemDeductionSilver, setMinSystemDeductionSilver] = useState(1500);
@@ -23,19 +87,29 @@ export default function CoachProfile() {
     async function fetchRate() {
        try {
          const snap = await getDoc(doc(db, 'settings', 'financial'));
+         let rate = 20, minB = 1000, minS = 1500, minG = 2000;
          if (snap.exists()) {
             const data = snap.data();
-            if (data.systemDeductionRate !== undefined) setSystemDeductionRate(data.systemDeductionRate);
-            if (data.minSystemDeductionBronze !== undefined) setMinSystemDeductionBronze(data.minSystemDeductionBronze);
-            if (data.minSystemDeductionSilver !== undefined) setMinSystemDeductionSilver(data.minSystemDeductionSilver);
-            if (data.minSystemDeductionGold !== undefined) setMinSystemDeductionGold(data.minSystemDeductionGold);
+            if (data.systemDeductionRate !== undefined) rate = data.systemDeductionRate;
+            if (data.minSystemDeductionBronze !== undefined) minB = data.minSystemDeductionBronze;
+            if (data.minSystemDeductionSilver !== undefined) minS = data.minSystemDeductionSilver;
+            if (data.minSystemDeductionGold !== undefined) minG = data.minSystemDeductionGold;
          }
+         if (userData?.specialDeductionRate !== undefined) rate = userData.specialDeductionRate;
+         if (userData?.specialMinDeductionBronze !== undefined) minB = userData.specialMinDeductionBronze;
+         if (userData?.specialMinDeductionSilver !== undefined) minS = userData.specialMinDeductionSilver;
+         if (userData?.specialMinDeductionGold !== undefined) minG = userData.specialMinDeductionGold;
+
+         setSystemDeductionRate(rate);
+         setMinSystemDeductionBronze(minB);
+         setMinSystemDeductionSilver(minS);
+         setMinSystemDeductionGold(minG);
        } catch (err) {
          console.error("Error fetching settings", err);
        }
     }
     fetchRate();
-  }, []);
+  }, [userData]);
 
   const handleSave = async () => {
     if (!user) return;
@@ -78,9 +152,72 @@ export default function CoachProfile() {
     }
   };
 
+  const handleOpenDiscountModal = async () => {
+    setShowDiscountModal(true);
+    if (myStudents.length === 0 && user) {
+      setStudentsLoading(true);
+      try {
+        const q = query(collection(db, 'users'), where('coachId', '==', user.uid));
+        const snap = await getDocs(q);
+        const students: CoachStudent[] = snap.docs.map(d => {
+          const data = d.data();
+          return {
+            id: d.id,
+            name: data.displayName || data.firstName || data.name || '',
+            surname: data.lastName || data.surname || '',
+            specialDiscounts: data.specialDiscounts || {}
+          };
+        });
+        setMyStudents(students);
+      } catch (err) {
+        console.error("Error fetching students:", err);
+      } finally {
+        setStudentsLoading(false);
+      }
+    }
+  };
+
+  const handleSaveDiscount = async (studentId: string, discounts: any) => {
+    setSavingDiscount(studentId);
+    try {
+      const sanitizedDiscounts: Record<string, number> = {};
+      if (discounts && typeof discounts === 'object') {
+        Object.keys(discounts).forEach(key => {
+          const val = discounts[key];
+          if (typeof val === 'number' && val > 0 && !isNaN(val)) {
+            sanitizedDiscounts[key] = val;
+          }
+        });
+      }
+      await updateDoc(doc(db, 'users', studentId), {
+        specialDiscounts: sanitizedDiscounts
+      });
+      setMyStudents(prev => prev.map(s => s.id === studentId ? { ...s, specialDiscounts: sanitizedDiscounts } : s));
+    } catch (err) {
+      console.error(err);
+      alert('İndirim kaydedilirken bir hata oluştu.');
+    } finally {
+      setSavingDiscount(null);
+    }
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <OnboardingTour
+        steps={tourSteps}
+        isOpen={isTourOpen}
+        onClose={handleEndTour}
+        onComplete={handleEndTour}
+        onNextTour={() => {
+          setIsTourOpen(false);
+          tourService.markTourCompleted('coach_profile', user?.uid);
+          navigate('/panel/koc/cuzdan', { state: { startTour: true, isDemo: true } });
+        }}
+        nextTourLabel="Cüzdan & Kazanç Turu"
+        tourKey="coach_profile"
+      />
+
+      <div id="tour-coach-profile-header" className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h1 className="text-3xl font-bold italic text-white uppercase tracking-tight">
              PROFİL AYARLARI
@@ -99,7 +236,7 @@ export default function CoachProfile() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
          {/* Profile Photo & Summary */}
          <div className="space-y-6">
-            <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8 text-center flex flex-col items-center">
+            <div id="tour-coach-profile-photo" className="bg-slate-900/40 border border-white/5 rounded-3xl p-8 text-center flex flex-col items-center">
                <div className="relative group mb-6">
                   <div className="w-32 h-32 rounded-[40px] bg-slate-800 border-2 border-white/10 p-1 overflow-hidden transition-transform group-hover:scale-105">
                      {userData?.photoURL ? (
@@ -119,7 +256,7 @@ export default function CoachProfile() {
             </div>
 
             {/* Koç Kodu Kartı (Profil Kartının Altında) */}
-            <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-6 space-y-3">
+            <div id="tour-coach-profile-code" className="bg-slate-900/40 border border-white/5 rounded-3xl p-6 space-y-3">
                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
                   <Shield size={14} className="text-emerald-500" /> Koç Kodunuz (Öğrencilerinize Verin)
                </label>
@@ -134,12 +271,17 @@ export default function CoachProfile() {
                      className="w-full bg-white/5 border border-white/5 rounded-2xl py-3.5 pl-12 pr-4 text-white font-bold text-sm outline-none focus:border-emerald-500/30 transition-all font-mono" 
                   />
                </div>
+               
+               <button onClick={handleOpenDiscountModal} className="w-full mt-4 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 py-3 rounded-2xl text-sm font-bold transition-all flex items-center justify-center gap-2">
+                 <Percent size={16} />
+                 Öğrenci Özel İndirimleri
+               </button>
             </div>
          </div>
 
          {/* Settings Forms */}
          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
+            <div id="tour-coach-profile-pricing" className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
                <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-4">
                   <h3 className="text-xl font-bold flex items-center gap-3">
                      <CreditCard size={20} className="text-emerald-500" /> Paket Fiyatlandırmaları
@@ -285,6 +427,76 @@ export default function CoachProfile() {
             </div>
          </div>
       </div>
+
+      {/* Discount Modal */}
+      {showDiscountModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 relative flex flex-col max-h-[85vh]">
+            <button 
+              onClick={() => setShowDiscountModal(false)}
+              className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-full transition-colors"
+            >
+              <X size={16} />
+            </button>
+            
+            <h2 className="text-xl font-bold mb-2 flex items-center gap-2">
+              <Percent size={20} className="text-indigo-400" /> Özel İndirimler
+            </h2>
+            <p className="text-sm text-slate-400 mb-6">Öğrencilerinize özel paket bazlı (Bronz, Gümüş, Altın) % indirim tanımlayabilirsiniz. Belirlediğiniz indirim sistem kesintisini etkilemez, direkt sizin net kazancınızdan düşülür.</p>
+            
+            <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+              {studentsLoading ? (
+                <div className="text-center py-8 text-slate-400">Yükleniyor...</div>
+              ) : myStudents.length === 0 ? (
+                <div className="text-center py-8 text-slate-400">Henüz öğrenciniz bulunmuyor.</div>
+              ) : (
+                myStudents.map(student => (
+                  <div key={student.id} className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                    <div className="font-bold text-white mb-4">{student.name} {student.surname}</div>
+                    <div className="grid grid-cols-3 gap-3">
+                      {['bronze', 'silver', 'gold'].map((pkg) => {
+                        const val = student.specialDiscounts?.[pkg as keyof typeof student.specialDiscounts] || '';
+                        return (
+                          <div key={pkg} className="space-y-1">
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+                              {pkg === 'bronze' ? 'Bronz' : pkg === 'silver' ? 'Gümüş' : 'Altın'} İndirimi (%)
+                            </label>
+                            <input 
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={val}
+                              onChange={(e) => {
+                                const newVal = parseInt(e.target.value) || 0;
+                                const newDiscounts = { ...(student.specialDiscounts || {}) };
+                                if (newVal > 0) {
+                                  newDiscounts[pkg as keyof typeof newDiscounts] = newVal;
+                                } else {
+                                  delete newDiscounts[pkg as keyof typeof newDiscounts];
+                                }
+                                setMyStudents(prev => prev.map(s => s.id === student.id ? { ...s, specialDiscounts: newDiscounts } : s));
+                              }}
+                              className="w-full bg-slate-950 border border-white/10 rounded-xl py-2 px-3 text-sm text-white focus:outline-none focus:border-indigo-500/50"
+                              placeholder="% 0"
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <button 
+                      onClick={() => handleSaveDiscount(student.id, student.specialDiscounts || {})}
+                      disabled={savingDiscount === student.id}
+                      className="mt-4 w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-2 rounded-xl text-sm transition-all"
+                    >
+                      {savingDiscount === student.id ? 'Kaydediliyor...' : 'İndirimi Kaydet'}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

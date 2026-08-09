@@ -54,22 +54,36 @@ export const CityStatsModal: React.FC<CityStatsModalProps> = ({
     const map: Record<string, number> = {};
     
     dataToUse.forEach((item) => {
-      const rawName = item.city?.name || item.university?.city?.name; const name = rawName?.trim();
+      const rawName = item.city?.name || item.university?.city?.name;
+      const name = rawName?.trim();
       if (name) {
         map[name] = (map[name] || 0) + 1;
       }
     });
 
-    // Sayılara göre azalandan artana sırala
-    const sortedList = Object.entries(map).map(([name, count]) => ({
+    // Tüm şehir isimlerini birleştir (Mevcut filtrelere uyanlar + manuel çıkarılanlar)
+    const allCityNames = Array.from(new Set([
+      ...Object.keys(map),
+      ...excludedCities
+    ]));
+
+    const list = allCityNames.map((name) => ({
       name,
-      count,
+      count: map[name] || 0,
       isExcluded: excludedCities.includes(name),
     }));
 
-    sortedList.sort((a, b) => b.count - a.count);
+    list.sort((a, b) => {
+      if (a.isExcluded !== b.isExcluded) {
+        return a.isExcluded ? 1 : -1;
+      }
+      if (b.count !== a.count) {
+        return b.count - a.count;
+      }
+      return a.name.localeCompare(b.name, 'tr');
+    });
 
-    return sortedList;
+    return list;
   }, [dataToUse, excludedCities]);
 
   // Dahil edilenler ve Çıkarılanlar grupları
@@ -167,7 +181,7 @@ export const CityStatsModal: React.FC<CityStatsModalProps> = ({
               
               {onExcludeAllCities && (
                 <button
-                  onClick={() => onExcludeAllCities(cityStats.map(d => d.name))}
+                  onClick={() => onExcludeAllCities(includedCitiesList.map(d => d.name))}
                   className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <FilterX className="w-3.5 h-3.5" />
@@ -230,7 +244,7 @@ export const CityStatsModal: React.FC<CityStatsModalProps> = ({
                       <button
                         onClick={() => handleToggle(city.name)}
                         className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-300 rounded-lg text-[11px] font-medium flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap"
-                        title="Bu şehirü sonuçlardan çıkar"
+                        title="Bu şehri sonuçlardan çıkar"
                       >
                         <X className="w-3 h-3" />
                         Çıkar
@@ -277,7 +291,7 @@ export const CityStatsModal: React.FC<CityStatsModalProps> = ({
                       <button
                         onClick={() => handleToggle(city.name)}
                         className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 rounded-lg text-[11px] font-medium flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap"
-                        title="Bu şehirü tekrar sonuçlara ekle"
+                        title="Bu şehri tekrar sonuçlara ekle"
                       >
                         <Plus className="w-3 h-3" />
                         Geri Dahil Et

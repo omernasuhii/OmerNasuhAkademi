@@ -22,21 +22,82 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("Uncaught error:", error, errorInfo);
+    console.error("Uncaught error caught by ErrorBoundary:", error, errorInfo);
+    
+    // Check if error is a known browser extension / translate DOM mutation issue
+    const isDOMError = 
+      error?.message?.includes("removeChild") ||
+      error?.message?.includes("insertBefore") ||
+      error?.message?.includes("NotFoundError") ||
+      error?.message?.includes("Kaldırılacak düğüm");
+
+    if (isDOMError) {
+      console.warn("DOM Node mutation error detected (likely browser auto-translate or extension). Attempting smooth recovery.");
+      // Auto recovery for translation DOM glitches without blocking user
+      setTimeout(() => {
+        this.setState({ hasError: false, error: null, errorInfo: null });
+      }, 500);
+      return;
+    }
+
     this.setState({
       error,
       errorInfo
     });
   }
 
+  private handleReset = () => {
+    this.setState({ hasError: false, error: null, errorInfo: null });
+    window.location.reload();
+  };
+
+  private handleGoToLogin = () => {
+    this.setState({ hasError: false, error: null, errorInfo: null });
+    window.location.href = "/giris";
+  };
+
   public render() {
     if (this.state.hasError) {
+      const isDOMError = 
+        this.state.error?.message?.includes("removeChild") ||
+        this.state.error?.message?.includes("insertBefore") ||
+        this.state.error?.message?.includes("NotFoundError") ||
+        this.state.error?.message?.includes("Kaldırılacak düğüm");
+
       return (
-        <div style={{ padding: 20, color: "red", backgroundColor: "black" }}>
-          <h1>Something went wrong.</h1>
-          <pre>{this.state.error?.message}</pre>
-          <pre>{this.state.error?.stack}</pre>
-          <pre>{this.state.errorInfo?.componentStack}</pre>
+        <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center select-none" translate="no">
+          <div className="max-w-md w-full bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="w-12 h-12 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center justify-center mx-auto text-amber-400 text-2xl font-bold">
+              !
+            </div>
+            
+            <h2 className="text-xl font-bold text-white">
+              {isDOMError ? "Görünüm Yenileniyor" : "Geçici Bir Durum Oluştu"}
+            </h2>
+            
+            <p className="text-sm text-slate-400 leading-relaxed">
+              {isDOMError 
+                ? "Tarayıcı otomatik çevirisi sayfa yapısını etkiledi. Otomatik düzeltiliyor..."
+                : "Aksama durumunda oturumunuz güvenle saklanır. Giriş yapabilir veya sayfayı yenileyebilirsiniz."}
+            </p>
+
+            <div className="pt-2 flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={this.handleReset}
+                className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-600/20 cursor-pointer text-sm"
+              >
+                Sayfayı Yenile
+              </button>
+              <button
+                type="button"
+                onClick={this.handleGoToLogin}
+                className="flex-1 py-3 px-4 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 font-semibold rounded-xl transition-all border border-slate-700 cursor-pointer text-sm"
+              >
+                Giriş Sayfasına Git
+              </button>
+            </div>
+          </div>
         </div>
       );
     }
@@ -44,3 +105,4 @@ export class ErrorBoundary extends Component<Props, State> {
     return this.props.children;
   }
 }
+

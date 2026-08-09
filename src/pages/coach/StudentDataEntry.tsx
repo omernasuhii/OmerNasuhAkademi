@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useStudent } from '../../lib/StudentContext';
+import { useAuth } from '../../lib/AuthContext';
+import { tourService } from '../../services/tourService';
 import { studentDataService } from '../../services/studentDataService';
 import { useCurriculum } from '../../lib/CurriculumContext';
+import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
 import { 
   ClipboardCheck, 
   BookOpen, 
@@ -17,18 +21,62 @@ import {
   Youtube,
   FileText,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 import { BRANCH_CONFIG } from '../../constants/branchConfig';
 import { formatSubjectName } from './StudentProgram';
+import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
 
 export default function StudentDataEntry() {
+  const { user, userData } = useAuth();
   const { curriculum: CURRICULUM } = useCurriculum();
-  const { selectedStudent } = useStudent();
+  const { selectedStudent, setSelectedStudent } = useStudent();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [expandedBook, setExpandedBook] = useState<string | null>(null);
+  const [isTourOpen, setIsTourOpen] = useState(false);
+
+  useEffect(() => {
+    if (tourService.shouldAutoStartTour('student_data_entry', userData, location.state?.startTour)) {
+      if (!selectedStudent) {
+        setSelectedStudent(SAMPLE_DEMO_STUDENT);
+      }
+      const timer = setTimeout(() => {
+        setIsTourOpen(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedStudent, setSelectedStudent, location.state, userData]);
+
+  const handleEndTour = () => {
+    setIsTourOpen(false);
+    tourService.markTourCompleted('student_data_entry', user?.uid);
+    if (selectedStudent?.isDemo) {
+      setSelectedStudent(null);
+      navigate('/panel/koc');
+    }
+  };
+
+  const tourSteps: TourStep[] = [
+    {
+      targetId: 'tour-data-entry-header',
+      title: 'Kaynak & Kitap Takibi',
+      description: 'Öğrencinizin soru bankası, fasikül veya YouTube kanalı takibini buradan kolayca ekleyebilirsiniz.',
+      position: 'bottom',
+      badge: 'Kaynak Yönetimi'
+    },
+    {
+      targetId: 'tour-data-entry-list',
+      title: 'Konu İlerleme Durumu',
+      description: 'Eklenen her kaynak, müfredat konularıyla eşleşir. Konular bittikçe işaretleyebilirsiniz.',
+      position: 'top',
+      badge: 'Gelişim Takibi'
+    }
+  ];
 
   // Book Tracking State
   const [books, setBooks] = useState<any[]>([]);
@@ -89,8 +137,25 @@ export default function StudentDataEntry() {
 
   useEffect(() => {
     if (selectedStudent) {
-      studentDataService.getBookTracking(selectedStudent.uid).then(setBooks);
-      studentDataService.getGlobalBooks().then(setGlobalBooks);
+      if (selectedStudent.isDemo) {
+        const demoBooks = [
+          { id: 'demo1', name: 'Palme Biyoloji Soru Bankası', subject: 'Biyoloji', resourceType: 'soru', type: 'TYT', completedTopics: ['Canlıların Ortak Özellikleri', 'Canlıların Temel Bileşenleri - 1 (İnorganikler, Karbonhidratlar)', 'Hücre - 1 (Zar, Madde Geçişleri)'], completionPercentage: 75, order: 0 },
+          { id: 'demo2', name: 'Biyotik Biyoloji Soru Bankası', subject: 'Biyoloji', resourceType: 'soru', type: 'AYT', completedTopics: ['Canlıların Ortak Özellikleri', 'Hücre - 1 (Zar, Madde Geçişleri)'], completionPercentage: 60, order: 1 },
+          { id: 'demo3', name: 'Bilgi Sarmal Fizik Soru Bankası', subject: 'Fizik', resourceType: 'soru', type: 'AYT', completedTopics: ['Vektörler'], completionPercentage: 70, order: 2 },
+          { id: 'demo4', name: 'VIP Fizik', subject: 'Fizik', resourceType: 'youtube', type: 'TYT', completedTopics: ['Fizik Bilimine Giriş'], completionPercentage: 30, order: 3 },
+        ];
+        setBooks(demoBooks);
+        setExpandedBook(demoBooks[0].id);
+        setGlobalBooks([]);
+      } else {
+        studentDataService.getBookTracking(selectedStudent.uid).then(data => {
+          setBooks(data);
+          if (data && data.length > 0) {
+            setExpandedBook(data[0].id);
+          }
+        });
+        studentDataService.getGlobalBooks().then(setGlobalBooks);
+      }
     }
   }, [selectedStudent]);
 
@@ -119,6 +184,7 @@ export default function StudentDataEntry() {
   }, [newBook.type, subjectOptions]);
 
   const toggleTopic = async (book: any, topic: string) => {
+    if (selectedStudent?.isDemo) return;
     const currentTopics = book.completedTopics || [];
     let updatedTopics;
     if (currentTopics.includes(topic)) {
@@ -141,6 +207,7 @@ export default function StudentDataEntry() {
   };
 
   const handleAddBook = async () => {
+    if (selectedStudent?.isDemo) return;
     let finalBookName = '';
     let finalIsbn = '';
 
@@ -231,6 +298,7 @@ export default function StudentDataEntry() {
 
   const handleMoveBook = async (e: React.MouseEvent, book: any, direction: 'up' | 'down') => {
     e.stopPropagation();
+    if (selectedStudent?.isDemo) return;
     if (subjectFilter === 'Hepsi') {
        alert("Sıralama değiştirmek için önce belirli bir branş seçmelisiniz.");
        return;
@@ -279,19 +347,61 @@ export default function StudentDataEntry() {
     ));
   };
 
-  if (!selectedStudent) return null;
+  if (!selectedStudent) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 bg-slate-900/40 border border-white/5 rounded-[40px] text-center p-8 space-y-6 animate-in fade-in duration-300">
+        <div className="w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+          <BookOpen size={32} />
+        </div>
+        <div className="max-w-md space-y-2">
+          <h2 className="text-2xl font-bold text-white">Seçili Öğrenci Bulunamadı</h2>
+          <p className="text-slate-400 text-sm">
+            Örnek öğrenci profili sistem turu tamamlandığı için kapatılmıştır. Kaynak takibi görüntülemek için lütfen listenizden seçim yapın.
+          </p>
+        </div>
+        <div className="flex flex-wrap justify-center gap-4">
+          <button
+            onClick={() => navigate('/panel/koc/ogrenciler')}
+            className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-2xl transition-all shadow-lg"
+          >
+            Öğrencilerim Sayfasına Git
+          </button>
+          <button
+            onClick={() => navigate('/panel/koc')}
+            className="px-6 py-3 bg-white/5 hover:bg-white/10 text-white font-bold rounded-2xl border border-white/10 transition-all"
+          >
+            Koç Paneline Dön
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
+      <OnboardingTour
+        steps={tourSteps}
+        isOpen={isTourOpen}
+        onClose={handleEndTour}
+        onComplete={handleEndTour}
+        onNextTour={() => {
+          setIsTourOpen(false);
+          tourService.markTourCompleted('student_data_entry', user?.uid);
+          navigate('/panel/koc/ogrenci/randevular', { state: { startTour: true, isDemo: true } });
+        }}
+        nextTourLabel="Öğrenci Randevuları Turu"
+        tourKey="student_data_entry"
+      />
+
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold italic text-white uppercase tracking-tight">KAYNAK TAKİBİ</h1>
-        <p className="text-slate-500 mt-1">{selectedStudent.displayName} akademik ilerleme ve kaynak bitirme raporu.</p>
+        <p className="text-slate-500 mt-1">{selectedStudent?.displayName} akademik ilerleme ve kaynak bitirme raporu.</p>
       </div>
 
       <div className="space-y-8">
         {/* Add Book Form */}
-        <div className="bg-white/5 border border-white/5 rounded-3xl p-8">
+        <div id="tour-data-entry-header" className="bg-white/5 border border-white/5 rounded-3xl p-8">
            <h3 className="text-lg font-bold mb-6 italic uppercase tracking-tighter">Yeni Kaynak Ekle</h3>
            
            <div className="mb-6 flex gap-4">
@@ -463,8 +573,17 @@ export default function StudentDataEntry() {
               </div>
             )}
 
+            {/* Auto Sync Info Banner */}
+            <div className="mb-6 p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center gap-3 text-xs text-indigo-300">
+              <Sparkles size={20} className="text-indigo-400 shrink-0 animate-pulse" />
+              <div>
+                <span className="font-bold text-white block">Otomatik Konu Takibi Entegrasyonu</span>
+                <span className="text-slate-300">Öğrenci haftalık ders programında bu kitaptan bir konuyu/görevi tamamladığında, buradaki konu işaretlemesi <strong>otomatik olarak</strong> gerçekleşir.</span>
+              </div>
+            </div>
+
             {/* Book List */}
-            <div className="grid grid-cols-1 gap-6">
+            <div id="tour-data-entry-list" className="grid grid-cols-1 gap-6">
               {books
                 .filter(b => (b.resourceType || 'soru') === activeTab)
                 .filter(b => subjectFilter === 'Hepsi' || b.subject === subjectFilter)
@@ -548,33 +667,52 @@ export default function StudentDataEntry() {
                           initial={{ height: 0 }}
                           animate={{ height: 'auto' }}
                           exit={{ height: 0 }}
-                          className="overflow-hidden bg-black/20"
+                          className="overflow-hidden bg-black/20 border-t border-white/5"
                         >
-                          <div className="p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {allTopics.map((topic: string) => {
-                              const isCompleted = (book.completedTopics || []).includes(topic);
-                              return (
-                                <button
-                                  key={topic}
-                                  onClick={() => toggleTopic(book, topic)}
-                                  className={`
-                                    flex items-center gap-3 p-4 rounded-2xl border transition-all text-left
-                                    ${isCompleted 
-                                      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
-                                      : 'bg-white/5 border-white/5 text-slate-500 hover:border-white/20'
-                                    }
-                                  `}
-                                >
-                                  <div className={`
-                                    w-5 h-5 rounded-md border flex items-center justify-center transition-all
-                                    ${isCompleted ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-white/20'}
-                                  `}>
-                                    {isCompleted && <CheckCircle2 size={14} />}
-                                  </div>
-                                  <span className="text-xs font-bold leading-tight">{topic}</span>
-                                </button>
-                              );
-                            })}
+                          <div className="p-6">
+                            <div className="flex items-center justify-between mb-4 pb-2 border-b border-white/5">
+                              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                                <Sparkles size={14} className="text-emerald-400" />
+                                Konu Takip Listesi ({completedCount} / {allTopics.length} Tamamlandı)
+                              </span>
+                              <span className="text-[10px] text-slate-500 italic">
+                                Haftalık programda tamamlanan konular otomatik işaretlenir
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {allTopics.map((topic: string) => {
+                                const isCompleted = (book.completedTopics || []).includes(topic);
+                                return (
+                                  <button
+                                    key={topic}
+                                    onClick={() => toggleTopic(book, topic)}
+                                    className={`
+                                      flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left group/topic
+                                      ${isCompleted 
+                                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 shadow-sm' 
+                                        : 'bg-white/5 border-white/5 text-slate-400 hover:border-white/20 hover:text-white'
+                                      }
+                                    `}
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <div className={`
+                                        w-5 h-5 rounded-md border flex items-center justify-center transition-all shrink-0
+                                        ${isCompleted ? 'bg-emerald-500 border-emerald-500 text-slate-950' : 'border-white/20 group-hover/topic:border-white/40'}
+                                      `}>
+                                        {isCompleted && <CheckCircle2 size={14} className="stroke-[3]" />}
+                                      </div>
+                                      <span className="text-xs font-bold leading-tight">{topic}</span>
+                                    </div>
+                                    {isCompleted && (
+                                      <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                                        Tamamlandı
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                         </motion.div>
                       )}

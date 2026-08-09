@@ -98,23 +98,6 @@ export default function Wallet() {
         </motion.div>
       </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05 }}
-        className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex items-start gap-3"
-      >
-        <div className="mt-0.5">
-           <svg className="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-        </div>
-        <div>
-          <h4 className="text-sm font-bold text-amber-500 mb-1">Cüzdan Kuralları & İade Politikası</h4>
-          <p className="text-xs text-amber-400/80 leading-relaxed font-medium">
-            Platforma yüklenen tüm TL bakiyeleri ve referans sistemi aracılığıyla kazanılan ödüller, <strong>sadece uygulama içi harcamalarda (hizmet satın alımları, abonelik ödemeleri, test vb.)</strong> geçerlidir. Bakiyeler hiçbir koşulda banka hesaplarına aktarılamaz, nakit olarak çekilemez veya nakden iade edilemez. Tüm mali değerler yalnızca platformda eğitim yatırımı olarak kullanılabilir.
-          </p>
-        </div>
-      </motion.div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <motion.div
            initial={{ opacity: 0, y: 20 }}

@@ -60,16 +60,29 @@ export const DepartmentStatsModal: React.FC<DepartmentStatsModalProps> = ({
       }
     });
 
-    // Sayılara göre azalandan artana sırala
-    const sortedList = Object.entries(map).map(([name, count]) => ({
+    // Tüm bölüm isimlerini birleştir (Mevcut filtrelere uyanlar + manuel çıkarılanlar)
+    const allDeptNames = Array.from(new Set([
+      ...Object.keys(map),
+      ...excludedDepartments
+    ]));
+
+    const list = allDeptNames.map((name) => ({
       name,
-      count,
+      count: map[name] || 0,
       isExcluded: excludedDepartments.includes(name),
     }));
 
-    sortedList.sort((a, b) => b.count - a.count);
+    list.sort((a, b) => {
+      if (a.isExcluded !== b.isExcluded) {
+        return a.isExcluded ? 1 : -1;
+      }
+      if (b.count !== a.count) {
+        return b.count - a.count;
+      }
+      return a.name.localeCompare(b.name, 'tr');
+    });
 
-    return sortedList;
+    return list;
   }, [dataToUse, excludedDepartments]);
 
   // Dahil edilenler ve Çıkarılanlar grupları
@@ -167,7 +180,7 @@ export const DepartmentStatsModal: React.FC<DepartmentStatsModalProps> = ({
               
               {onExcludeAllDepartments && (
                 <button
-                  onClick={() => onExcludeAllDepartments(deptStats.map(d => d.name))}
+                  onClick={() => onExcludeAllDepartments(includedDepts.map(d => d.name))}
                   className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <FilterX className="w-3.5 h-3.5" />

@@ -3,7 +3,11 @@ import { useStudent } from '../../lib/StudentContext';
 import { BarChart3, TrendingUp, ChevronRight, Activity, CalendarDays, ClipboardCheck, Target, Filter } from 'lucide-react';
 import { studentDataService } from '../../services/studentDataService';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Line, ComposedChart } from 'recharts';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../../lib/AuthContext';
+import { tourService } from '../../services/tourService';
+import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
+import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
 
 const EXAM_STRUCTURE: any = {
   'TYT': [
@@ -83,8 +87,10 @@ const BRANCH_COMPOSITES: Record<string, string[]> = {
 };
 
 export default function StudentExams() {
-  const { selectedStudent } = useStudent();
+  const { user, userData } = useAuth();
+  const { selectedStudent, setSelectedStudent } = useStudent();
   const navigate = useNavigate();
+  const location = useLocation();
   const [exams, setExams] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeExamType, setActiveExamType] = useState('TYT');
@@ -99,18 +105,137 @@ export default function StudentExams() {
   const [selectedBranchTarget, setSelectedBranchTarget] = useState('Türkçe (TYT)');
   const [branchSourceFilter, setBranchSourceFilter] = useState('hepsi'); // 'hepsi', 'genel', 'brans', 'ders'
 
+  const [isTourOpen, setIsTourOpen] = useState(false);
+
+  const activeStudent = selectedStudent || (location.state?.startTour || location.state?.isDemo ? SAMPLE_DEMO_STUDENT : null);
+
+  useEffect(() => {
+    if (!selectedStudent && (location.state?.startTour || location.state?.isDemo)) {
+      setSelectedStudent(SAMPLE_DEMO_STUDENT);
+    }
+  }, [selectedStudent, setSelectedStudent, location.state]);
+
+  useEffect(() => {
+    if (tourService.shouldAutoStartTour('student_exams', userData, location.state?.startTour)) {
+      const timer = setTimeout(() => {
+        setIsTourOpen(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [location.state, userData]);
+
+  const handleEndTour = () => {
+    setIsTourOpen(false);
+    tourService.markTourCompleted('student_exams', user?.uid);
+  };
+
+  const tourSteps: TourStep[] = [
+    {
+      targetId: 'tour-exam-analysis-header',
+      title: 'Sınav Analizleri ve Gelişim Takibi',
+      description: `${activeStudent?.displayName || 'Seçili öğrenci'} için sınav türlerine (TYT, AYT, YDT, Branş) göre net gelişim grafiklerini ve ortalama branş performansını buradan detaylı olarak inceleyebilirsiniz.`,
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-exam-analysis-tabs',
+      title: 'Sınav Türü ve Filtreleme',
+      description: 'TYT, AYT, YDT veya Branş Analizi sekmeleri arasında geçiş yapabilir; Zaman Aralığı ve Son N Deneme filtreleri uygulayabilirsiniz.',
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-exam-analysis-chart',
+      title: 'Gelişim Grafiği ve Trend Çizgisi',
+      description: 'Seçili sınav türüne göre net veya yüzdelik dilim değişim grafiğidir. Kesikli beyaz çizgi genel performans trendini gösterir.',
+      position: 'top'
+    },
+    {
+      targetId: 'tour-exam-analysis-branches',
+      title: 'Branş Ortalamaları ve Zayıf Dersler',
+      description: 'Tüm derslerin hedef nete oranını ve başarı performansını inceleyebilir, geliştirilmesi gereken zayıf dersleri anında tespit edebilirsiniz.',
+      position: 'top'
+    }
+  ];
+
+  const SAMPLE_EXAMS = [
+    {
+      id: 'demo-1',
+      examName: '3D TYT-1',
+      examType: 'TYT',
+      date: '2026-01-10',
+      totalNet: 82.5,
+      percentile: 5.2,
+      scores: {
+        'Türkçe': { c: 30, i: 6, n: '28.50' },
+        'Tarih': { c: 4, i: 1, n: '3.75' },
+        'Coğrafya': { c: 4, i: 1, n: '3.75' },
+        'Felsefe': { c: 4, i: 1, n: '3.75' },
+        'Din': { c: 5, i: 0, n: '5.00' },
+        'Matematik': { c: 22, i: 4, n: '21.00' },
+        'Geometri': { c: 6, i: 2, n: '5.50' },
+        'Fizik': { c: 4, i: 2, n: '3.50' },
+        'Kimya': { c: 5, i: 1, n: '4.75' },
+        'Biyoloji': { c: 3, i: 2, n: '2.50' }
+      }
+    },
+    {
+      id: 'demo-2',
+      examName: 'Bilgi Sarmal TYT-2',
+      examType: 'TYT',
+      date: '2026-02-05',
+      totalNet: 88.75,
+      percentile: 4.1,
+      scores: {
+        'Türkçe': { c: 32, i: 4, n: '31.00' },
+        'Tarih': { c: 4, i: 1, n: '3.75' },
+        'Coğrafya': { c: 4, i: 1, n: '3.75' },
+        'Felsefe': { c: 5, i: 0, n: '5.00' },
+        'Din': { c: 5, i: 0, n: '5.00' },
+        'Matematik': { c: 25, i: 3, n: '24.25' },
+        'Geometri': { c: 7, i: 1, n: '6.75' },
+        'Fizik': { c: 5, i: 1, n: '4.75' },
+        'Kimya': { c: 5, i: 1, n: '4.75' },
+        'Biyoloji': { c: 4, i: 1, n: '3.75' }
+      }
+    },
+    {
+      id: 'demo-3',
+      examName: 'Özdebir TYT-3',
+      examType: 'TYT',
+      date: '2026-03-01',
+      totalNet: 94.5,
+      percentile: 2.8,
+      scores: {
+        'Türkçe': { c: 34, i: 3, n: '33.25' },
+        'Tarih': { c: 4, i: 1, n: '3.75' },
+        'Coğrafya': { c: 5, i: 0, n: '5.00' },
+        'Felsefe': { c: 5, i: 0, n: '5.00' },
+        'Din': { c: 5, i: 0, n: '5.00' },
+        'Matematik': { c: 28, i: 2, n: '27.50' },
+        'Geometri': { c: 8, i: 1, n: '7.75' },
+        'Fizik': { c: 6, i: 1, n: '5.75' },
+        'Kimya': { c: 6, i: 0, n: '6.00' },
+        'Biyoloji': { c: 6, i: 0, n: '6.00' }
+      }
+    }
+  ];
 
   useEffect(() => {
     const fetchData = async () => {
-      if (selectedStudent) {
-        setLoading(true);
-        const results = await studentDataService.getExamResults(selectedStudent.uid);
-        setExams(results.reverse()); // Chronological order
-        setLoading(false);
+      setLoading(true);
+      if (activeStudent) {
+        const results = await studentDataService.getExamResults(activeStudent.uid);
+        if (results && results.length > 0) {
+          setExams(results.reverse()); // Chronological order
+        } else {
+          setExams(SAMPLE_EXAMS);
+        }
+      } else {
+        setExams(SAMPLE_EXAMS);
       }
+      setLoading(false);
     };
     fetchData();
-  }, [selectedStudent]);
+  }, [activeStudent?.uid]);
 
   // Filter exams by type
   let filteredExams: any[] = [];
@@ -446,12 +571,26 @@ export default function StudentExams() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <OnboardingTour
+        steps={tourSteps}
+        isOpen={isTourOpen}
+        onClose={handleEndTour}
+        onComplete={handleEndTour}
+        onNextTour={() => {
+          setIsTourOpen(false);
+          tourService.markTourCompleted('student_exams', user?.uid);
+          navigate('/panel/koc/ogrenci/derin-analiz', { state: { startTour: true, isDemo: true } });
+        }}
+        nextTourLabel="Derin Analiz Turu"
+        tourKey="student_exams"
+      />
+
+      <div id="tour-exam-analysis-header" className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h1 className="text-3xl font-bold italic text-white uppercase tracking-tight">
              SINAV ANALİZLERİ
           </h1>
-          <p className="text-slate-500 mt-1">{selectedStudent?.displayName} son deneme sonuçları ve branş başarı analizi.</p>
+          <p className="text-slate-500 mt-1">{activeStudent?.displayName || 'Seçili öğrenci'} son deneme sonuçları ve branş başarı analizi.</p>
         </div>
         <button 
           onClick={() => navigate('/panel/koc/ogrenci/sonuclar')}
@@ -462,7 +601,7 @@ export default function StudentExams() {
         </button>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 justify-between md:items-center">
+      <div id="tour-exam-analysis-tabs" className="flex flex-col md:flex-row gap-4 justify-between md:items-center">
         <div className="flex flex-wrap bg-slate-900/60 p-1 rounded-xl border border-white/5 w-fit">
            {['TYT', 'AYT', 'YDT', 'BRANŞ'].map(tab => (
               <button
@@ -516,7 +655,7 @@ export default function StudentExams() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className={activeExamType === 'BRANŞ' ? "lg:col-span-full space-y-6" : "lg:col-span-2 space-y-6"}>
              {/* Chart */}
-             <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8 relative overflow-hidden group">
+             <div id="tour-exam-analysis-chart" className="bg-slate-900/40 border border-white/5 rounded-3xl p-8 relative overflow-hidden group">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 blur-[100px]" />
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
@@ -621,7 +760,7 @@ export default function StudentExams() {
 
              {/* Branch Performance */}
              {activeExamType !== 'BRANŞ' && (
-                 <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
+                 <div id="tour-exam-analysis-branches" className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
                        <h3 className="text-xl font-bold">({countFilter !== 'all' ? `Son ${countFilter} Sınav ` : 'Tüm Sınavların '}) Branş Ortalamaları</h3>
                        {activeExamType === 'AYT' && (

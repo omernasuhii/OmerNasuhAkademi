@@ -354,18 +354,6 @@ export default function ReferralSettings() {
                     </label>
                   </div>
 
-                  <div className="mb-8 bg-amber-500/10 border border-amber-500/20 rounded-2xl p-5 flex items-start gap-4">
-                    <div className="mt-0.5 bg-amber-500/20 p-2 rounded-xl text-amber-500 shrink-0">
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-black text-amber-500 mb-1">Önemli Finansal Kural</h4>
-                      <p className="text-xs font-bold text-amber-400/80 leading-relaxed">
-                        Sisteme tanımlanan ödül oranları ve hediye bakiyeler, platformun genel komisyon veya hizmet bedeli marjının altında olmalıdır. Platforma yüklenen bakiyeler ve kazanılan ödüller hiçbir şekilde nakde çevrilemez (withdrawal) ve iade edilemez. Sistemde dağıtılan ödüller yalnızca platform içerisindeki hizmet alımlarında (abonelik, ders vb.) kullanılacak "sanal hediye çeki" mantığıyla çalışmalıdır.
-                      </p>
-                    </div>
-                  </div>
-
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="space-y-3">
                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Ödül Geçerlilik Süresi (Gün)</label>

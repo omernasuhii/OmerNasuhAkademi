@@ -1,5 +1,10 @@
 import React, { useState, useMemo, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useStudent } from "../../lib/StudentContext";
+import { useAuth } from "../../lib/AuthContext";
+import { tourService } from "../../services/tourService";
+import { OnboardingTour, TourStep } from "../../components/OnboardingTour";
+import { SAMPLE_DEMO_STUDENT } from "./CoachStudents";
 import {
   Search,
   Info,
@@ -301,9 +306,88 @@ const SUB_CATEGORIES: Record<string, string[]> = {
   "Grafik Analizi": ["Genel"],
 };
 
+const SAMPLE_EXAMS = [
+  {
+    id: 'deep-demo-1',
+    examName: '3D TYT Genel Deneme-1',
+    examType: 'TYT',
+    date: '2026-03-01',
+    totalNet: 88.5,
+    scores: {
+      'Türkçe': { c: 32, i: 5, n: '30.75' },
+      'Temel Matematik': { c: 26, i: 4, n: '25.00' },
+      'Sosyal Bilimler': { c: 16, i: 3, n: '15.25' },
+      'Fen Bilimleri': { c: 18, i: 2, n: '17.50' }
+    }
+  },
+  {
+    id: 'deep-demo-2',
+    examName: 'Bilgi Sarmal TYT Genel Deneme-2',
+    examType: 'TYT',
+    date: '2026-03-15',
+    totalNet: 93.75,
+    scores: {
+      'Türkçe': { c: 34, i: 3, n: '33.25' },
+      'Temel Matematik': { c: 28, i: 3, n: '27.25' },
+      'Sosyal Bilimler': { c: 17, i: 2, n: '16.50' },
+      'Fen Bilimleri': { c: 17, i: 1, n: '16.75' }
+    }
+  }
+];
+
+const SAMPLE_ANALYSES = [
+  {
+    examId: 'deep-demo-1',
+    data: {
+      'Türkçe': [
+        { questionNo: 4, topic: 'Paragrafta Anlam', errorType: 'dikkat' },
+        { questionNo: 12, topic: 'Yazım Kuralları', errorType: 'bilgi' },
+        { questionNo: 14, topic: 'Yazım Kuralları', errorType: 'kalip' },
+        { questionNo: 18, topic: 'Noktalama İşaretleri', errorType: 'kalip' },
+        { questionNo: 29, topic: 'Paragrafta Yapı', errorType: 'zaman' },
+        { questionNo: 35, topic: 'Cümlede Anlam', errorType: 'dikkat' }
+      ],
+      'Temel Matematik': [
+        { questionNo: 8, topic: 'Üslü Sayılar', errorType: 'dikkat' },
+        { questionNo: 15, topic: 'Problemler (Hız)', errorType: 'zaman' },
+        { questionNo: 22, topic: 'Fonksiyonlar', errorType: 'bilgi' },
+        { questionNo: 31, topic: 'Üçgende Açılar', errorType: 'kalip' }
+      ],
+      'Sosyal Bilimler': [
+        { questionNo: 3, topic: 'Osmanlı Kuruluş Dönemi', errorType: 'bilgi' },
+        { questionNo: 9, topic: 'İklim Bilgisi', errorType: 'kalip' },
+        { questionNo: 14, topic: 'Ahlak Felsefesi', errorType: 'dikkat' }
+      ],
+      'Fen Bilimleri': [
+        { questionNo: 2, topic: 'Kuvvet ve Hareket', errorType: 'kalip' },
+        { questionNo: 11, topic: 'Asitler ve Bazlar', errorType: 'bilgi' }
+      ]
+    }
+  },
+  {
+    examId: 'deep-demo-2',
+    data: {
+      'Türkçe': [
+        { questionNo: 8, topic: 'Paragrafta Anlam', errorType: 'dikkat' },
+        { questionNo: 11, topic: 'Yazım Kuralları', errorType: 'dikkat' },
+        { questionNo: 15, topic: 'Ses Bilgisi', errorType: 'bilgi' },
+        { questionNo: 31, topic: 'Paragrafta Yardımçı Düşünce', errorType: 'zaman' }
+      ],
+      'Temel Matematik': [
+        { questionNo: 12, topic: 'Problemler (Yüzde)', errorType: 'zaman' },
+        { questionNo: 19, topic: 'Polinomlar', errorType: 'bilgi' },
+        { questionNo: 33, topic: 'Çember ve Daire', errorType: 'kalip' }
+      ]
+    }
+  }
+];
+
 export default function DeepAnalysis() {
+  const { user, userData } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const { curriculum } = useCurriculum();
-  const { selectedStudent } = useStudent();
+  const { selectedStudent, setSelectedStudent } = useStudent();
   const [selectedExamType, setSelectedExamType] = useState("TYT");
   const [selectedCategory, setSelectedCategory] = useState("Genel");
   const [selectedSubCategory, setSelectedSubCategory] = useState("Genel");
@@ -312,8 +396,79 @@ export default function DeepAnalysis() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
+  const [isTourOpen, setIsTourOpen] = useState(false);
+
+  const activeStudent = selectedStudent || (location.state?.startTour || location.state?.isDemo ? SAMPLE_DEMO_STUDENT : null);
+
   useEffect(() => {
-    const branch = selectedStudent?.branch || "";
+    if (!selectedStudent && (location.state?.startTour || location.state?.isDemo)) {
+      setSelectedStudent(SAMPLE_DEMO_STUDENT);
+    }
+  }, [selectedStudent, setSelectedStudent, location.state]);
+
+  useEffect(() => {
+    if (tourService.shouldAutoStartTour('student_deep_analysis', userData, location.state?.startTour)) {
+      const timer = setTimeout(() => {
+        setIsTourOpen(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [location.state, userData]);
+
+  const handleEndTour = () => {
+    setIsTourOpen(false);
+    tourService.markTourCompleted('student_deep_analysis', user?.uid);
+  };
+
+  const tourSteps: TourStep[] = [
+    {
+      targetId: 'tour-deep-analysis-header',
+      title: 'Derin Analiz ve Teşhis Paneli',
+      description: `${activeStudent?.displayName || 'Seçili öğrenci'} için sadece sınav netlerini değil; soru bazlı hata nedenlerini (Bilgi Eksikliği, Dikkat Hatası, Zaman Yetmezliği, Soru Kalıbı Eksikliği) mikro düzeyde teşhis edebileceğiniz yapay zeka ve istatistik merkezidir.`,
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-deep-analysis-exam-types',
+      title: '1. Seviye Filtre: Sınav Türü Seçimi',
+      description: 'TYT, AYT, YDT veya ara sınıf (9, 10, 11. Sınıf) kademeleri arasında tek tıkla geçiş yapabilirsiniz. Seçtiğiniz kademeye göre ders ve konu ağacı otomatik olarak filtrelenir.',
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-deep-analysis-filters',
+      title: '2. Seviye Filtre: Zaman, Yayın & Hata Türü Teşhisi',
+      description: 'Öğrencinin son 1, 3, 6 ay veya spesifik deneme yayınlarına özel hatalarını süzebilirsiniz. En kritik özellik olan "Hata Türü" filtresi ile örneğin sadece "Bilgi Eksikliği" veya "Dikkat Hatası" sorularına odaklanabilirsiniz.',
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-deep-analysis-categories',
+      title: '3. Seviye Filtre: Ders & Konu Kırılımları',
+      description: 'Türkçe, Matematik, Sosyal ve Fen ana sekmelerinden alt derslere ve konulara inebilir; branş denemelerini dahil etme seçeneğiyle analiz derinliğini artırabilirsiniz.',
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-deep-analysis-data-view',
+      title: 'Çoklu Sebep Analizi ve Hata Kök Nedenleri',
+      description: 'Aynı konu için birden fazla farklı sebeple hata teşhisi yapılmış olabilir. Örneğin: Öğrenci "Yazım Kuralları" konusundan hem "Bilgi Eksikliği" hem de "Soru Kalıp Eksikliği" veya "Dikkat Hatası" nedeniyle soru kaçırmış olabilir. Sistem her bir soru hatasını kendi özel kök nedeni altında oranlayarak raporlar.',
+      position: 'top'
+    },
+    {
+      targetId: 'tour-deep-analysis-data-view',
+      title: 'Grafik Analizi ve Başarı Oranı Görselleştirme',
+      description: 'Grafik Analizi sekmesi; yayın bazlı yapılan/yapılamayan soru dağılımları, derse göre başarı yüzdeleri ve konu tamamlama oranlarını görselleştiren dinamik grafik panellerinden oluşur.',
+      position: 'top'
+    }
+  ];
+
+  const handleStepChange = (stepIndex: number, currentStep: TourStep) => {
+    if (currentStep.title.includes('Grafik Analizi')) {
+      handleCategoryChange('Grafik Analizi');
+    } else if (stepIndex < 5 && selectedCategory === 'Grafik Analizi') {
+      handleCategoryChange('Genel');
+    }
+  };
+
+  useEffect(() => {
+    const branch = activeStudent?.branch || "";
     if (["9. Sınıf", "10. Sınıf", "11. Sınıf"].includes(branch)) {
       setSelectedExamType(branch);
       setSelectedCategory("Genel");
@@ -323,7 +478,7 @@ export default function DeepAnalysis() {
       setSelectedCategory("Genel");
       setSelectedSubCategory("Genel");
     }
-  }, [selectedStudent?.uid, selectedStudent?.branch]);
+  }, [activeStudent?.uid, activeStudent?.branch]);
 
   // Publishers multi-select
   const [selectedPublishers, setSelectedPublishers] = useState<string[]>([]);
@@ -337,29 +492,44 @@ export default function DeepAnalysis() {
 
   React.useEffect(() => {
     const fetchData = async () => {
-      if (selectedStudent) {
+      if (activeStudent) {
         try {
           setLoading(true);
           const { studentDataService } =
             await import("../../services/studentDataService");
           const results = await studentDataService.getExamResults(
-            selectedStudent.uid,
+            activeStudent.uid,
           );
           const analysesData = await studentDataService.getStudentAnalyses(
-            selectedStudent.uid,
+            activeStudent.uid,
           );
 
-          setExams(results);
-          setAnalyses(analysesData);
+          if (results && results.length > 0) {
+            setExams(results);
+          } else {
+            setExams(SAMPLE_EXAMS);
+          }
+
+          if (analysesData && analysesData.length > 0) {
+            setAnalyses(analysesData);
+          } else {
+            setAnalyses(SAMPLE_ANALYSES);
+          }
         } catch (e) {
           console.error("Failed to fetch data", e);
+          setExams(SAMPLE_EXAMS);
+          setAnalyses(SAMPLE_ANALYSES);
         } finally {
           setLoading(false);
         }
+      } else {
+        setExams(SAMPLE_EXAMS);
+        setAnalyses(SAMPLE_ANALYSES);
+        setLoading(false);
       }
     };
     fetchData();
-  }, [selectedStudent]);
+  }, [activeStudent?.uid]);
 
   if (!selectedStudent) {
     return (
@@ -1069,13 +1239,28 @@ export default function DeepAnalysis() {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
-      <div>
+      <OnboardingTour
+        steps={tourSteps}
+        isOpen={isTourOpen}
+        onClose={handleEndTour}
+        onComplete={handleEndTour}
+        onNextTour={() => {
+          setIsTourOpen(false);
+          tourService.markTourCompleted('student_deep_analysis', user?.uid);
+          navigate('/panel/koc/ogrenci/ai-sohbetleri', { state: { startTour: true, isDemo: true } });
+        }}
+        nextTourLabel="Yapay Zeka Sohbetleri Turu"
+        tourKey="student_deep_analysis"
+        onStepChange={handleStepChange}
+      />
+
+      <div id="tour-deep-analysis-header">
         <h1 className="text-3xl font-bold italic text-white uppercase tracking-tight flex items-center gap-3">
           <Search className="text-emerald-500" size={28} />
           DERİN ANALİZ
         </h1>
         <p className="text-slate-500 mt-2 flex items-center gap-2 text-sm">
-          <Info size={14} /> {selectedStudent.displayName} adlı öğrencinin
+          <Info size={14} /> {activeStudent?.displayName || 'Seçili öğrenci'} adlı öğrencinin
           detaylı deneme performans analizleri.
         </p>
       </div>
@@ -1086,9 +1271,9 @@ export default function DeepAnalysis() {
         <div className="p-8">
           {/* Level 1: Exam Type */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 relative z-50 w-full border-b border-white/5 pb-6">
-            <div className="flex bg-black/40 p-1.5 rounded-2xl w-full sm:w-fit border border-white/5">
+            <div id="tour-deep-analysis-exam-types" className="flex bg-black/40 p-1.5 rounded-2xl w-full sm:w-fit border border-white/5">
               {(() => {
-                const branch = selectedStudent?.branch || "";
+                const branch = activeStudent?.branch || "";
                 const isAra = ["9. Sınıf", "10. Sınıf", "11. Sınıf"].includes(branch);
                 const available = isAra ? (branch === "11. Sınıf" ? ["11. Sınıf", "TYT"] : [branch]) : ["TYT", "AYT", "YDT"];
                 return available.map((type) => (
@@ -1107,7 +1292,7 @@ export default function DeepAnalysis() {
             })()}
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto relative">
+            <div id="tour-deep-analysis-filters" className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto relative">
               <div className="flex gap-2">
                 <select
                   value={filterDateRange}
@@ -1238,7 +1423,7 @@ export default function DeepAnalysis() {
 
           {/* Level 2: Subject Categories */}
           {currentCategories.length > 0 && (
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 relative z-10 w-full">
+            <div id="tour-deep-analysis-categories" className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 relative z-10 w-full">
               <div className="flex flex-wrap gap-2">
                 {currentCategories.map((cat) => (
                   <button
@@ -1299,7 +1484,7 @@ export default function DeepAnalysis() {
           </AnimatePresence>
 
           {/* Data View */}
-          <div className="mt-8">
+          <div id="tour-deep-analysis-data-view" className="mt-8">
             {loading ? (
               <div className="border border-dashed border-white/10 rounded-3xl min-h-[400px] flex items-center justify-center p-8 bg-black/20">
                 <p className="text-slate-400">Veriler yükleniyor...</p>

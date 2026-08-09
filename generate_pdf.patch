@@ -1,0 +1,14 @@
+--- server.ts
++++ server.ts
+@@ -2717,6 +2717,12 @@
+     examsCount: number;
+     aiAnalysisText: string;
+     subjectsBreakdown: { subject: string; target: number; completed: number }[];
++    studentGrade?: string;
++    studentBranch?: string;
++    studentTarget?: string;
++    studentPackage?: string;
++    dailyTasks?: { date: string; displayDate: string; tasks: any[] }[];
++    exams?: any[];
+   }): Buffer {
+     const doc = new jsPDF();

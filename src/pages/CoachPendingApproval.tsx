@@ -1,14 +1,23 @@
-import React from "react";
-import { UserCheck } from "lucide-react";
+import React, { useState } from "react";
+import { UserCheck, Copy, Check, Info, Gift, Sparkles } from "lucide-react";
 import { useAuth } from "../lib/AuthContext";
 
 export default function CoachPendingApproval() {
-  const { logout, userData } = useAuth();
+  const { logout, user, userData } = useAuth();
+  const [copied, setCopied] = useState(false);
 
   const isRejected = userData?.approved === "rejected";
+  const refCode = userData?.referralCode || (user?.uid ? ("KOC" + user.uid.substring(0, 4).toUpperCase()) : "KOC");
+  const usedReferralCode = userData?.referredByCode;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(refCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  };
 
   return (
-    <div className="flex-1 flex items-center justify-center p-6 min-h-[80vh]">
+    <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-[85vh] gap-6">
       <div className="w-full max-w-lg bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl relative overflow-hidden text-center">
         {/* Decorative blur */}
         <div
@@ -39,6 +48,87 @@ export default function CoachPendingApproval() {
         >
           Çıkış Yap
         </button>
+      </div>
+
+      {/* Sadece davet kodu başarıyla tanımlandıysa gösterilen avantaj bilgilendirme alanı */}
+      {usedReferralCode && (
+        <div className="w-full max-w-lg bg-emerald-500/10 backdrop-blur-xl border border-emerald-500/30 rounded-3xl p-6 shadow-xl space-y-3 text-left">
+          <div className="flex items-center gap-3 border-b border-emerald-500/20 pb-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-300 shrink-0">
+              <Gift size={20} />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-emerald-300 flex items-center gap-2">
+                Referans Kodu Avantajı Etkin
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  {usedReferralCode}
+                </span>
+              </h3>
+              <p className="text-xs text-slate-400">Davet kodu kaydınıza başarıyla işlendi</p>
+            </div>
+          </div>
+
+          <div className="space-y-2 text-xs text-slate-300 leading-relaxed">
+            <p>
+              Sisteme bir meslektaşınızın davet koduyla (<strong className="text-emerald-300 font-mono">{usedReferralCode}</strong>) kaydolduğunuz için referans avantajlarınız tanımlanmıştır:
+            </p>
+            <ul className="space-y-1.5 pl-1 text-slate-300">
+              <li className="flex items-start gap-2">
+                <Sparkles size={14} className="text-emerald-400 shrink-0 mt-0.5" />
+                <span><strong>İlk Bakiye Yükleme Bonusu:</strong> Hesabınız onaylandıktan sonra yapacağınız ilk bakiye yüklemesinde hediye bakiye kazanırsınız.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Sparkles size={14} className="text-emerald-400 shrink-0 mt-0.5" />
+                <span><strong>Koçluk Ağı Eşleşmesi:</strong> Sizi davet eden koç ile referans ağında başarıyla eşleştiniz.</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Referans & Koç Kodu Bilgilendirme Alanı */}
+      <div className="w-full max-w-lg bg-slate-900/50 backdrop-blur-xl border border-emerald-500/20 rounded-3xl p-6 shadow-xl space-y-4">
+        <div className="flex items-center gap-3 border-b border-white/10 pb-3">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+            <Info size={20} />
+          </div>
+          <div className="text-left">
+            <h3 className="text-base font-bold text-white">Koç Kodunuz & Referans Bilgilendirmesi</h3>
+            <p className="text-xs text-slate-400">Sistemdeki benzersiz kodunuz ve kullanım bilgileri</p>
+          </div>
+        </div>
+
+        <div className="bg-slate-950/60 border border-white/10 rounded-2xl p-4 flex items-center justify-between gap-4">
+          <div className="text-left">
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-0.5">SİZİN KODUNUZ</span>
+            <span className="text-xl font-mono font-black text-emerald-400 tracking-wider">{refCode}</span>
+          </div>
+          <button
+            onClick={handleCopy}
+            className="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+          >
+            {copied ? (
+              <>
+                <Check size={14} /> Kopyalandı
+              </>
+            ) : (
+              <>
+                <Copy size={14} /> Kopyala
+              </>
+            )}
+          </button>
+        </div>
+
+        <div className="space-y-2.5 text-xs text-slate-300 text-left leading-relaxed bg-white/5 p-4 rounded-2xl border border-white/5">
+          <div className="flex items-start gap-2">
+            <span className="text-emerald-400 font-bold">•</span>
+            <p><strong>Koç Referans Kodu:</strong> Yukarıdaki kod sizin davet kodunuzdur. Diğer koçları platforma davet ettiğinizde onların bakiye yüklemelerinden hediye bakiye kazanırsınız.</p>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-emerald-400 font-bold">•</span>
+            <p><strong>Öğrenci Eşleşme (Koç Kodu):</strong> Öğrencilerinizin sizinle eşleşmesi için kullanılan <em>Koç Kodu</em>, hesabınız onaylandıktan sonra <strong>Profil Ayarları</strong> sayfasından belirlenmektedir.</p>
+          </div>
+        </div>
       </div>
     </div>
   );

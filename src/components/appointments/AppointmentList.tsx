@@ -30,9 +30,10 @@ interface AppointmentListProps {
   statuses?: string[];
   readOnly?: boolean;
   filterRequesterRole?: 'parent' | 'student';
+  showSamples?: boolean;
 }
 
-export default function AppointmentList({ role, studentId, studentIds, targetUserId, onReschedule, limit, statuses, readOnly, filterRequesterRole }: AppointmentListProps) {
+export default function AppointmentList({ role, studentId, studentIds, targetUserId, onReschedule, limit, statuses, readOnly, filterRequesterRole, showSamples }: AppointmentListProps) {
   const { user } = useAuth();
   const [appointments, setAppointments] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -165,13 +166,182 @@ export default function AppointmentList({ role, studentId, studentIds, targetUse
   }
 
   if (appointments.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 bg-slate-900/40 border border-white/5 rounded-[32px] text-center px-6">
-        <div className="bg-slate-950 w-16 h-16 rounded-[24px] flex items-center justify-center mb-6 border border-white/10 shadow-inner">
-          <Calendar className="text-slate-700" size={32} />
+    if (!showSamples) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 bg-slate-900/40 border border-white/5 rounded-[32px] text-center px-6">
+          <div className="bg-slate-950 w-16 h-16 rounded-[24px] flex items-center justify-center mb-6 border border-white/10 shadow-inner">
+            <Calendar className="text-slate-700" size={32} />
+          </div>
+          <h4 className="text-xl font-bold text-white mb-2">Randevu Seçilmedi</h4>
+          <p className="text-slate-500 max-w-xs mx-auto">Henüz herhangi bir randevu kaydı bulunmamaktadır.</p>
         </div>
-        <h4 className="text-xl font-bold text-white mb-2">Randevu Seçilmedi</h4>
-        <p className="text-slate-500 max-w-xs mx-auto">Henüz herhangi bir randevu kaydı bulunmamaktadır.</p>
+      );
+    }
+
+    const sampleAppointments: Booking[] = [
+      {
+        id: 'sample-1',
+        studentId: 'std-1',
+        studentName: 'Ahmet Yılmaz (Örnek)',
+        serviceId: 'srv-1',
+        serviceType: 'one-on-one',
+        coachId: 'coach-1',
+        coachName: 'Koç Danışman',
+        date: new Date(Date.now() + 86400000 * 1).toISOString().split('T')[0],
+        startTime: '14:00',
+        endTime: '14:45',
+        status: 'pending',
+        paymentStatus: 'paid',
+        isOnline: true,
+        participantCount: 1,
+        requesterRole: 'student'
+      },
+      {
+        id: 'sample-2',
+        studentId: 'std-2',
+        studentName: 'Ahmet Yılmaz (Veli)',
+        serviceId: 'srv-2',
+        serviceType: 'one-on-one',
+        coachId: 'coach-1',
+        coachName: 'Koç Danışman',
+        date: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
+        startTime: '15:30',
+        endTime: '16:15',
+        status: 'confirmed',
+        paymentStatus: 'paid',
+        isOnline: true,
+        participantCount: 1,
+        requesterRole: 'parent'
+      },
+      {
+        id: 'sample-3',
+        studentId: 'std-3',
+        studentName: 'Ahmet Yılmaz (Örnek)',
+        serviceId: 'srv-3',
+        serviceType: 'one-on-one',
+        coachId: 'coach-1',
+        coachName: 'Koç Danışman',
+        date: new Date(Date.now() - 86400000 * 1).toISOString().split('T')[0],
+        startTime: '10:00',
+        endTime: '10:45',
+        status: 'completed',
+        paymentStatus: 'paid',
+        isOnline: false,
+        participantCount: 1,
+        requesterRole: 'student'
+      },
+      {
+        id: 'sample-4',
+        studentId: 'std-4',
+        studentName: 'Ahmet Yılmaz (Örnek)',
+        serviceId: 'srv-4',
+        serviceType: 'one-on-one',
+        coachId: 'coach-1',
+        coachName: 'Koç Danışman',
+        date: new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0],
+        startTime: '11:30',
+        endTime: '12:15',
+        status: 'missed',
+        paymentStatus: 'paid',
+        isOnline: true,
+        participantCount: 1,
+        requesterRole: 'student'
+      },
+      {
+        id: 'sample-5',
+        studentId: 'std-5',
+        studentName: 'Ahmet Yılmaz (Veli)',
+        serviceId: 'srv-5',
+        serviceType: 'one-on-one',
+        coachId: 'coach-1',
+        coachName: 'Koç Danışman',
+        date: new Date(Date.now() - 86400000 * 3).toISOString().split('T')[0],
+        startTime: '16:00',
+        endTime: '16:45',
+        status: 'cancelled',
+        paymentStatus: 'paid',
+        isOnline: true,
+        participantCount: 1,
+        requesterRole: 'parent'
+      }
+    ];
+
+    return (
+      <div className="space-y-4">
+        {sampleAppointments.map((app) => (
+          <div key={app.id} className="bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-3xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:bg-white/[0.04] transition-all group">
+            <div className="flex items-center gap-5">
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 border border-white/10 shadow-inner group-hover:scale-105 transition-transform ${
+                app.serviceType === 'one-on-one' ? 'bg-blue-500/10 text-blue-400' :
+                app.serviceType === 'lesson' ? 'bg-amber-500/10 text-amber-400' :
+                'bg-purple-500/10 text-purple-400'
+              }`}>
+                {app.serviceType === 'one-on-one' ? <User size={24} /> : app.serviceType === 'lesson' ? <Clock size={24} /> : <Repeat size={24} />}
+              </div>
+              <div>
+                <div className="flex items-center gap-3 mb-1">
+                  <h4 className="font-bold text-white tracking-tight flex items-center gap-2">
+                    {role === 'student' ? app.coachName : app.studentName}
+                    {app.requesterRole === 'parent' && (
+                      <span className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                        <User size={10} /> Veli
+                      </span>
+                    )}
+                  </h4>
+                  {getStatusBadge(app.status)}
+                  {app.isOnline && (
+                    <span className="bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2 rounded-md text-[8px] font-black uppercase tracking-tighter flex items-center gap-1">
+                      <Video size={10} /> Online
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-500">
+                  <span className="flex items-center gap-1.5"><Calendar size={14} className="text-slate-600" /> {app.date}</span>
+                  <span className="flex items-center gap-1.5"><Clock size={14} className="text-slate-600" /> {app.startTime}</span>
+                  <span className="flex items-center gap-1.5 text-blue-400/70 border-l border-white/10 pl-4">
+                    {app.serviceType === 'one-on-one' ? (app.requesterRole === 'parent' ? 'Veli Görüşmesi' : 'Öğrenci Koçluğu') : 'Grup'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {!readOnly && (
+              <div className="flex items-center gap-2">
+                {app.status === 'pending' && (
+                  <>
+                    <button 
+                      onClick={() => handleStatusUpdate(app.id!, 'confirmed')}
+                      className="bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white border border-emerald-500/20 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
+                    >
+                      <Check size={14} /> Onayla
+                    </button>
+                    <button 
+                      onClick={() => handleStatusUpdate(app.id!, 'cancelled')}
+                      className="bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/20 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
+                    >
+                      <XCircle size={14} /> Reddet
+                    </button>
+                  </>
+                )}
+                {app.status === 'confirmed' && (
+                  <button 
+                    onClick={() => handleStatusUpdate(app.id!, 'completed')}
+                    className="bg-blue-500/10 hover:bg-blue-500 text-blue-500 hover:text-white border border-blue-500/20 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
+                  >
+                    <CheckCircle size={14} /> Katıldı
+                  </button>
+                )}
+                <button 
+                  onClick={() => setEditingAppointment({ ...app })}
+                  className="bg-slate-950 hover:bg-blue-500/10 text-slate-500 hover:text-blue-400 border border-white/5 p-2 rounded-xl transition-all"
+                  title="Düzenle"
+                >
+                  <Edit2 size={16} />
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     );
   }

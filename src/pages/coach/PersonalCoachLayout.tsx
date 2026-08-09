@@ -249,7 +249,6 @@ export default function PersonalCoachLayout() {
     { title: 'Öğrencilerim', path: '/panel/koc/ogrenciler', icon: Users },
     { title: 'ON Asistan', path: '/panel/koc/asistan', icon: Bot },
     { title: 'Randevular', path: '/panel/koc/randevular', icon: Calendar },
-    { title: 'Müsaitlik Ayarları', path: '/panel/koc/musaitlik', icon: Clock },
     { title: 'Genel Değerlendirme', path: '/panel/koc/degerlendirme', icon: BarChart3 },
     { title: 'Profil Ayarları', path: '/panel/koc/profil', icon: UserCircle },
     { title: 'Cüzdan ve Kazanç', path: '/panel/koc/cuzdan', icon: Wallet },

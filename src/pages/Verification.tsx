@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../lib/AuthContext';
 import { sendEmailVerification, RecaptchaVerifier, linkWithPhoneNumber } from 'firebase/auth';
-import { Mail, RefreshCw, LogOut, CheckCircle, Phone, Smartphone, AlertCircle, MessageCircle, QrCode } from 'lucide-react';
+import { Mail, RefreshCw, LogOut, CheckCircle, Phone, Smartphone, AlertCircle, MessageCircle, QrCode, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
+import { WhatsAppFallbackHelp } from '../components/WhatsAppFallbackHelp';
 
 declare global {
   interface Window {
@@ -33,31 +34,47 @@ export default function Verification() {
   const [hasApiError, setHasApiError] = useState(false);
 
   useEffect(() => {
-    if (user) {
-      // If student has an incomplete registration or missing phone number, redirect them to /kayit-tamamla first!
-      if (userData && userData.role === 'student' && (!userData.registrationStep || userData.registrationStep < 4 || !userData.phone)) {
-        navigate('/kayit-tamamla');
-        return;
-      }
+    navigate('/');
+  }, [navigate]);
 
-      const bypassVerification = systemSettings?.bypassVerification || systemSettings?.bypassInternalVerification || !userData?.phone;
-      
-      if (bypassVerification) {
-        setVerificationStep('done');
-        navigate('/');
-      } else if (!user.emailVerified) {
-        setVerificationStep('email');
-      } else if (!user.phoneNumber && !userData?.phoneVerified && !userData?.verificationDeferred) {
-        setVerificationStep('phone');
-      } else {
-        setVerificationStep('done');
-        navigate('/');
-      }
+  const [emailCountdown, setEmailCountdown] = useState(60);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (verificationStep === 'email' && emailCountdown > 0) {
+      timer = setTimeout(() => setEmailCountdown((prev) => prev - 1), 1000);
     }
-  }, [user, userData, navigate, systemSettings]);
+    return () => clearTimeout(timer);
+  }, [verificationStep, emailCountdown]);
+
+  // Otomatik E-Posta Onay Dinleyicisi
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+    if (user && verificationStep === 'email') {
+      intervalId = setInterval(async () => {
+        try {
+          await user.reload();
+          if (user.emailVerified) {
+            clearInterval(intervalId);
+            setMessage('');
+            setError('');
+            if (!user.phoneNumber && !userData?.phoneVerified && !userData?.verificationDeferred) {
+              setVerificationStep('phone');
+            } else {
+              setVerificationStep('done');
+              navigate('/');
+            }
+          }
+        } catch (e) {
+          console.error("Auto check email error:", e);
+        }
+      }, 2500);
+    }
+    return () => clearInterval(intervalId);
+  }, [user, verificationStep, userData, navigate]);
 
   const handleResendEmail = async () => {
-    if (!user) return;
+    if (!user || emailCountdown > 0) return;
     setSending(true);
     setMessage('');
     setError('');
@@ -68,6 +85,7 @@ export default function Verification() {
         handleCodeInApp: false,
       };
       await sendEmailVerification(user, actionCodeSettings);
+      setEmailCountdown(60);
       setMessage('Doğrulama e-postası tekrar gönderildi. Lütfen gelen kutunuzu kontrol edin.');
     } catch (err: any) {
       if (err.code === 'auth/too-many-requests') {
@@ -239,21 +257,33 @@ export default function Verification() {
               </div>
             )}
 
-            <div className="space-y-3">
-              <button 
-                onClick={handleCheckEmail}
-                className="w-full bg-amber-600 hover:bg-amber-500 text-white py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2"
-              >
-                <RefreshCw size={18} />
-                Doğruladığımı Onayla
-              </button>
+            <div className="space-y-4">
+              <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-center gap-2 text-amber-400 font-semibold text-sm">
+                <Loader2 size={18} className="animate-spin" />
+                E-Posta Doğrulaması Bekleniyor...
+              </div>
               
               <button 
                 onClick={handleResendEmail}
-                disabled={sending}
-                className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2"
+                disabled={sending || emailCountdown > 0}
+                className="w-full bg-slate-800 hover:bg-slate-700 disabled:bg-slate-800/40 text-slate-300 disabled:text-slate-500 py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 text-sm"
               >
-                {sending ? 'Gönderiliyor...' : 'E-postayı Tekrar Gönder'}
+                {sending ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Gönderiliyor...
+                  </>
+                ) : emailCountdown > 0 ? (
+                  <>
+                    <RefreshCw size={16} />
+                    Tekrar E-Posta Gönder ({emailCountdown}s)
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={16} />
+                    Tekrar E-Posta Gönder
+                  </>
+                )}
               </button>
             </div>
           </>
@@ -265,9 +295,9 @@ export default function Verification() {
               <Smartphone size={40} />
             </div>
             
-            <h2 className="text-2xl font-bold text-white mb-2">Telefon Doğrulaması</h2>
+            <h2 className="text-2xl font-bold text-white mb-2">Telefon / WhatsApp Doğrulama</h2>
             <p className="text-slate-400 mb-6 text-sm">
-              Güvenliğiniz için lütfen sistemde kayıtlı <strong className="text-white">{userData?.phone}</strong> numaranıza göndereceğimiz SMS doğrulama kodunu onaylayın.
+              Güvenliğiniz için lütfen sistemde kayıtlı <strong className="text-white">{userData?.phone}</strong> numaranıza göndereceğimiz WhatsApp doğrulama kodunu onaylayın.
             </p>
 
             {simulatedNotification && (
@@ -276,7 +306,7 @@ export default function Verification() {
                 <p className="text-xs text-slate-200">
                   Gönderilen Mesaj: <strong className="text-emerald-400 font-mono select-all bg-emerald-950/50 px-2 py-0.5 rounded block mt-1">{simulatedNotification}</strong>
                 </p>
-                <span className="text-[9px] text-slate-400 block mt-1">Gerçek SMS gönderimini etkinleştirmek için Twilio API anahtarlarınızı panel ayarlarından giriniz.</span>
+                <span className="text-[9px] text-slate-400 block mt-1">Gerçek doğrulama gönderimini etkinleştirmek için Twilio API anahtarlarınızı panel ayarlarından giriniz.</span>
               </div>
             )}
 
@@ -303,7 +333,7 @@ export default function Verification() {
                   className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3.5 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-[0.98]"
                >
                   <Smartphone size={18} />
-                  {sending ? 'Gönderiliyor...' : 'SMS ile Kod Gönder'}
+                  {sending ? 'Gönderiliyor...' : 'WhatsApp ile Kod Gönder'}
                </button>
             ) : (
                <form onSubmit={handleVerifyOTP} className="space-y-4 animate-in fade-in duration-300">
@@ -328,6 +358,17 @@ export default function Verification() {
                     Kodu alamadınız mı? Tekrar gönder
                   </p>
                </form>
+            )}
+
+            {otpSent && (
+              <WhatsAppFallbackHelp
+                phone={userData?.phone || ""}
+                onCodeSent={(data) => {
+                  if (data?.simulated) {
+                    setSimulatedNotification(`FocusON Akademi SMS doğrulama kodunuz (Simüle Edildi): ${data.code || "123456"}`);
+                  }
+                }}
+              />
             )}
 
             {/* Twilio Policy Fallback Section */}

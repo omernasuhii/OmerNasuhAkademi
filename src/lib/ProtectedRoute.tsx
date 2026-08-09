@@ -43,24 +43,8 @@ export default function ProtectedRoute({
     return children;
   }
 
-  let requireVerification = true;
-  if (
-    systemSettings?.bypassVerification || 
-    systemSettings?.bypassInternalVerification ||
-    !userData?.phone
-  ) {
-    requireVerification = false;
-  }
-
-  if (
-    requireVerification &&
-    user &&
-    (!user.emailVerified || (!user.phoneNumber && !userData?.phoneVerified && !userData?.verificationDeferred))
-  ) {
-    if (location.pathname !== "/dogrulama") {
-      return <Navigate to="/dogrulama" replace />;
-    }
-  }
+  // Phone & Email verification requirements removed - users register directly.
+  const requireVerification = false;
 
   if (allowedRoles && userData && !allowedRoles.includes(userData.role)) {
     return <Navigate to="/" replace />;

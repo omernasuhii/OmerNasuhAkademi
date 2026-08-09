@@ -1,0 +1,108 @@
+--- src/pages/students/TercihRobotu.tsx
++++ src/pages/students/TercihRobotu.tsx
+@@ -914,6 +914,9 @@
+   const [maxPoint, setMaxPoint] = useState<string>("");
+   const [includeNewDepts, setIncludeNewDepts] = useState<boolean>(true);
+ 
++  // Auto Rank Filter States
++  const [studentRanks, setStudentRanks] = useState<Record<string, string>>({});
++  const [rankTolerancePercent, setRankTolerancePercent] = useState<number>(30);
++
+   const [pointTypeConstraints, setPointTypeConstraints] = useState<Record<string, { minRank: string; maxRank: string; minPoint: string; maxPoint: string }>>({});
+   const [showConstraintsDropdown, setShowConstraintsDropdown] = useState(false);
+@@ -1975,6 +1978,28 @@
+   };
+ 
++  const applyAutoRankFilter = (pType: string, rankStr: string, percent: number, totalSelected: number) => {
++    const rank = Number(rankStr);
++    if (!rank || rank <= 0) return;
++
++    const minR = Math.max(1, Math.floor(rank * (1 - percent / 100)));
++    const maxR = Math.floor(rank * (1 + percent / 100));
++
++    if (totalSelected <= 1) {
++      setMinRank(minR.toString());
++      setMaxRank(maxR.toString());
++    } else {
++      setPointTypeConstraints(prev => ({
++        ...prev,
++        [pType]: {
++          ...prev[pType] || { minRank: "", maxRank: "", minPoint: "", maxPoint: "" },
++          minRank: minR.toString(),
++          maxRank: maxR.toString()
++        }
++      }));
++    }
++  };
++
++  const handleStudentRankChange = (pType: string, val: string) => {
++    setStudentRanks(prev => ({ ...prev, [pType]: val }));
++    applyAutoRankFilter(pType, val, rankTolerancePercent, selectedPointTypes.length);
++  };
++
++  const handleToleranceChange = (percent: number) => {
++    setRankTolerancePercent(percent);
++    selectedPointTypes.forEach(pType => {
++      if (studentRanks[pType]) {
++        applyAutoRankFilter(pType, studentRanks[pType], percent, selectedPointTypes.length);
++      }
++    });
++  };
++
+   const togglePointType = (pType: string) => {
+     setSelectedPointTypes(prev => {
+@@ -2271,7 +2296,7 @@
+                   onClick={() => togglePointType(pType)}
+-                  className={`py-2 rounded-xl text-xs font-extrabold border transition-all text-center cursor-pointer ${selectedPointTypes.includes(pType) ? "bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/20" : "bg-slate-950/40 text-slate-400 border-white/5 hover:border-white/10 hover:text-white"}`}
++                  className={`${selectedPointTypes.length > 0 ? "py-1.5 text-[10px]" : "py-2 text-xs"} rounded-xl font-extrabold border transition-all text-center cursor-pointer ${selectedPointTypes.includes(pType) ? "bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/20" : "bg-slate-950/40 text-slate-400 border-white/5 hover:border-white/10 hover:text-white"}`}
+                 >
+                   {pType}
+                 </button>
+               ))}
+             </div>
++            
++            <AnimatePresence>
++              {selectedPointTypes.length > 0 && (
++                <motion.div
++                  initial={{ height: 0, opacity: 0 }}
++                  animate={{ height: "auto", opacity: 1 }}
++                  exit={{ height: 0, opacity: 0 }}
++                  className="overflow-hidden space-y-2 mt-1"
++                >
++                  {selectedPointTypes.map(pType => (
++                    <div key={`rank-input-${pType}`} className="pt-1">
++                      <label className="text-[9px] text-blue-400/80 font-bold uppercase tracking-wider mb-1 block">
++                        {pType} Öğrenci Sıralaması
++                      </label>
++                      <input
++                        type="number"
++                        placeholder={`${pType} sıranızı girin (Otomatik Süzer)`}
++                        value={studentRanks[pType] || ""}
++                        onChange={(e) => handleStudentRankChange(pType, e.target.value)}
++                        className="w-full bg-blue-950/20 border border-blue-500/20 hover:border-blue-500/40 rounded-xl py-1.5 px-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/60 transition-all"
++                      />
++                    </div>
++                  ))}
++                  
++                  {Object.keys(studentRanks).some(k => selectedPointTypes.includes(k) && studentRanks[k]) && (
++                    <div className="pt-2 pb-1 border-t border-white/5 mt-2">
++                      <label className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-2 flex items-center justify-between">
++                        <span>Süzgeç Genişliği (±%)</span>
++                        <span className="text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">%{rankTolerancePercent}</span>
++                      </label>
++                      <input
++                        type="range"
++                        min="5"
++                        max="100"
++                        step="5"
++                        value={rankTolerancePercent}
++                        onChange={(e) => handleToleranceChange(Number(e.target.value))}
++                        className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
++                      />
++                    </div>
++                  )}
++                </motion.div>
++              )}
++            </AnimatePresence>
+           </div>
+ 

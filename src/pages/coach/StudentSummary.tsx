@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { AlertTriangle, BookOpen, 
   TrendingUp, 
   Target,
@@ -15,14 +16,26 @@ import { AlertTriangle, BookOpen,
   AlertCircle,
   Trophy,
   Zap,
-  Quote
+  Quote,
+  Compass,
+  MessageCircle
 } from 'lucide-react';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { useStudent } from '../../lib/StudentContext';
+import { useAuth } from '../../lib/AuthContext';
+import { tourService } from '../../services/tourService';
 import { studentDataService } from '../../services/studentDataService';
-import { Link } from 'react-router-dom';
+import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
+import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
+import { calculateSubjectMultipliers, calculateDailyCompletionWithMultipliers } from '../../lib/programCalculations';
 
 export default function StudentSummary() {
-  const { selectedStudent } = useStudent();
+  const { user, userData } = useAuth();
+  const { selectedStudent, setSelectedStudent } = useStudent();
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [books, setBooks] = useState<any[]>([]);
   const [program, setProgram] = useState<any>(null);
   const [reports, setReports] = useState<any[]>([]);
@@ -34,33 +47,236 @@ export default function StudentSummary() {
   const [evaluationText, setEvaluationText] = useState<string>('');
   const [isSavingEvaluation, setIsSavingEvaluation] = useState<boolean>(false);
   const [isGeneratingEval, setIsGeneratingEval] = useState<boolean>(false);
+  const [isTourOpen, setIsTourOpen] = useState(false);
+  const [parentPhone, setParentPhone] = useState<string>('');
+
+  const activeStudent = selectedStudent || (location.state?.startTour || location.state?.isDemo ? SAMPLE_DEMO_STUDENT : null);
+  const isDemo = activeStudent?.isDemo || location.state?.isDemo;
+
+  useEffect(() => {
+    if (activeStudent) {
+      const studentObj = activeStudent as any;
+      if (studentObj.parentPhone) {
+        setParentPhone(studentObj.parentPhone);
+      } else if (studentObj.phone) {
+        setParentPhone(studentObj.parentPhone || studentObj.phone);
+      } else if (studentObj.parentUid) {
+        getDoc(doc(db, 'users', studentObj.parentUid)).then(snap => {
+          if (snap.exists()) {
+            const pData = snap.data();
+            setParentPhone(pData.phone || pData.phoneNumber || pData.parentPhone || '');
+          }
+        }).catch(console.error);
+      } else if (studentObj.uid) {
+        const qParent = query(collection(db, 'users'), where('role', '==', 'parent'), where('studentUid', '==', studentObj.uid));
+        getDocs(qParent).then(snap => {
+          if (!snap.empty) {
+            const pData = snap.docs[0].data();
+            setParentPhone(pData.phone || pData.phoneNumber || pData.parentPhone || '');
+          } else {
+            setParentPhone(studentObj.phone || '');
+          }
+        }).catch(console.error);
+      }
+    } else {
+      setParentPhone('');
+    }
+  }, [activeStudent]);
+
+  useEffect(() => {
+    if (tourService.shouldAutoStartTour('student_summary', userData, location.state?.startTour)) {
+      if (!selectedStudent) {
+        setSelectedStudent(SAMPLE_DEMO_STUDENT);
+      }
+      const timer = setTimeout(() => {
+        setIsTourOpen(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedStudent, setSelectedStudent, location.state, userData]);
+
+  const handleEndTour = () => {
+    setIsTourOpen(false);
+    tourService.markTourCompleted('student_summary', user?.uid);
+    if (selectedStudent?.isDemo) {
+      setSelectedStudent(null);
+      navigate('/panel/koc');
+    }
+  };
+
+  const studentSummaryTourSteps: TourStep[] = [
+    {
+      targetId: 'tour-student-summary-profile',
+      title: 'Öğrenci Profili',
+      description: 'Seçilen öğrencinin sınıf seviyesi, alan bilgisi, ve temel profili.',
+      position: 'bottom',
+      badge: 'Kimlik Kartı'
+    },
+    {
+      targetId: 'tour-student-summary-goals',
+      title: 'Akademik Hedefler',
+      description: 'Öğrencinin hedef üniversitesi ve TYT/AYT net hedefleri bu alanda yer almaktadır.',
+      position: 'bottom',
+      badge: 'Hedefler'
+    },
+    {
+      targetId: 'tour-student-summary-targets',
+      title: 'Aylık İlerleme Grafikleri',
+      description: 'Öğrencinin bu ayki konu tamamlama ve kitap bitirme hedeflerine yakınlık oranları hesaplanır.',
+      position: 'left',
+      badge: 'Gelişim Analizi'
+    },
+    {
+      targetId: 'tour-student-summary-metrics',
+      title: 'Haftalık Soru ve Ödev Metrikleri',
+      description: 'Öğrencinin çözdüğü toplam soru ve eksik kalan görevleri buradan takip edilebilir.',
+      position: 'bottom',
+      badge: 'Performans Takibi'
+    },
+    {
+      targetId: 'tour-student-summary-tyt-exams',
+      title: 'TYT Deneme Ortalamaları',
+      description: 'Son girilen TYT deneme sınavlarının net ortalamaları otomatik karşılaştırılır.',
+      position: 'top',
+      badge: 'Deneme Analizleri'
+    },
+    {
+      targetId: 'tour-student-summary-ayt-exams',
+      title: 'AYT Deneme Ortalamaları',
+      description: 'Son girilen AYT deneme sınavlarının net ortalamaları burada gösterilir.',
+      position: 'top',
+      badge: 'Deneme Analizleri'
+    },
+    {
+      targetId: 'tour-student-summary-evaluation',
+      title: 'Haftalık Koç Değerlendirmesi & AI Asistan',
+      description: 'Her hafta öğrencinize özel koç notu yazabilir veya Yapay Zeka butonuna basarak anında haftalık koçluk raporu üretebilirsiniz.',
+      position: 'top',
+      badge: 'AI Raporlama'
+    },
+    {
+      targetId: 'tour-student-summary-coach-note',
+      title: 'Koçun Notu',
+      description: 'Öğrenciniz için bu aya özel yazdığınız genel değerlendirme notunu burada görebilirsiniz.',
+      position: 'top',
+      badge: 'Aylık Hedefler'
+    },
+    {
+      targetId: 'tour-student-summary-weekly-reports',
+      title: 'Haftalık Performans Özeti',
+      description: 'Öğrencinizin geçmiş haftalardaki performans geçmişini, görev tamamlama oranlarını ve çözdüğü soruları inceleyebilirsiniz.',
+      position: 'top',
+      badge: 'Geçmiş Analiz'
+    }
+  ];
 
   const currentMonthStr = useMemo(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   }, []);
 
-  useEffect(() => {
-    if (selectedStudent) {
-      setLoading(true);
-      Promise.all([
-        studentDataService.getBookTracking(selectedStudent.uid),
-        studentDataService.getWeeklyPrograms(selectedStudent.uid),
-        studentDataService.getWeeklyReports(selectedStudent.uid),
-        studentDataService.getAllDailyPrograms(selectedStudent.uid),
-        studentDataService.getExamResults(selectedStudent.uid),
-        studentDataService.getMonthlyGoal(selectedStudent.uid, currentMonthStr)
-      ]).then(([booksData, programData, reportsData, dailyProgramsData, examsData, monthlyGoalData]) => {
-        setBooks(booksData);
-        setProgram(programData[0] || null);
-        setReports(reportsData);
-        setDailyPrograms(dailyProgramsData);
-        setExams(examsData);
-        setMonthlyGoal(monthlyGoalData);
-        setLoading(false);
-      });
+const DEMO_EXAMS = [
+  {
+    examType: 'TYT',
+    date: '2026-08-01',
+    publisher: '3D Yayınları',
+    name: '3D Türkiye Geneli TYT-1',
+    analyzed: true,
+    scores: {
+      'Türkçe': { n: '34.5', d: 36, y: 4 },
+      'Sosyal Bilimler': { n: '16.0', d: 17, y: 4 },
+      'Matematik': { n: '32.5', d: 34, y: 6 },
+      'Fen Bilimleri': { n: '17.5', d: 18, y: 2 },
+      'totalNet': 100.5,
+      'percentile': '1.2'
     }
-  }, [selectedStudent, currentMonthStr]);
+  },
+  {
+    examType: 'AYT',
+    date: '2026-08-02',
+    publisher: 'Bilgi Sarmal',
+    name: 'Bilgi Sarmal AYT-2',
+    analyzed: true,
+    scores: {
+      'Matematik': { n: '34.0', d: 35, y: 4 },
+      'Fen Bilimleri': { n: '34.0', d: 35, y: 4 },
+      'Sos-1': { n: '0.0', d: 0, y: 0 },
+      'Sos-2': { n: '0.0', d: 0, y: 0 },
+      'Dil': { n: '0.0', d: 0, y: 0 },
+      'totalNet': 68.0
+    }
+  }
+];
+
+const DEMO_MONTHLY_GOAL = {
+  coachNote: "Ahmet bu ay TYT ve AYT genel denemelerinde %14 net artışı yakaladı. Özellikle Paragraf rutinleri ve Matematik branş denemelerindeki istikrarını tebrik ediyorum. Önümüzdeki ay İntegral ve Organik Kimya derin analizlerine geçeceğiz.",
+  topicGoals: [
+    { name: 'Türev & İntegral', isCompleted: true },
+    { name: 'Elektrik & Manyetizma', isCompleted: true },
+    { name: 'Organik Kimya', isCompleted: true },
+    { name: 'Bitki Biyolojisi', isCompleted: false },
+    { name: 'Paragraf Rutini (1000 Soru)', isCompleted: true }
+  ],
+  bookGoals: [
+    { title: 'Palme Biyoloji Soru Bankası', progress: 75 },
+    { title: 'Biyotik Biyoloji Soru Bankası', progress: 60 },
+    { title: 'Bilgi Sarmal Fizik', progress: 70 }
+  ]
+};
+
+const DEMO_BOOKS = [
+  { id: '1', title: 'Palme Biyoloji Soru Bankası', totalPages: 240, completedPages: 180 },
+  { id: '2', title: 'Biyotik Biyoloji Soru Bankası', totalPages: 200, completedPages: 120 },
+  { id: '3', title: 'Bilgi Sarmal Fizik Soru Bankası', totalPages: 280, completedPages: 210 }
+];
+
+const DEMO_DAILY_PROGRAMS = [
+  {
+    date: '2026-08-01',
+    tasks: [
+      { type: 'Soru Çözümü', targetCount: 150, completedCount: 150, isDone: true },
+      { type: 'Konu Çalışması', isDone: true }
+    ]
+  },
+  {
+    date: '2026-08-02',
+    tasks: [
+      { type: 'Deneme', targetCount: 120, completedCount: 120, isDone: true },
+      { type: 'Soru Çözümü', targetCount: 100, completedCount: 100, isDone: true }
+    ]
+  }
+];
+
+  useEffect(() => {
+    if (!activeStudent) {
+      setLoading(false);
+      return;
+    }
+    const activeUid = activeStudent.uid;
+    setLoading(true);
+    Promise.all([
+      studentDataService.getBookTracking(activeUid),
+      studentDataService.getWeeklyPrograms(activeUid),
+      studentDataService.getWeeklyReports(activeUid),
+      studentDataService.getAllDailyPrograms(activeUid),
+      studentDataService.getExamResults(activeUid),
+      studentDataService.getMonthlyGoal(activeUid, currentMonthStr)
+    ]).then(([booksData, programData, reportsData, dailyProgramsData, examsData, monthlyGoalData]) => {
+      setBooks(booksData && booksData.length > 0 ? booksData : DEMO_BOOKS);
+      setProgram(programData[0] || null);
+      setReports(reportsData);
+      setDailyPrograms(dailyProgramsData && dailyProgramsData.length > 0 ? dailyProgramsData : DEMO_DAILY_PROGRAMS);
+      setExams(examsData && examsData.length > 0 ? examsData : DEMO_EXAMS);
+      setMonthlyGoal(monthlyGoalData || DEMO_MONTHLY_GOAL);
+      setLoading(false);
+    }).catch(() => {
+      setBooks(DEMO_BOOKS);
+      setDailyPrograms(DEMO_DAILY_PROGRAMS);
+      setExams(DEMO_EXAMS);
+      setMonthlyGoal(DEMO_MONTHLY_GOAL);
+      setLoading(false);
+    });
+  }, [activeStudent, currentMonthStr]);
 
   // Goal Progress Calculations
   const topicGoalsCount = monthlyGoal?.topicGoals?.length || 0;
@@ -72,7 +288,6 @@ export default function StudentSummary() {
     ? Math.round(monthlyGoal.bookGoals.reduce((acc: number, b: any) => acc + (b.progress || 0), 0) / bookGoalsCount)
     : 0;
 
-  // Daily Programs Statistics Calculations
   const statsFromPrograms = useMemo(() => {
     let globalSolved = 0;
     let globalTarget = 0;
@@ -84,10 +299,14 @@ export default function StudentSummary() {
     let firstDate: Date | null = null;
     
     const todayStr = new Date().toLocaleDateString('sv-SE');
+    const multipliers = calculateSubjectMultipliers(exams, selectedStudent?.branch);
+    const dailyTasksMap: Record<string, any[]> = {};
+
     // Group programs by week
     const weeklyData: Record<string, { target: number, solved: number, unsolved: number, taskDone: number, taskNotDone: number, earnedPoints: number, targetPoints: number }> = {};
 
     dailyPrograms.forEach(dp => {
+      dailyTasksMap[dp.date] = dp.tasks || [];
       if (!dp.date || dp.date > todayStr) return;
 
       const dpParts = dp.date.split('-');
@@ -161,11 +380,6 @@ export default function StudentSummary() {
             weekStats.solved += solved;
             globalSolved += solved;
 
-            weekStats.targetPoints += target;
-            weekStats.earnedPoints += Math.min(solved, target); 
-            if(task.isExtra) {
-              weekStats.earnedPoints += solved;
-            }
           } else {
             if (!task.isExtra) {
                if (task.isDone) {
@@ -175,30 +389,10 @@ export default function StudentSummary() {
                  weekStats.taskNotDone += 1;
                  globalTaskNotDone += 1;
                }
-               // Target point based on weight (simplified)
-               let point = task.type === 'Konu Çalışması' || task.type?.includes('Video') ? 2 : 1;
-               
-               const isDeneme = task.topic?.includes('Deneme') || task.subject?.includes('Genel') || task.subject?.includes('YDT') || task.branch === 'Denemeler' || task.type === 'Deneme';
-               if (isDeneme && task.isDone) {
-                 const relatedExam = exams.find((e: any) => e.date === dp.date && e.analyzed);
-                 if (relatedExam) point *= 2;
-               }
-
-               weekStats.targetPoints += point;
-               if (task.isDone) weekStats.earnedPoints += point;
             } else {
                if (task.isDone) {
                   weekStats.taskDone += 1;
                   globalTaskDone += 1;
-                  let point = task.type === 'Konu Çalışması' || task.type?.includes('Video') ? 2 : 1;
-                  
-                  const isDeneme = task.topic?.includes('Deneme') || task.subject?.includes('Genel') || task.subject?.includes('YDT') || task.branch === 'Denemeler' || task.type === 'Deneme';
-                  if (isDeneme) {
-                    const relatedExam = exams.find((e: any) => e.date === dp.date && e.analyzed);
-                    if (relatedExam) point *= 2;
-                  }
-
-                  weekStats.earnedPoints += point;
                }
             }
           }
@@ -221,29 +415,44 @@ export default function StudentSummary() {
 
     const pastOrCurrentWeekKeys = Object.keys(weeklyData).filter(weekStart => weekStart <= currentWeekStartStr);
     
-    // Weekly Averages from data
-    const weeksList = pastOrCurrentWeekKeys.map(k => weeklyData[k]);
-    const overallAvgCompletion = weeksList.length > 0 
-      ? Math.round((weeksList.reduce((acc, w) => acc + (w.targetPoints > 0 ? (w.earnedPoints / w.targetPoints) : (w.earnedPoints > 0 ? 1 : 0)), 0) / weeksList.length) * 100)
+    // Calculate accurate success percentage for each week
+    const weeklySuccessMap: Record<string, { success: number, hasTasks: boolean }> = {};
+    pastOrCurrentWeekKeys.forEach(weekStart => {
+      const wParts = weekStart.split('-');
+      let sum = 0;
+      let validDays = 0;
+      for (let i = 0; i < 7; i++) {
+        const checkD = new Date(Date.UTC(Number(wParts[0]), Number(wParts[1]) - 1, Number(wParts[2])));
+        checkD.setUTCDate(checkD.getUTCDate() + i);
+        const checkDateStr = checkD.toISOString().split('T')[0];
+        if (checkDateStr <= todayStr) {
+           const dayTasks = dailyTasksMap[checkDateStr] || [];
+           if (dayTasks.length > 0) {
+             sum += calculateDailyCompletionWithMultipliers(dayTasks, multipliers);
+             validDays++;
+           }
+        }
+      }
+      weeklySuccessMap[weekStart] = {
+        success: validDays > 0 ? Math.round(sum / validDays) : 0,
+        hasTasks: validDays > 0
+      };
+    });
+
+    const validWeeksList = pastOrCurrentWeekKeys.map(k => weeklySuccessMap[k]).filter(w => w.hasTasks);
+    const overallAvgCompletion = validWeeksList.length > 0 
+      ? Math.round(validWeeksList.reduce((acc, val) => acc + val.success, 0) / validWeeksList.length)
       : 0;
 
     // Sort weeks descending to get last 4
     const sortedWeeks = pastOrCurrentWeekKeys.sort((a, b) => b.localeCompare(a)).slice(0, 4);
-    const last4AvgCompletion = sortedWeeks.length > 0
-      ? Math.round((sortedWeeks.reduce((acc, wStart) => {
-          const w = weeklyData[wStart];
-          return acc + (w.targetPoints > 0 ? (w.earnedPoints / w.targetPoints) : (w.earnedPoints > 0 ? 1 : 0));
-        }, 0) / sortedWeeks.length) * 100)
+    const validLast4Weeks = sortedWeeks.map(k => weeklySuccessMap[k]).filter(w => w.hasTasks);
+    const last4AvgCompletion = validLast4Weeks.length > 0
+      ? Math.round(validLast4Weeks.reduce((acc, val) => acc + val.success, 0) / validLast4Weeks.length)
       : 0;
-
     
-    const now = new Date();
-    const todayDay = now.getUTCDay();
-    const todayDiff = now.getUTCDate() - todayDay + (todayDay === 0 ? -6 : 1);
-    const currentWeekStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), todayDiff)).toISOString().split('T')[0];
-
     const weeklyReportsArray = Object.keys(weeklyData)
-      .filter(weekStart => weekStart <= currentWeekStart)
+      .filter(weekStart => weekStart <= currentWeekStartStr)
       .sort((a, b) => b.localeCompare(a)).map(weekStart => {
       const w = weeklyData[weekStart];
       const wParts = weekStart.split('-');
@@ -252,7 +461,7 @@ export default function StudentSummary() {
       const startStr = `${d.getUTCDate().toString().padStart(2, '0')}.${(d.getUTCMonth() + 1).toString().padStart(2, '0')}`;
       d.setUTCDate(d.getUTCDate() + 6);
       const endStr = `${d.getUTCDate().toString().padStart(2, '0')}.${(d.getUTCMonth() + 1).toString().padStart(2, '0')}`;
-      const successPercentage = w.targetPoints > 0 ? Math.round((w.earnedPoints / w.targetPoints) * 100) : (w.earnedPoints > 0 ? 100 : 0);
+      const successPercentage = weeklySuccessMap[weekStart]?.success || 0;
 
       return {
         date: `${startStr} - ${endStr}`,
@@ -300,10 +509,11 @@ export default function StudentSummary() {
   }, [selectedStudent, selectedEvaluationWeek]);
 
   const handleSaveEvaluation = async () => {
-    if (!selectedStudent || !selectedEvaluationWeek) return;
+    const studentToUse = activeStudent || selectedStudent;
+    if (!studentToUse || !selectedEvaluationWeek) return;
     setIsSavingEvaluation(true);
     try {
-      await studentDataService.saveWeeklyEvaluation(selectedStudent.uid, selectedEvaluationWeek, evaluationText);
+      await studentDataService.saveWeeklyEvaluation(studentToUse.uid, selectedEvaluationWeek, evaluationText);
       alert('Haftalık koç değerlendirmesi başarıyla kaydedildi.');
     } catch (err) {
       console.error(err);
@@ -311,6 +521,63 @@ export default function StudentSummary() {
     } finally {
       setIsSavingEvaluation(false);
     }
+  };
+
+  const formatPhoneForWhatsApp = (rawPhone: string) => {
+    let cleaned = rawPhone.replace(/\D/g, '');
+    if (!cleaned) return '';
+    if (cleaned.startsWith('0')) {
+      cleaned = '90' + cleaned.substring(1);
+    } else if (cleaned.length === 10) {
+      cleaned = '90' + cleaned;
+    }
+    return cleaned;
+  };
+
+  const handleSaveAndSendWhatsApp = async () => {
+    const studentToUse = activeStudent || selectedStudent;
+    if (!studentToUse || !selectedEvaluationWeek) return;
+    if (!evaluationText.trim()) {
+      alert('Lütfen önce bir değerlendirme metni yazın.');
+      return;
+    }
+
+    setIsSavingEvaluation(true);
+    try {
+      await studentDataService.saveWeeklyEvaluation(studentToUse.uid, selectedEvaluationWeek, evaluationText);
+    } catch (err) {
+      console.error(err);
+      alert('Değerlendirme kaydedilirken bir hata oluştu.');
+      setIsSavingEvaluation(false);
+      return;
+    } finally {
+      setIsSavingEvaluation(false);
+    }
+
+    let targetPhone = parentPhone.trim() || studentToUse?.parentPhone || (studentToUse as any)?.phone || '';
+    if (!targetPhone) {
+      const inputPhone = prompt("Veli telefon numarası bulunamadı. Lütfen mesajın gönderileceği telefon numarasını giriniz (Örn: 05000000000):", "05000000000");
+      if (!inputPhone) return;
+      targetPhone = inputPhone;
+      setParentPhone(inputPhone);
+    }
+
+    const formattedPhone = formatPhoneForWhatsApp(targetPhone);
+    if (!formattedPhone) {
+      alert("Geçersiz telefon numarası. Lütfen telefon numarasını kontrol edip tekrar deneyin.");
+      return;
+    }
+
+    const selectedWeekReport = derivedWeeklyReports.find(r => r.weekStartKey === selectedEvaluationWeek);
+    const studentName = studentToUse?.firstName && studentToUse?.lastName 
+      ? `${studentToUse.firstName} ${studentToUse.lastName}` 
+      : (studentToUse?.displayName || 'Öğrenci');
+
+    const textMessage = `Sayın Velimiz,\n\n${studentName} isimli öğrencimizin haftalık koç değerlendirmesi (${selectedWeekReport?.date || ''}):\n\n${evaluationText}`;
+
+    const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(textMessage)}`;
+
+    window.open(whatsappUrl, '_blank');
   };
 
   const handleGenerateAIEvaluation = async () => {
@@ -468,8 +735,52 @@ export default function StudentSummary() {
 
   if (loading) return <div className="text-center py-20 text-slate-500 font-bold italic animate-pulse">Veriler Yükleniyor...</div>;
 
+  if (!activeStudent) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 bg-slate-900/40 border border-white/5 rounded-[40px] text-center p-8 space-y-6 animate-in fade-in duration-300">
+        <div className="w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+          <Compass size={32} />
+        </div>
+        <div className="max-w-md space-y-2">
+          <h2 className="text-2xl font-bold text-white">Seçili Öğrenci Bulunamadı</h2>
+          <p className="text-slate-400 text-sm">
+            Örnek öğrenci profili sistem turu tamamlandığı için kapatılmıştır. Bir öğrenci detayı görüntülemek için lütfen listenizden seçim yapın.
+          </p>
+        </div>
+        <div className="flex flex-wrap justify-center gap-4">
+          <Link
+            to="/panel/koc/ogrenciler"
+            className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-2xl transition-all shadow-lg"
+          >
+            Öğrencilerim Sayfasına Git
+          </Link>
+          <Link
+            to="/panel/koc"
+            className="px-6 py-3 bg-white/5 hover:bg-white/10 text-white font-bold rounded-2xl border border-white/10 transition-all"
+          >
+            Koç Paneline Dön
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <OnboardingTour
+        steps={studentSummaryTourSteps}
+        isOpen={isTourOpen}
+        onClose={handleEndTour}
+        onComplete={handleEndTour}
+        onNextTour={() => {
+          setIsTourOpen(false);
+          tourService.markTourCompleted('student_summary', user?.uid);
+          navigate('/panel/koc/ogrenci/veri-girisi', { state: { startTour: true, isDemo: true } });
+        }}
+        nextTourLabel="Kitap Takibi Turu"
+        tourKey="student_summary"
+      />
+
       {/* Student ID Card & Target Progress */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
         {/* ID Card */}
@@ -495,7 +806,7 @@ export default function StudentSummary() {
             )}
           </div>
         )}
-        <div className="xl:col-span-2 bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-[40px] p-8 overflow-hidden relative group">
+        <div id="tour-student-summary-profile" className="xl:col-span-2 bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-[40px] p-8 overflow-hidden relative group">
           <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-blue-600/10 to-transparent blur-3xl -mr-32 -mt-32 group-hover:scale-110 transition-transform duration-1000" />
           <div className="relative flex flex-col md:flex-row gap-10">
             {/* Photo & Basic Info */}
@@ -503,27 +814,27 @@ export default function StudentSummary() {
               <div className="relative inline-block group/photo">
                 <div className="absolute -inset-1 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-[32px] blur opacity-25 group-hover/photo:opacity-50 transition duration-500" />
                 <div className="relative w-32 h-32 rounded-[30px] overflow-hidden border-2 border-white/10 bg-slate-800">
-                  <img src={selectedStudent?.photoURL || `https://ui-avatars.com/api/?name=${selectedStudent?.displayName}&background=070b14&color=fff&size=128&bold=true`} alt={selectedStudent?.displayName} className="w-full h-full object-cover" />
+                  <img src={activeStudent?.photoURL || `https://ui-avatars.com/api/?name=${activeStudent?.displayName}&background=070b14&color=fff&size=128&bold=true`} alt={activeStudent?.displayName} className="w-full h-full object-cover" />
                 </div>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">{selectedStudent?.displayName}</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">{activeStudent?.displayName}</h2>
                 <div className="flex items-center gap-2 mt-3 justify-center md:justify-start">
-                  <span className="px-3 py-1 bg-blue-500/10 text-blue-400 text-[10px] font-black rounded-lg border border-blue-500/20 uppercase tracking-widest">{selectedStudent?.grade || 'Sınıf Belirtilmedi'}</span>
-                  <span className="px-3 py-1 bg-indigo-500/10 text-indigo-400 text-[10px] font-black rounded-lg border border-indigo-500/20 uppercase tracking-widest">{selectedStudent?.branch || 'Alan Belirtilmedi'}</span>
+                  <span className="px-3 py-1 bg-blue-500/10 text-blue-400 text-[10px] font-black rounded-lg border border-blue-500/20 uppercase tracking-widest">{activeStudent?.grade || 'Sınıf Belirtilmedi'}</span>
+                  <span className="px-3 py-1 bg-indigo-500/10 text-indigo-400 text-[10px] font-black rounded-lg border border-indigo-500/20 uppercase tracking-widest">{activeStudent?.branch || 'Alan Belirtilmedi'}</span>
                 </div>
               </div>
             </div>
 
             {/* Target Details */}
-            <div className="flex-1 grid grid-cols-2 gap-x-8 gap-y-6 pt-2">
+            <div id="tour-student-summary-goals" className="flex-1 grid grid-cols-2 gap-x-8 gap-y-6 pt-2">
               <div className="space-y-1">
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
                   <Target size={12} className="text-blue-500" /> Hedef Üniversite / Bölüm
                 </p>
                 <div className="flex flex-col">
-                  <p className="text-xs font-bold text-slate-200 uppercase truncate" title={selectedStudent?.targetUniversity}>{selectedStudent?.targetUniversity || 'Üni Girilmedi'}</p>
-                  <p className="text-[10px] font-medium text-slate-400 uppercase truncate" title={selectedStudent?.targetDepartment}>{selectedStudent?.targetDepartment || 'Bölüm Girilmedi'}</p>
+                  <p className="text-xs font-bold text-slate-200 uppercase truncate" title={activeStudent?.targetUniversity}>{activeStudent?.targetUniversity || 'Üni Girilmedi'}</p>
+                  <p className="text-[10px] font-medium text-slate-400 uppercase truncate" title={activeStudent?.targetDepartment}>{activeStudent?.targetDepartment || 'Bölüm Girilmedi'}</p>
                 </div>
               </div>
               <div className="space-y-1">
@@ -535,14 +846,14 @@ export default function StudentSummary() {
               <div className="space-y-1">
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">TYT Net Hedefi</p>
                 <div className="flex items-end gap-2">
-                  <span className="text-2xl font-black text-white italic leading-none">{selectedStudent?.targetTyt || 0}</span>
+                  <span className="text-2xl font-black text-white italic leading-none">{activeStudent?.targetTyt || 0}</span>
                   <span className="text-[10px] font-bold text-slate-500 pb-1 italic">/ 120 Net</span>
                 </div>
               </div>
               <div className="space-y-1">
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">AYT Net Hedefi</p>
                 <div className="flex items-end gap-2">
-                  <span className="text-2xl font-black text-white italic leading-none">{selectedStudent?.targetAyt || 0}</span>
+                  <span className="text-2xl font-black text-white italic leading-none">{activeStudent?.targetAyt || 0}</span>
                   <span className="text-[10px] font-bold text-slate-500 pb-1 italic">/ 80 Net</span>
                 </div>
               </div>
@@ -551,7 +862,7 @@ export default function StudentSummary() {
         </div>
 
         {/* Target Progress Bars */}
-        <div className="bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-[40px] p-8 flex flex-col justify-between">
+        <div id="tour-student-summary-targets" className="bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-[40px] p-8 flex flex-col justify-between">
            <div className="space-y-6">
               <div className="space-y-3">
                  <div className="flex justify-between items-end">
@@ -582,12 +893,12 @@ export default function StudentSummary() {
               <div className="space-y-3">
                  <div className="flex justify-between items-end">
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">TYT Hedef Yakınlığı</span>
-                    <span className="text-xs font-black text-blue-400 italic">%{Math.round((parseFloat(tytAvgs?.totalNet) / (selectedStudent?.targetTyt || 120)) * 100) || 0}</span>
+                    <span className="text-xs font-black text-blue-400 italic">%{Math.round((parseFloat(tytAvgs?.totalNet) / (activeStudent?.targetTyt || 120)) * 100) || 0}</span>
                  </div>
                  <div className="h-3 bg-white/5 rounded-full overflow-hidden p-0.5 border border-white/5">
                     <motion.div 
                       initial={{ width: 0 }}
-                      animate={{ width: `${Math.min(100, (parseFloat(tytAvgs?.totalNet) / (selectedStudent?.targetTyt || 120)) * 100) || 0}%` }}
+                      animate={{ width: `${Math.min(100, (parseFloat(tytAvgs?.totalNet) / (activeStudent?.targetTyt || 120)) * 100) || 0}%` }}
                       className="h-full bg-gradient-to-r from-blue-600 to-indigo-500 rounded-full shadow-[0_0_15px_rgba(37,99,235,0.4)]"
                     />
                  </div>
@@ -595,12 +906,12 @@ export default function StudentSummary() {
               <div className="space-y-3 mt-4">
                  <div className="flex justify-between items-end">
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">AYT Hedef Yakınlığı</span>
-                    <span className="text-xs font-black text-purple-400 italic">%{Math.round((parseFloat(aytAvgs?.totalNet) / (selectedStudent?.targetAyt || 80)) * 100) || 0}</span>
+                    <span className="text-xs font-black text-purple-400 italic">%{Math.round((parseFloat(aytAvgs?.totalNet) / (activeStudent?.targetAyt || 80)) * 100) || 0}</span>
                  </div>
                  <div className="h-3 bg-white/5 rounded-full overflow-hidden p-0.5 border border-white/5">
                     <motion.div 
                       initial={{ width: 0 }}
-                      animate={{ width: `${Math.min(100, (parseFloat(aytAvgs?.totalNet) / (selectedStudent?.targetAyt || 80)) * 100) || 0}%` }}
+                      animate={{ width: `${Math.min(100, (parseFloat(aytAvgs?.totalNet) / (activeStudent?.targetAyt || 80)) * 100) || 0}%` }}
                       transition={{ delay: 0.2 }}
                       className="h-full bg-gradient-to-r from-purple-600 to-pink-500 rounded-full shadow-[0_0_15px_rgba(147,51,234,0.4)]"
                     />
@@ -612,7 +923,7 @@ export default function StudentSummary() {
       </div>
 
       {/* Question Stats Dashboard */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div id="tour-student-summary-metrics" className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         {quickStats.map((stat, i) => (
           <motion.div
             key={stat.label}
@@ -637,7 +948,7 @@ export default function StudentSummary() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* TYT Stat Table */}
-        <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
+        <div id="tour-student-summary-tyt-exams" className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
            <h3 className="text-xl font-bold mb-6 flex items-center gap-3">
               <BarChart3 className="text-blue-500" /> TYT Son 4 Deneme Ortalamaları
            </h3>
@@ -669,7 +980,7 @@ export default function StudentSummary() {
         </div>
 
         {/* AYT Stat Table */}
-        <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
+        <div id="tour-student-summary-ayt-exams" className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
            <h3 className="text-xl font-bold mb-6 flex items-center gap-3">
               <BarChart3 className="text-indigo-500" /> AYT Son 4 Deneme Ortalamaları
            </h3>
@@ -703,22 +1014,22 @@ export default function StudentSummary() {
                   { 
                     label: 'SAY', 
                     value: (parseFloat(aytAvgs?.Matematik || '0') + parseFloat(aytAvgs?.['Fen Bilimleri'] || '0')).toFixed(2), 
-                    isActive: selectedStudent?.branch === 'SAYISAL' || selectedStudent?.branch === 'SAY' 
+                    isActive: activeStudent?.branch === 'SAYISAL' || activeStudent?.branch === 'SAY' 
                   },
                   { 
                     label: 'EA', 
                     value: (parseFloat(aytAvgs?.Matematik || '0') + parseFloat(aytAvgs?.['Sos-1'] || '0')).toFixed(2), 
-                    isActive: selectedStudent?.branch === 'EŞİT AĞIRLIK' || selectedStudent?.branch === 'EA' 
+                    isActive: activeStudent?.branch === 'EŞİT AĞIRLIK' || activeStudent?.branch === 'EA' 
                   },
                   { 
                     label: 'SÖZ', 
                     value: (parseFloat(aytAvgs?.['Sos-1'] || '0') + parseFloat(aytAvgs?.['Sos-2'] || '0')).toFixed(2), 
-                    isActive: selectedStudent?.branch === 'SÖZEL' || selectedStudent?.branch === 'SÖZ' 
+                    isActive: activeStudent?.branch === 'SÖZEL' || activeStudent?.branch === 'SÖZ' 
                   },
                   { 
                     label: 'DİL', 
                     value: (parseFloat(aytAvgs?.Dil || '0')).toFixed(2), 
-                    isActive: selectedStudent?.branch === 'DİL' || selectedStudent?.branch === 'DIL' 
+                    isActive: activeStudent?.branch === 'DİL' || activeStudent?.branch === 'DIL' 
                   },
               ].map((box, i) => (
                 <div key={i} className={`rounded-2xl p-4 flex flex-col justify-center items-center gap-1 border transition-all ${box.isActive ? 'bg-indigo-500/20 border-indigo-500/50 shadow-[0_0_20px_rgba(99,102,241,0.2)]' : 'bg-slate-800/30 border-white/5 hover:bg-slate-800/50'}`}>
@@ -733,7 +1044,7 @@ export default function StudentSummary() {
       {/* Monthly Assessment & Reports */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-stretch">
         {/* Coach Note */}
-        <div className="lg:col-span-1 bg-slate-900/40 border border-white/5 rounded-3xl p-8 flex flex-col justify-between h-full">
+        <div id="tour-student-summary-coach-note" className="lg:col-span-1 bg-slate-900/40 border border-white/5 rounded-3xl p-8 flex flex-col justify-between h-full">
            <div>
               <div className="flex items-center justify-between mb-6">
                  <h3 className="text-xl font-bold flex items-center gap-3">
@@ -760,7 +1071,7 @@ export default function StudentSummary() {
 
         {/* Weekly Coach Evaluation Section */}
         {derivedWeeklyReports.length > 0 && (
-          <div className="lg:col-span-2 bg-slate-900/40 border border-white/5 rounded-3xl p-8 flex flex-col justify-between h-full space-y-6">
+          <div id="tour-student-summary-evaluation" className="lg:col-span-2 bg-slate-900/40 border border-white/5 rounded-3xl p-8 flex flex-col justify-between h-full space-y-6">
              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4">
                 <div>
                    <h3 className="text-xl font-bold flex items-center gap-3">
@@ -803,14 +1114,34 @@ export default function StudentSummary() {
                    className="w-full bg-slate-950/50 border border-white/10 rounded-2xl p-4 text-sm text-slate-200 placeholder-slate-500 outline-none focus:border-emerald-500/50 min-h-[160px] resize-y"
                 />
 
-                <div className="flex justify-end gap-3">
-                   <button 
-                     onClick={handleSaveEvaluation}
-                     disabled={isSavingEvaluation || !selectedEvaluationWeek}
-                     className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-30 text-slate-950 font-black px-6 py-2.5 rounded-xl transition-all flex items-center gap-2 text-xs shadow-lg shadow-emerald-500/10"
-                   >
-                      <CheckCircle2 size={16} /> Değerlendirmeyi Kaydet
-                   </button>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-white/5">
+                   <div className="flex items-center gap-2 text-xs text-slate-400">
+                      <span className="font-bold text-slate-300">Veli Tel:</span>
+                      <input 
+                        type="text" 
+                        value={parentPhone} 
+                        onChange={(e) => setParentPhone(e.target.value)}
+                        placeholder="905000000000" 
+                        className="bg-slate-950 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-emerald-400 font-mono placeholder-slate-600 outline-none focus:border-emerald-500/50 w-36 sm:w-44"
+                      />
+                   </div>
+                   <div className="flex flex-wrap items-center justify-end gap-3">
+                      <button 
+                        onClick={handleSaveEvaluation}
+                        disabled={isSavingEvaluation || !selectedEvaluationWeek}
+                        className="bg-white/5 hover:bg-white/10 text-slate-200 font-bold px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 text-xs border border-white/10"
+                      >
+                         <CheckCircle2 size={16} /> Değerlendirmeyi Kaydet
+                      </button>
+
+                      <button 
+                        onClick={handleSaveAndSendWhatsApp}
+                        disabled={isSavingEvaluation || !selectedEvaluationWeek || !evaluationText.trim()}
+                        className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 font-black px-5 py-2.5 rounded-xl transition-all flex items-center gap-2 text-xs shadow-lg shadow-emerald-500/10 cursor-pointer"
+                      >
+                         <MessageCircle size={16} className="fill-slate-950 text-emerald-500" /> Değerlendirmeyi Kaydet ve WhatsApp'tan Gönder
+                      </button>
+                   </div>
                 </div>
              </div>
           </div>
@@ -818,7 +1149,7 @@ export default function StudentSummary() {
       </div>
 
       {/* Weekly Reports Table */}
-      <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
+      <div id="tour-student-summary-weekly-reports" className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
         <div className="flex items-center justify-between mb-8">
            <h3 className="text-xl font-bold flex items-center gap-3">
               <History className="text-emerald-500" /> Haftalık Performans Özeti

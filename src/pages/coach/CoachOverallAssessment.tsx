@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -12,15 +13,63 @@ import {
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
+import { tourService } from '../../services/tourService';
 import { studentDataService } from '../../services/studentDataService';
 import { motion } from 'motion/react';
+import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
+import { calculateSubjectMultipliers, calculateDailyCompletionWithMultipliers } from '../../lib/programCalculations';
 
 export default function CoachOverallAssessment() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { user, userData } = useAuth();
   const [students, setStudents] = useState<any[]>([]);
   const [dailyPrograms, setDailyPrograms] = useState<any[]>([]);
   const [exams, setExams] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [isTourOpen, setIsTourOpen] = useState(false);
+
+  useEffect(() => {
+    if (tourService.shouldAutoStartTour('coach_overall_assessment', userData, location.state?.startTour)) {
+      const timer = setTimeout(() => {
+        setIsTourOpen(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [location.state, userData]);
+
+  const handleEndTour = () => {
+    setIsTourOpen(false);
+    tourService.markTourCompleted('coach_overall_assessment', user?.uid);
+  };
+
+  const tourSteps: TourStep[] = [
+    {
+      targetId: 'tour-overall-header',
+      title: 'Genel Değerlendirme Paneli',
+      description: 'Sorumlu olduğunuz tüm öğrencilerin çözdüğü toplam ve eksik soruları, ortalama program tamamlama yüzdelerini ve sınav net ortalamalarını tek bir ekranda derler.',
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-overall-stats',
+      title: 'Genel Performans ve Metrik Kartları',
+      description: 'Öğrencilerin toplam çözdüğü soru sayısı, tamamlanmayan eksik sorular, ortalama program bitirme oranları ve son 4 haftanın başarı yüzdesi burada anlık hesaplanır.',
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-overall-exams',
+      title: 'TYT & AYT Grup Net Ortalamaları',
+      description: 'Gruptaki tüm öğrencilerin son 4 deneme sınavındaki branş bazlı net ortalamaları ve grup yüzdelik dilimleri karşılaştırmalı olarak sunulur.',
+      position: 'top'
+    },
+    {
+      targetId: 'tour-overall-weekly',
+      title: 'Haftalık Toplu İlerleme Raporu',
+      description: 'Hafta hafta tüm sınıfın soru çözümleri, biten görevleri ve genel grup başarı oranı tarih bazlı raporlanır.',
+      position: 'top'
+    }
+  ];
 
   useEffect(() => {
     if (user && userData) {
@@ -387,7 +436,21 @@ export default function CoachOverallAssessment() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <OnboardingTour
+        steps={tourSteps}
+        isOpen={isTourOpen}
+        onClose={handleEndTour}
+        onComplete={handleEndTour}
+        onNextTour={() => {
+          setIsTourOpen(false);
+          tourService.markTourCompleted('coach_overall_assessment', user?.uid);
+          navigate('/panel/koc/profil', { state: { startTour: true, isDemo: true } });
+        }}
+        nextTourLabel="Profil Ayarları Turu"
+        tourKey="coach_overall_assessment"
+      />
+
+      <div id="tour-overall-header" className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h1 className="text-3xl font-bold italic text-white uppercase tracking-tight">
              GENEL DEĞERLENDİRME
@@ -396,7 +459,7 @@ export default function CoachOverallAssessment() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div id="tour-overall-stats" className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         {quickStats.map((stat, i) => (
           <motion.div
             key={stat.label}
@@ -419,7 +482,7 @@ export default function CoachOverallAssessment() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div id="tour-overall-exams" className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* TYT Stat Table */}
         <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
            <h3 className="text-xl font-bold mb-6 flex items-center gap-3">
@@ -484,7 +547,7 @@ export default function CoachOverallAssessment() {
         </div>
       </div>
 
-      <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
+      <div id="tour-overall-weekly" className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
         <div className="flex items-center justify-between mb-8">
            <h3 className="text-xl font-bold flex items-center gap-3">
               <History className="text-emerald-500" /> Toplu Haftalık Performans Özeti

@@ -87,8 +87,10 @@ async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error: any) {
-    if (error?.message?.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
+    if (error?.message?.includes('the client is offline') || error?.message?.includes('Could not reach Cloud Firestore')) {
+      console.warn("Firestore connection check note: Operating in offline/fallback mode temporarily.", error?.message);
+    } else {
+      console.warn("Firestore connection check notice:", error?.message || error);
     }
   }
 }

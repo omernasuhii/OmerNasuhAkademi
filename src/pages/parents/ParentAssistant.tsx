@@ -30,6 +30,13 @@ export default function ParentAssistant() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [messages, isLoading]);
 
   const generateId = () => Date.now().toString() + Math.random().toString(36).substring(2, 9);
 
@@ -51,14 +58,7 @@ export default function ParentAssistant() {
 
   useEffect(() => {
     if (user?.uid && messages.length > 1) {
-        const cleanMessages = messages.map(m => {
-           const c = {...m};
-           if (c.functionCalls === undefined) delete c.functionCalls;
-           if (c.functionResponse === undefined) delete c.functionResponse;
-           if (c.name === undefined) delete c.name;
-           if (c.content === undefined) delete c.content;
-           return c;
-        });
+        const cleanMessages = JSON.parse(JSON.stringify(messages));
         studentDataService.saveParentAIAssistantChatHistory(user.uid, cleanMessages);
     }
   }, [messages, user?.uid]);
@@ -270,7 +270,11 @@ export default function ParentAssistant() {
       </div>
 
       <div className="flex-1 bg-slate-900 border border-slate-700/50 rounded-2xl overflow-hidden flex flex-col shadow-xl">
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+        <div 
+          ref={chatContainerRef}
+          data-no-auto-scroll-top="true"
+          className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6"
+        >
           <AnimatePresence>
             {messages.map((message, idx) => {
               if (message.role === 'function') return null;

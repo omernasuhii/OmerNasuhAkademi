@@ -12,6 +12,7 @@ import { AlertCircle, ChevronRight, Check, Phone, Loader2, User, Lock, Mail } fr
 import { formatPhoneNumber } from './Register';
 import KVKKModal from '../components/KVKKModal';
 import AgreementModal from '../components/AgreementModal';
+import { WhatsAppFallbackHelp } from '../components/WhatsAppFallbackHelp';
 
 export default function CompleteRegistration() {
   const navigate = useNavigate();
@@ -60,6 +61,14 @@ export default function CompleteRegistration() {
   
   const [agreementAccepted, setAgreementAccepted] = useState(false);
   const [isAgreementModalOpen, setIsAgreementModalOpen] = useState(false);
+
+  const [completionFeedback, setCompletionFeedback] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    referralMsg?: string;
+    referralSuccess?: boolean;
+  } | null>(null);
   
   useEffect(() => {
     if (countdown > 0) {
@@ -270,10 +279,6 @@ export default function CompleteRegistration() {
 
   const handleStep1Submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isPhoneVerified) {
-      setError("Lütfen önce telefon numaranızı doğrulayın.");
-      return;
-    }
     if (!studentKvkkAccepted || !studentAgreementAccepted) {
       setError("Lütfen KVKK ve Üyelik Sözleşmesini onaylayın.");
       return;
@@ -519,12 +524,24 @@ export default function CompleteRegistration() {
         }
       }
 
-      if (referralCode) {
-        await referralService.processReferralRegistration(user!.uid, referralCode).catch(console.error);
+      let refResult = null;
+      if (referralCode.trim()) {
+        try {
+          refResult = await referralService.processReferralRegistration(user!.uid, referralCode.trim());
+        } catch (e) {
+          console.error('Referral processing error:', e);
+        }
       }
-      
-      navigate('/panel/ogrenci');
-      window.location.reload();
+
+      setCompletionFeedback({
+        show: true,
+        title: '🎉 Kaydınız Başarıyla Tamamlandı!',
+        message: assignedCoachId 
+          ? 'Akademik bilgileriniz güncellendi ve seçtiğiniz koçunuz ile eşleşmeniz sağlandı.' 
+          : 'Akademik bilgileriniz güncellendi ve profiliniz hazırlandı.',
+        referralMsg: refResult ? refResult.message : undefined,
+        referralSuccess: refResult ? refResult.success : undefined
+      });
     } catch (err: any) {
       if (!err.message?.includes('koç kodu geçersiz')) {
         console.error(err);
@@ -582,32 +599,14 @@ export default function CompleteRegistration() {
 
             <div>
               <label className="block text-sm font-semibold text-slate-300 mb-1">Telefon Numaranız</label>
-              <div className="flex gap-2">
-                <input 
-                  type="tel" 
-                  required 
-                  disabled={isPhoneVerified}
-                  value={studentPhone} 
-                  onChange={e => setStudentPhone(formatPhoneNumber(e.target.value))} 
-                  className="flex-1 bg-slate-950 border border-white/10 text-white rounded-xl py-3 px-4 disabled:opacity-60 focus:border-amber-500 focus:outline-none transition-colors" 
-                  placeholder="+90 5XX XXX XX XX" 
-                />
-                {!isPhoneVerified ? (
-                  <button
-                    type="button"
-                    onClick={handleSendStudentOTP}
-                    disabled={verifyLoading || !studentPhone || studentPhone.replace(/\D/g, "").length < 12}
-                    className="px-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold rounded-xl transition-all text-xs flex items-center justify-center shrink-0 min-w-[120px]"
-                  >
-                    {verifyLoading ? <Loader2 size={16} className="animate-spin" /> : "SMS ile Doğrula"}
-                  </button>
-                ) : (
-                  <div className="px-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-bold rounded-xl text-xs flex items-center justify-center shrink-0 gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    Doğrulandı
-                  </div>
-                )}
-              </div>
+              <input 
+                type="tel" 
+                required 
+                value={studentPhone} 
+                onChange={e => setStudentPhone(formatPhoneNumber(e.target.value))} 
+                className="w-full bg-slate-950 border border-white/10 text-white rounded-xl py-3 px-4 focus:border-amber-500 focus:outline-none transition-colors" 
+                placeholder="+90 5XX XXX XX XX" 
+              />
             </div>
 
             <div>
@@ -852,6 +851,17 @@ export default function CompleteRegistration() {
                 )}
               </div>
 
+              {/* Alternatif WhatsApp Hızlı Onay ve Karekod */}
+              <WhatsAppFallbackHelp
+                phone={studentPhone}
+                onCodeSent={(data) => {
+                  if (data?.simulated) {
+                    setRegisterSimulatedNotification(`FocusON Akademi SMS doğrulama kodunuz (Simüle Edildi): ${data.code || "123456"}`);
+                    setSmsGeneratedCode(data.code || "123456");
+                  }
+                }}
+              />
+
               <div className="flex gap-3">
                 <button
                   type="button"
@@ -873,10 +883,10 @@ export default function CompleteRegistration() {
             {hasRegisterApiError && (
               <div className="mt-5 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-left animate-in fade-in duration-300">
                 <h4 className="text-xs font-bold text-amber-400 mb-1 flex items-center gap-1.5">
-                  <AlertCircle size={14} /> SMS Servisinde Yoğunluk mu Var?
+                  <AlertCircle size={14} /> WhatsApp Servisinde Yoğunluk mu Var?
                 </h4>
                 <p className="text-[10px] text-slate-400 leading-relaxed mb-3">
-                  SMS servisinde yoğunluk veya bakiye yetersizliği yaşanıyor olabilir. Kaydınızı kaybetmemek için telefon doğrulamayı geçici olarak erteleyebilirsiniz.
+                  WhatsApp servisinde yoğunluk veya bakiye yetersizliği yaşanıyor olabilir. Kaydınızı kaybetmemek için telefon doğrulamayı geçici olarak erteleyebilirsiniz.
                 </p>
                 <button
                   type="button"
@@ -911,6 +921,42 @@ export default function CompleteRegistration() {
         onClose={() => setIsStudentAgreementModalOpen(false)}
         type="student"
       />
+
+      {/* Kayıt Tamamlama Bilgilendirme Modalı */}
+      {completionFeedback?.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="max-w-md w-full bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl relative text-center animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-500/30">
+              <Check size={32} />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">{completionFeedback.title}</h3>
+            <p className="text-slate-300 text-sm mb-4">{completionFeedback.message}</p>
+
+            {completionFeedback.referralMsg && (
+              <div className={`p-4 rounded-xl text-xs text-left mb-6 border ${
+                completionFeedback.referralSuccess 
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+                  : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+              }`}>
+                <div className="font-bold mb-1 flex items-center gap-1.5 text-sm">
+                  {completionFeedback.referralSuccess ? '🎁 Davet Kodu Uygulandı' : 'ℹ️ Davet Kodu Bilgilendirmesi'}
+                </div>
+                <p className="leading-relaxed">{completionFeedback.referralMsg}</p>
+              </div>
+            )}
+
+            <button
+              onClick={() => {
+                navigate('/panel/ogrenci');
+                window.location.reload();
+              }}
+              className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-3 rounded-xl transition-all shadow-lg"
+            >
+              Öğrenci Paneline Git
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

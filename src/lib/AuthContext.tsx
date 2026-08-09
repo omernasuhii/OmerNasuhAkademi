@@ -45,21 +45,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           safeStorage.setSessionItem(`session_logged_${firebaseUser.uid}`, 'true');
         }
 
-        unsubscribeDoc = onSnapshot(doc(db, 'users', firebaseUser.uid), (snapshot) => {
+        const loadUserData = async (snapshot: any) => {
           if (snapshot.exists() && snapshot.data()?.role) {
             const data: any = { uid: firebaseUser.uid, ...snapshot.data() };
             setUserData(data);
             if (data.role === 'student' && data.subscriptionPlan) {
               checkAndRenewSubscription(data, firebaseUser.uid).catch(console.error);
             }
-          } else {
-            setUserData(null);
+            setLoading(false);
+            return;
           }
-          setLoading(false);
-        }, (err) => {
-          console.error("AuthContext user doc snapshot error:", err);
+
+          // Fallback: search users collection by email if uid match failed or doc not found yet
+          if (firebaseUser.email) {
+            try {
+              const { collection, query, where, getDocs } = await import('firebase/firestore');
+              const q = query(collection(db, 'users'), where('email', '==', firebaseUser.email.toLowerCase()));
+              const querySnap = await getDocs(q);
+              if (!querySnap.empty) {
+                const firstDoc = querySnap.docs[0];
+                if (firstDoc.exists() && firstDoc.data()?.role) {
+                  const data: any = { uid: firstDoc.id, ...firstDoc.data() };
+                  setUserData(data);
+                  setLoading(false);
+                  return;
+                }
+              }
+            } catch (fallbackErr) {
+              console.warn("AuthContext email fallback search error:", fallbackErr);
+            }
+          }
+
           setUserData(null);
           setLoading(false);
+        };
+
+        unsubscribeDoc = onSnapshot(doc(db, 'users', firebaseUser.uid), (snapshot) => {
+          loadUserData(snapshot);
+        }, async (err) => {
+          console.error("AuthContext user doc snapshot error, attempting retry:", err);
+          // Wait 500ms and retry once with getDoc in case of initial token sync latency
+          setTimeout(async () => {
+            try {
+              const { getDoc } = await import('firebase/firestore');
+              const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+              await loadUserData(userDoc);
+            } catch (retryErr) {
+              console.error("AuthContext user doc retry failed:", retryErr);
+              setUserData(null);
+              setLoading(false);
+            }
+          }, 500);
         });
       } else {
         setUserData(null);

@@ -1,7 +1,9 @@
 import { Routes, Route, Outlet, Navigate } from "react-router-dom";
 import { NotificationListener } from "./components/NotificationListener";
+import { PageTitleUpdater } from "./components/layout/PageTitleUpdater";
 import Navbar from "./components/layout/Navbar";
 import Footer from "./components/layout/Footer";
+import { CookieConsent } from "./components/layout/CookieConsent";
 import Home from "./pages/Home";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import TermsOfService from "./pages/TermsOfService";
@@ -45,6 +47,7 @@ import ChannelRecommendations from "./pages/students/ChannelRecommendations";
 import YksTopics from "./pages/students/YksTopics";
 import QuestionAnalysis from "./pages/students/QuestionAnalysis";
 import YksScoreCalculator from "./pages/students/YksScoreCalculator";
+import PublicReportViewer from "./pages/PublicReportViewer";
 import JobGuide from "./pages/students/JobGuide";
 import YokAtlas from "./pages/students/YokAtlas";
 import KykDorms from "./pages/students/KykDorms";
@@ -147,6 +150,7 @@ import StudentProfile from "./pages/coach/StudentProfile";
 import StudentGoals from "./pages/coach/StudentGoals";
 import CoachPersonality from "./pages/coach/CoachPersonality";
 import CoachDeepAnalysis from "./pages/coach/DeepAnalysis";
+import StudentAIChats from "./pages/coach/StudentAIChats";
 import { StudentProvider } from "./lib/StudentContext";
 import PersonalCoachLayout from "./pages/coach/PersonalCoachLayout";
 import CoachStudents from "./pages/coach/CoachStudents";
@@ -197,6 +201,7 @@ export default function App() {
             <Navbar />
             <main className="flex-1 flex flex-col">
               <NotificationListener />
+              <PageTitleUpdater />
               <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/gizlilik-politikasi" element={<PrivacyPolicy />} />
@@ -222,8 +227,8 @@ export default function App() {
               <Route path="/basarilarimiz" element={<SuccessStories />} />
               <Route path="/sss" element={<FAQ />} />
               <Route path="/iletisim" element={<Contact />} />
-              <Route path="/kayit/ogrenci" element={<Register />} />
-              <Route path="/kayit/koc" element={<Register />} />
+              <Route path="/kayit" element={<Register />} />
+              <Route path="/koc-basvuru" element={<Register />} />
               <Route path="/kayit-tamamla" element={<CompleteRegistration />} />
               <Route
                 path="/koc-onay-bekliyor"
@@ -235,6 +240,12 @@ export default function App() {
               />
               <Route path="/dogrulama" element={<Verification />} />
               <Route path="/v" element={<VerifyWhatsappLink />} />
+              <Route path="/rapor/:reportId" element={<PublicReportViewer />} />
+              <Route path="/rapor/*" element={<PublicReportViewer />} />
+              <Route path="/pdf/:reportId" element={<PublicReportViewer />} />
+              <Route path="/pdf/*" element={<PublicReportViewer />} />
+              <Route path="/api/reports/pdf/:reportId" element={<PublicReportViewer />} />
+              <Route path="/api/reports/pdf/*" element={<PublicReportViewer />} />
               <Route
                 path="/kanal-onerileri"
                 element={<ChannelRecommendations />}
@@ -485,6 +496,7 @@ export default function App() {
                   <Route path="sonuclar" element={<StudentExamResults />} />
                   <Route path="analizler" element={<StudentExams />} />
                   <Route path="derin-analiz" element={<CoachDeepAnalysis />} />
+                  <Route path="ai-sohbetleri" element={<StudentAIChats />} />
                   <Route path="profil" element={<StudentProfile />} />
                   <Route path="kisilik-analizi" element={<CoachPersonality />} />
                   <Route path="hedefler" element={<StudentGoals />} />
@@ -550,6 +562,7 @@ export default function App() {
             </Routes>
           </main>
             <Footer />
+            <CookieConsent />
           </CartProvider>
         </CurriculumProvider>
       </div>

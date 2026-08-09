@@ -152,12 +152,14 @@ export default function Coaching() {
             }
 
             for (let j = dateExams.length; j < assignedDenemeTasks.length; j++) {
+                const taskToUpdate = { ...assignedDenemeTasks[j] };
+                delete taskToUpdate.examId;
+                const isWaiting = !!taskToUpdate.isWaitingResult;
                 updatedDenemeTasks.push({
-                    ...assignedDenemeTasks[j],
-                    isDone: false,
-                    isWaitingResult: false,
-                    completedCount: 0,
-                    examId: undefined
+                    ...taskToUpdate,
+                    isDone: isWaiting ? true : false,
+                    isWaitingResult: isWaiting,
+                    completedCount: isWaiting ? (taskToUpdate.completedCount || 0) : 0
                 });
             }
 

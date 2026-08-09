@@ -2,7 +2,127 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../lib/AuthContext';
 import { useStudent } from '../../lib/StudentContext';
 import { studentDataService } from '../../services/studentDataService';
-import { Calendar, CheckCircle2, Target, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Check } from 'lucide-react';
+import { 
+  Calendar, 
+  CheckCircle2, 
+  Target, 
+  ChevronLeft, 
+  ChevronRight, 
+  ChevronsLeft, 
+  ChevronsRight, 
+  Check, 
+  PlayCircle, 
+  BookOpen, 
+  Award, 
+  FileText,
+  Sparkles
+} from 'lucide-react';
+
+export const getTaskTypeMeta = (task: any) => {
+  const tType = (task.type || task.taskType || '').toLowerCase();
+  
+  if (tType.includes('video') || tType.includes('youtube') || tType.includes('ders')) {
+    return {
+      typeKey: 'video',
+      label: 'Video/Ders',
+      shortLabel: 'VİDEO/DERS',
+      icon: PlayCircle,
+      badgeStyle: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
+      leftBorder: 'border-l-4 border-l-rose-500',
+      iconColor: 'text-rose-400',
+      unit: 'Video/Ders',
+    };
+  }
+
+  if (tType.includes('sayfa') || tType.includes('okuma')) {
+    return {
+      typeKey: 'sayfa',
+      label: 'Sayfa',
+      shortLabel: 'SAYFA',
+      icon: FileText,
+      badgeStyle: 'bg-sky-500/20 text-sky-300 border-sky-500/30',
+      leftBorder: 'border-l-4 border-l-sky-500',
+      iconColor: 'text-sky-400',
+      unit: 'Sayfa',
+    };
+  }
+  
+  if (tType.includes('konu')) {
+    return {
+      typeKey: 'konu',
+      label: 'Konu Anlatımı',
+      shortLabel: 'KONU',
+      icon: BookOpen,
+      badgeStyle: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+      leftBorder: 'border-l-4 border-l-amber-500',
+      iconColor: 'text-amber-400',
+      unit: 'Sayfa',
+    };
+  }
+  
+  if (tType.includes('soru')) {
+    return {
+      typeKey: 'soru',
+      label: 'Soru Çözümü',
+      shortLabel: 'SORU',
+      icon: Target,
+      badgeStyle: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
+      leftBorder: 'border-l-4 border-l-indigo-500',
+      iconColor: 'text-indigo-400',
+      unit: 'Soru',
+    };
+  }
+
+  if (tType.includes('deneme') || tType.includes('exam')) {
+    return {
+      typeKey: 'deneme',
+      label: 'Deneme Sınavı',
+      shortLabel: 'DENEME',
+      icon: Award,
+      badgeStyle: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
+      leftBorder: 'border-l-4 border-l-purple-500',
+      iconColor: 'text-purple-400',
+      unit: 'Deneme',
+    };
+  }
+
+  if (tType.includes('kitap')) {
+    return {
+      typeKey: 'kitap',
+      label: 'Kitap Okuma',
+      shortLabel: 'KİTAP',
+      icon: FileText,
+      badgeStyle: 'bg-sky-500/20 text-sky-300 border-sky-500/30',
+      leftBorder: 'border-l-4 border-l-sky-500',
+      iconColor: 'text-sky-400',
+      unit: 'Sayfa',
+    };
+  }
+
+  if (tType.includes('gorev') || tType.includes('görev') || tType.includes('task')) {
+    return {
+      typeKey: 'gorev',
+      label: 'Görev',
+      shortLabel: 'GÖREV',
+      icon: CheckCircle2,
+      badgeStyle: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+      leftBorder: 'border-l-4 border-l-emerald-500',
+      iconColor: 'text-emerald-400',
+      unit: 'Görev',
+    };
+  }
+
+  return {
+    typeKey: 'diger',
+    label: task.type || task.taskType || 'Görev',
+    shortLabel: (task.type || task.taskType || 'GÖREV').toUpperCase(),
+    icon: CheckCircle2,
+    badgeStyle: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
+    leftBorder: 'border-l-4 border-l-slate-500',
+    iconColor: 'text-slate-400',
+    unit: 'Birim',
+  };
+};
 
 export default function ParentProgram() {
   const { userData } = useAuth();
@@ -171,6 +291,8 @@ export default function ParentProgram() {
                   </div>
                 ) : (
                   sortedTasks.map((task: any, tIdx: number) => {
+                    const meta = getTaskTypeMeta(task);
+                    const IconComp = meta.icon;
                     const isWaitingExpired = (() => {
                       if (!task.isWaitingResult || !day.date) return false;
                       const parts = (day.date || '').split('-');
@@ -182,37 +304,68 @@ export default function ParentProgram() {
                       return diffDays >= 5;
                     })();
 
+                    const isStudentTask = Boolean(task.isExtra || task.addedBy === 'student' || task.isStudentAdded || task.addedByStudent || task.createdBy === 'student');
+
                     return (
                     <div 
                       key={tIdx} 
-                      className={`p-3 rounded-2xl border transition-all ${task.isWaitingResult ? (isWaitingExpired ? 'bg-red-500/10 border-red-500/30' : 'bg-amber-500/5 border-amber-500/20') : task.isDone ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-slate-900 border-white/5'}`}
+                      className={`p-3 rounded-2xl border ${meta.leftBorder} transition-all ${
+                        task.isWaitingResult 
+                          ? (isWaitingExpired ? 'bg-red-500/10 border-red-500/30' : 'bg-amber-500/5 border-amber-500/20') 
+                          : task.isDone 
+                            ? 'bg-emerald-500/5 border-emerald-500/20' 
+                            : 'bg-slate-900 border-white/5 hover:border-white/10'
+                      }`}
                     >
                       <div className="flex items-start gap-3">
-                        <div className={`mt-0.5 w-4 h-4 rounded-full flex items-center justify-center shrink-0 border ${
-                          task.isDone && !isWaitingExpired
-                            ? 'bg-emerald-500 border-emerald-500 text-white' 
-                            : isWaitingExpired
-                              ? 'bg-red-500/20 border-red-500 text-red-400'
-                              : 'border-slate-700 text-transparent'
-                        }`}>
-                          <Check size={10} strokeWidth={4} />
+                        {/* Left Rail: Checkbox + Vertical Task Type Badge */}
+                        <div className="flex flex-col items-center shrink-0 gap-2 pt-0.5 min-w-[28px]">
+                          <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 border ${
+                            task.isDone && !isWaitingExpired
+                              ? 'bg-emerald-500 border-emerald-500 text-white' 
+                              : isWaitingExpired
+                                ? 'bg-red-500/20 border-red-500 text-red-400'
+                                : 'border-slate-700 text-transparent'
+                          }`}>
+                            <Check size={10} strokeWidth={4} />
+                          </div>
+
+                          <div 
+                            className={`flex items-center gap-1 text-[8px] font-black px-1 py-1.5 rounded-md border [writing-mode:vertical-lr] rotate-180 tracking-widest uppercase select-none ${meta.badgeStyle}`}
+                            title={meta.label}
+                          >
+                            <IconComp className="w-2.5 h-2.5 shrink-0 rotate-90" />
+                            <span>{meta.shortLabel}</span>
+                          </div>
                         </div>
+
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
+                          {/* Subject & Student Added Badge */}
+                          <div className="flex items-center justify-between gap-1 flex-wrap mb-1">
                             <span className={`text-xs font-black uppercase tracking-wider ${
                               task.isDone && !task.isWaitingResult ? 'text-emerald-400' : task.isWaitingResult ? (isWaitingExpired ? 'text-red-400' : 'text-amber-400') : 'text-blue-400'
                             }`}>
                               {task.subject}
                             </span>
-                            {task.isWaitingResult && (
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase ${isWaitingExpired ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-amber-500/20 text-amber-500'}`}>
-                                {isWaitingExpired ? 'Yapılmadı (5+ Gün Geçti)' : 'Sonuç Bekleniyor'}
+
+                            {isStudentTask && (
+                              <span className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                <Sparkles size={9} className="shrink-0 text-emerald-400" />
+                                <span>Öğrenci Ekledi</span>
                               </span>
                             )}
                           </div>
+
+                          {task.isWaitingResult && (
+                            <div className="mb-1">
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase inline-block ${isWaitingExpired ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-amber-500/20 text-amber-500'}`}>
+                                {isWaitingExpired ? 'Yapılmadı (5+ Gün Geçti)' : 'Sonuç Bekleniyor'}
+                              </span>
+                            </div>
+                          )}
                           
                           {task.topic && (
-                            <p className={`text-sm mt-1 font-medium ${
+                            <p className={`text-xs mt-1 font-semibold ${
                               task.isDone ? 'text-slate-300' : 'text-slate-200'
                             }`}>
                               {task.topic}
@@ -220,18 +373,18 @@ export default function ParentProgram() {
                           )}
                           
                           {(task.targetCount > 0 || task.completedCount > 0) && (
-                            <div className="mt-2 flex flex-col gap-1.5 text-xs font-medium text-slate-500">
+                            <div className="mt-2 pt-1.5 border-t border-white/5 flex flex-col gap-1 text-[11px] font-medium text-slate-400">
                               <div className="flex items-center gap-1.5">
-                                <Target size={12} />
+                                <Target size={11} className="text-slate-500 shrink-0" />
                                 <span>
-                                  Hedef: {task.targetCount || '-'} {task.type === 'Soru Çözümü' ? 'Soru' : task.type === 'YouTube Video' ? 'Video' : (task.type === 'Kitap Okuma' || task.type === 'Konu Çalışması') ? 'Sayfa' : ''}
+                                  Hedef: <strong className="text-slate-200">{task.targetCount || '-'} {meta.unit}</strong>
                                 </span>
                               </div>
                               {task.isDone && (
-                                <div className="flex items-center gap-1.5 text-emerald-500">
-                                  <CheckCircle2 size={12} />
+                                <div className="flex items-center gap-1.5 text-emerald-400">
+                                  <CheckCircle2 size={11} className="shrink-0" />
                                   <span>
-                                    Yapılan: {task.completedCount || task.targetCount} {task.type === 'Soru Çözümü' ? 'Soru' : task.type === 'YouTube Video' ? 'Video' : (task.type === 'Kitap Okuma' || task.type === 'Konu Çalışması') ? 'Sayfa' : ''}
+                                    Yapılan: <strong>{task.completedCount || task.targetCount} {meta.unit}</strong>
                                   </span>
                                 </div>
                               )}

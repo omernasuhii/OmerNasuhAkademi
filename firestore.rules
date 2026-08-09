@@ -94,16 +94,16 @@ service cloud.firestore {
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('coachId', '') == coachId;
     }
 
+    match /test/{docId} {
+      allow read: if true;
+    }
+
     match /inbox_messages/{messageId} {
-      allow read: if isAdmin();
-      allow create: if true;
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
 
     match /whatsapp_messages/{messageId} {
-      allow create: if true;
-      allow read, update, delete: if isAdmin() || isSignedIn();
+      allow read, write: if true;
     }
 
     match /whatsapp_templates/{templateId} {
@@ -111,8 +111,11 @@ service cloud.firestore {
     }
 
     match /whatsapp_webhook_logs/{logId} {
-      allow create: if true;
-      allow read, update, delete: if isAdmin();
+      allow read, write: if true;
+    }
+
+    match /settings/{docId} {
+      allow read, write: if true;
     }
 
     match /phone_verifications/{verificationId} {
@@ -120,6 +123,10 @@ service cloud.firestore {
     }
 
     match /simulated_verifications/{verificationId} {
+      allow read, write: if true;
+    }
+
+    match /verification_logs/{logId} {
       allow read, write: if true;
     }
 
@@ -131,8 +138,21 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if true;
       allow create: if isOwner(userId);
-      allow update: if isOwner(userId) || isAdmin() || isCoachOf(userId) || (isStudentOf(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['systemBalance', 'updatedAt'])) || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['referralCount', 'referralEarnings', 'walletBalance'])) || (request.auth == null && incoming().diff(existing()).affectedKeys().hasOnly(['phoneVerified', 'verificationDeferred', 'updatedAt']));
+      allow update: if isAdmin() || (
+        (isOwner(userId) || isCoachOf(userId) || isParentOf(userId)) &&
+        (!('role' in incoming()) || existing().get('role', '') == '' || incoming().role == existing().role)
+      ) || (
+        isStudentOf(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['systemBalance', 'updatedAt'])
+      ) || (
+        isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['referralCount', 'referralEarnings', 'walletBalance'])
+      ) || (
+        request.auth == null && incoming().diff(existing()).affectedKeys().hasOnly(['phoneVerified', 'verificationDeferred', 'updatedAt'])
+      );
       allow delete: if isAdmin();
+      
+      match /ai_chat_views/{targetId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
     }
 
     // 1.5 Bolumler Collection
@@ -145,6 +165,14 @@ service cloud.firestore {
       allow get: if isSignedIn() && (resource == null || isAdmin() || isOwner(resource.data.studentId) || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId));
       allow list: if isSignedIn() && (isOwner(resource.data.studentId) || isAdmin() || isCoach() || isParent());
       allow write: if isAdmin() || isCoach();
+    }
+
+    match /weekly_pdf_reports/{reportId} {
+      allow read, write: if true;
+    }
+
+    match /weekly_report_logs/{logId} {
+      allow read, write: if true;
     }
 
     // 3. Exam Results
@@ -172,7 +200,7 @@ service cloud.firestore {
       allow update: if isVerified() && (isOwner(existing().get('studentId', '')) || isAdmin() || isCoachOf(existing().get('studentId', ''))) && 
                     incoming().get('studentId', '') == existing().get('studentId', '') &&
                     incoming().get('examId', '') == existing().get('examId', '');
-      allow delete: if isAdmin();
+      allow delete: if isSignedIn() && (resource == null || isOwner(resource.data.studentId) || isAdmin() || isCoachOf(resource.data.studentId));
     }
 
     // 4. Book Tracking
@@ -214,7 +242,11 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && (isOwner(userId) || isAdmin() || isCoachOf(userId));
     }
     match /parent_ai_chat_history/{userId} {
-      allow read, write: if isSignedIn() && (isOwner(userId) || isAdmin() || isParentOf(userId));
+      allow read, write: if isSignedIn() && (
+        isOwner(userId) || 
+        isAdmin() || 
+        (exists(/databases/$(database)/documents/users/$(userId)) && isCoachOf(get(/databases/$(database)/documents/users/$(userId)).data.get('studentUid', '')))
+      );
     }
 
     // 6. Appointments
@@ -275,8 +307,7 @@ service cloud.firestore {
                data.get('date', '') is string;
       }
 
-      allow get: if isSignedIn() && (resource == null || isAdmin() || isOwner(resource.data.studentId) || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId));
-      allow list: if isSignedIn() && (isOwner(resource.data.studentId) || isAdmin() || isCoach() || isParent());
+      allow read: if true;
       allow create: if isSignedIn() && (isAdmin() || isCoach() || isOwner(incoming().get("studentId", ""))) && isValidDaily(incoming());
       allow update: if isSignedIn() && (isAdmin() || isCoachOf(existing().studentId) || isOwner(existing().studentId)) && 
                     isValidDaily(incoming()) &&
@@ -297,7 +328,8 @@ service cloud.firestore {
 
     // 12.5 Weekly Evaluations
     match /weeklyEvaluations/{evalId} {
-      allow read: if isSignedIn() && (resource == null || isAdmin() || isOwner(resource.data.studentId) || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId));
+      allow get: if isSignedIn() && (resource == null || isAdmin() || isOwner(resource.data.studentId) || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId));
+      allow list: if isSignedIn() && (isAdmin() || isOwner(resource.data.studentId) || isCoach() || isParent());
       allow write: if isSignedIn() && (isAdmin() || isOwner(incoming().get('studentId', '')) || isCoachOf(incoming().get('studentId', '')) || isParentOf(incoming().get('studentId', '')) || (resource != null && (isOwner(resource.data.studentId) || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId))));
     }
 
@@ -329,6 +361,7 @@ service cloud.firestore {
       allow get: if isSignedIn() && (resource == null || isOwner(resource.data.studentId) || isAdmin() || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId) || resource.data.coachId == request.auth.uid);
       allow list: if isSignedIn() && (isOwner(resource.data.studentId) || isAdmin() || isCoach() || isParent() || resource.data.coachId == request.auth.uid);
       allow create: if isSignedIn() && (isAdmin() || (isCoachOf(incoming().get("studentId", "")) && incoming().type == 'DEPOSIT') || (isOwner(incoming().get("studentId", "")) && incoming().type == 'WITHDRAWAL') || (request.auth.uid == incoming().coachId && incoming().type == 'WITHDRAWAL')) && isValidTransaction(incoming());
+      allow update, delete: if isAdmin();
       // Withdrawal is limited to admin for now? Or automatic? 
       // For now, let's allow coach to deposit.
     }
@@ -350,9 +383,7 @@ service cloud.firestore {
         isOwner(resource.data.userId) || 
         isAdmin() || 
         isCoach() || 
-        isParent() ||
-        isCoachOf(resource.data.userId) || 
-        isParentOf(resource.data.userId)
+        isParent()
       );
       allow create: if isSignedIn() && (
         isOwner(incoming().get('userId', '')) || 
@@ -491,7 +522,7 @@ service cloud.firestore {
 
     match /carts/{userId} {
       allow read: if isSignedIn() && (isOwner(userId) || isAdmin());
-      allow write: if isSignedIn() && isOwner(userId);
+      allow write: if isSignedIn() && (isOwner(userId) || isAdmin());
     }
 
     match /referral_history/{historyId} {

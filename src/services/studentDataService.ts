@@ -17,6 +17,29 @@ import { db, auth } from '../lib/firebase';
 import { OperationType, handleFirestoreError } from './appointmentService';
 import { notificationService } from './notificationService';
 
+export function cleanUndefined<T>(obj: T): T {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+  if (typeof obj !== 'object') {
+    return obj;
+  }
+  if (obj.constructor && obj.constructor.name !== 'Object' && !Array.isArray(obj)) {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(item => cleanUndefined(item)).filter(item => item !== undefined) as any;
+  }
+  const result: Record<string, any> = {};
+  for (const key of Object.keys(obj as Record<string, any>)) {
+    const value = (obj as Record<string, any>)[key];
+    if (value !== undefined) {
+      result[key] = cleanUndefined(value);
+    }
+  }
+  return result as T;
+}
+
 export const studentDataService = {
   async getWeeklyEvaluation(studentId: string, weekStartDate: string): Promise<any | null> {
     try {
@@ -105,18 +128,19 @@ export const studentDataService = {
   async saveDailyProgram(program: any) {
     const path = 'daily_programs';
     try {
-      if (program.id) {
-        const ref = doc(db, path, program.id);
-        const { id, ...updateData } = program;
+      const sanitized = cleanUndefined(program);
+      if (sanitized.id) {
+        const ref = doc(db, path, sanitized.id);
+        const { id, ...updateData } = sanitized;
         await updateDoc(ref, { ...updateData, updatedAt: serverTimestamp() });
-        return program.id;
+        return sanitized.id;
       } else {
         // Document ID should ideally be studentId_date if we want uniqueness, 
         // but we can just use setDoc with a custom ID so we don't accidentally create duplicates.
-        const docId = `${program.studentId}_${program.date}`;
+        const docId = `${sanitized.studentId}_${sanitized.date}`;
         const ref = doc(db, path, docId);
         await setDoc(ref, {
-          ...program,
+          ...sanitized,
           updatedAt: serverTimestamp()
         });
         return docId;
@@ -883,12 +907,14 @@ export const studentDataService = {
         }
 
         for (let j = dateExams.length; j < assignedDenemeTasks.length; j++) {
+          const taskToUpdate = { ...assignedDenemeTasks[j] };
+          delete taskToUpdate.examId;
+          const isWaiting = !!taskToUpdate.isWaitingResult;
           updatedDenemeTasks.push({
-            ...assignedDenemeTasks[j],
-            isDone: false,
-            isWaitingResult: false,
-            completedCount: 0,
-            examId: undefined
+            ...taskToUpdate,
+            isDone: isWaiting ? true : false,
+            isWaitingResult: isWaiting,
+            completedCount: isWaiting ? (taskToUpdate.completedCount || 0) : 0
           });
         }
 
@@ -1135,6 +1161,7 @@ export const studentDataService = {
   },
 
   async saveAIAssistantChatHistory(studentId: string, messages: any[]) {
+    messages = JSON.parse(JSON.stringify(messages));
     const path = 'ai_chat_history';
     try {
       await setDoc(doc(db, path, studentId), {
@@ -1161,11 +1188,35 @@ export const studentDataService = {
   },
 
   async saveParentAIAssistantChatHistory(parentId: string, messages: any[]) {
+    messages = JSON.parse(JSON.stringify(messages));
     const path = 'parent_ai_chat_history';
     try {
       await setDoc(doc(db, path, parentId), {
         messages,
         updatedAt: serverTimestamp()
+      }, { merge: true });
+    } catch (error) {
+      console.error(error);
+    }
+  },
+
+  async getCoachAIChatViewCount(coachId: string, targetId: string) {
+    try {
+      const snap = await getDoc(doc(db, 'users', coachId, 'ai_chat_views', targetId));
+      if (snap.exists()) {
+        return snap.data().lastViewedMessageCount || 0;
+      }
+      return 0;
+    } catch (error) {
+      console.error(error);
+      return 0;
+    }
+  },
+
+  async updateCoachAIChatViewCount(coachId: string, targetId: string, count: number) {
+    try {
+      await setDoc(doc(db, 'users', coachId, 'ai_chat_views', targetId), {
+        lastViewedMessageCount: count
       }, { merge: true });
     } catch (error) {
       console.error(error);

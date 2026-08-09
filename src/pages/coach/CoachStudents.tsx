@@ -3,8 +3,10 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
 import { useStudent } from '../../lib/StudentContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { safeStorage } from '../../lib/localStorage';
+import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
+import { tourService } from '../../services/tourService';
 import { 
   Users, 
   Search, 
@@ -14,21 +16,100 @@ import {
   Calendar,
   MoreVertical,
   MessageCircle,
-  UserPlus
+  UserPlus,
+  Compass
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
+export const SAMPLE_DEMO_STUDENT = {
+  uid: 'demo-student-001',
+  displayName: 'Ahmet Yılmaz (Örnek)',
+  firstName: 'Ahmet',
+  lastName: 'Yılmaz',
+  email: 'ahmet.demo@focuson.com',
+  grade: '12. Sınıf',
+  branch: 'SAYISAL',
+  targetUniversity: 'İstanbul Teknik Üniversitesi',
+  targetDepartment: 'Bilgisayar Mühendisliği',
+  targetTyt: 105,
+  targetAyt: 75,
+  latestScore: '94.5 Net',
+  progress: '+14.2%',
+  nextAppt: {
+    date: '2026-08-06',
+    startTime: '16:00',
+    type: 'Birebir Koçluk Seansı'
+  },
+  subscriptionStatus: 'active',
+  subscriptionPlan: 'Altın Paket (Koçluk Desteği)',
+  subscriptionEndDate: '2030-12-31',
+  subscriptionStartDate: '2023-01-01',
+  walletBalance: 0,
+  gradeUpdatedAt: '2023-01-01',
+  parentUid: 'demo-parent-001',
+  parentFirstName: 'Mehmet',
+  parentLastName: 'Yılmaz',
+  parentPhone: '05000000000',
+  phone: '05000000000',
+  photoURL: 'https://images.unsplash.com/photo-1633332755192-727a05c4013d?w=250&auto=format&fit=crop&q=80',
+  isDemo: true
+};
+
 export default function CoachStudents() {
   const { user, userData } = useAuth();
-  const { setSelectedStudent } = useStudent();
+  const { selectedStudent, setSelectedStudent } = useStudent();
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isTourOpen, setIsTourOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     if (user && userData) fetchStudents();
   }, [user, userData]);
+
+  useEffect(() => {
+    if (!loading) {
+      if (tourService.shouldAutoStartTour('coach_students', userData, location.state?.startTour)) {
+        const timer = setTimeout(() => {
+          setIsTourOpen(true);
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [loading, location.state, userData]);
+
+  const coachStudentsTourSteps: TourStep[] = [
+    {
+      targetId: 'tour-students-header',
+      title: 'Öğrencilerim Sayfası',
+      description: 'Sorumluluğunuzda yer alan tüm öğrencilerin güncel durumlarını, şubelerini ve gelişim verilerini tek ekrandan yönetebilirsiniz.',
+      position: 'bottom',
+      badge: 'Öğrenci Yönetimi'
+    },
+    {
+      targetId: 'tour-students-search',
+      title: 'Arama ve Filtreleme',
+      description: 'Öğrenci adı veya soyadı yazarak istediğiniz öğrenciye saniyeler içinde erişebilir, arama yapabilirsiniz.',
+      position: 'bottom',
+      badge: 'Hızlı Erişim'
+    },
+    {
+      targetId: 'tour-students-grid',
+      title: 'Öğrenci Kartları ve Anlık Veriler',
+      description: 'Her öğrenci kartında; en son girilen deneme neti, gelişim yüzdesi ve planlanan en yakın randevu bilgisi canlı olarak sunulur.',
+      position: 'top',
+      badge: 'Gelişim Takibi'
+    },
+    {
+      targetId: 'tour-student-card-0',
+      title: 'Öğrenci Detayı ve Program Yönetimi',
+      description: 'Herhangi bir öğrenci kartına tıklayarak onun özel paneline geçiş yapabilir; haftalık ders programını, denemelerini ve ödevlerini yönetebilirsiniz.',
+      position: 'bottom',
+      badge: 'Birebir Koçluk'
+    }
+  ];
 
   const fetchStudents = async () => {
     try {
@@ -139,16 +220,44 @@ export default function CoachStudents() {
 
   const handleStudentClick = (student: any) => {
     setSelectedStudent(student);
-    navigate('/panel/koc/ogrenci');
+    navigate('/panel/koc/ogrenci', { state: { isDemo: !!student.isDemo } });
   };
 
-  const filteredStudents = students.filter(s => 
+  const realFiltered = students.filter(s => 
     s.displayName.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Show sample demo student ONLY during active system tour
+  const filteredStudents = isTourOpen
+    ? [SAMPLE_DEMO_STUDENT, ...realFiltered.filter(s => s.uid !== SAMPLE_DEMO_STUDENT.uid)]
+    : realFiltered;
+
+  const handleCloseTour = () => {
+    setIsTourOpen(false);
+    tourService.markTourCompleted('coach_students', user?.uid);
+    if (selectedStudent?.isDemo) {
+      setSelectedStudent(null);
+    }
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <OnboardingTour
+        steps={coachStudentsTourSteps}
+        isOpen={isTourOpen}
+        onClose={handleCloseTour}
+        onComplete={handleCloseTour}
+        onNextTour={() => {
+          setIsTourOpen(false);
+          tourService.markTourCompleted('coach_students', user?.uid);
+          setSelectedStudent(SAMPLE_DEMO_STUDENT);
+          navigate('/panel/koc/ogrenci', { state: { startTour: true, isDemo: true } });
+        }}
+        nextTourLabel="Profil Turu"
+        tourKey="coach_students"
+      />
+
+      <div id="tour-students-header" className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-2 border-b border-white/5">
         <div>
           <h1 className="text-3xl font-bold italic text-white uppercase tracking-tight">
              ÖĞRENCİLERİM
@@ -157,7 +266,7 @@ export default function CoachStudents() {
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4">
+      <div id="tour-students-search" className="flex flex-col md:flex-row gap-4">
         <div className="flex-1 relative group">
            <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-emerald-500 transition-colors" />
            <input 
@@ -180,9 +289,10 @@ export default function CoachStudents() {
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div id="tour-students-grid" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredStudents.map((student, i) => (
             <motion.div 
+              id={i === 0 ? 'tour-student-card-0' : undefined}
               key={student.uid}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}

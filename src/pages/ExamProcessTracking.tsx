@@ -166,7 +166,7 @@ export default function ExamProcessTracking() {
                    Gereksiz her bilek hareketi, her fazladan sayfa çevirişi, dikkati dağıtan her kodlama gecikmesi sadece saniyelerinizi almaz; <strong>odaklanma enerjinizi</strong> tüketir. Sınav Süreç Takibi analizimizle, masadaki operasyonel performansınızı kusursuz bir makine tutarlılığına ulaştırıyoruz.
                </p>
                <div className="pt-6">
-                    <Link to="/kayit/ogrenci" className="inline-flex items-center justify-center gap-3 bg-white text-slate-900 px-8 py-4 rounded-2xl font-black text-lg hover:bg-slate-100 transition-all hover:scale-105 shadow-xl shadow-white/10">
+                    <Link to="/kayit" className="inline-flex items-center justify-center gap-3 bg-white text-slate-900 px-8 py-4 rounded-2xl font-black text-lg hover:bg-slate-100 transition-all hover:scale-105 shadow-xl shadow-white/10">
                         Değerlendirmeye Katıl
                     </Link>
                </div>

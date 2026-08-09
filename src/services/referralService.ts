@@ -20,6 +20,12 @@ export interface ReferralSettings {
   coachReferrerRewardValue?: number;
 }
 
+export interface ReferralProcessResult {
+  success: boolean;
+  code: 'INVALID' | 'COACH_CODE' | 'SELF' | 'INACTIVE' | 'SUCCESS' | 'ERROR';
+  message: string;
+}
+
 export const referralService = {
   getSettings: async (): Promise<ReferralSettings | null> => {
     try {
@@ -66,12 +72,11 @@ export const referralService = {
     }
   },
 
-  processReferralRegistration: async (newUserId: string, referralCode: string) => {
+  processReferralRegistration: async (newUserId: string, referralCode: string): Promise<ReferralProcessResult> => {
     console.log(`[Referral Process] Başlıyor. newUserId: ${newUserId}, referralCode: ${referralCode}`);
     const cleanCode = referralCode.trim().toUpperCase();
     if (!cleanCode) {
-      console.log(`[Referral Process] Hata: referralCode boş veya geçersiz.`);
-      return;
+      return { success: false, code: 'INVALID', message: 'Davet kodu girilmedi.' };
     }
 
     try {
@@ -87,7 +92,11 @@ export const referralService = {
       
       if (snap.empty) {
         console.log(`[Referral Process] Hata: Bu referans koduna sahip kullanıcı bulunamadı.`);
-        return;
+        return {
+          success: false,
+          code: 'INVALID',
+          message: `Girdiğiniz "${cleanCode}" davet kodu sistemde bulunamadı veya geçersiz.`
+        };
       }
       
       const referrerDoc = snap.docs[0];
@@ -97,18 +106,30 @@ export const referralService = {
 
       if (referrerId === newUserId) {
         console.log(`[Referral Process] Hata: Kullanıcı kendini davet edemez.`);
-        return;
+        return {
+          success: false,
+          code: 'SELF',
+          message: 'Kendi davet kodunuzu kullanamazsınız.'
+        };
       }
 
       // Strict role separation constraint: Coach invites Coach, Student invites Student
       if (newUserRole === 'coach' && referrerRole !== 'coach') {
         console.log(`[Referral Process] İptal: Koçlar yalnızca bir Koç'un davet kodunu kullanabilir.`);
-        return;
+        return {
+          success: false,
+          code: 'INVALID',
+          message: `Girdiğiniz "${cleanCode}" kodu bir Öğrenci Davet Kodudur. Koç kaydında yalnızca bir Koç'un davet kodunu kullanabilirsiniz.`
+        };
       }
 
       if (newUserRole !== 'coach' && referrerRole === 'coach') {
         console.log(`[Referral Process] İptal: Öğrenciler yalnızca bir Öğrenci'nin davet kodunu kullanabilir.`);
-        return;
+        return {
+          success: false,
+          code: 'COACH_CODE',
+          message: `Girdiğiniz "${cleanCode}" kodu bir Koç Davet Kodudur. Öğrenci davet alanında sadece başka bir öğrencinin davet kodunu kullanabilirsiniz. Koçunuz ile eşleşmek için lütfen "Koç Kodu" alanını kullanınız.`
+        };
       }
 
       // --- COACH REFERRAL LOGIC ---
@@ -137,7 +158,11 @@ export const referralService = {
         });
 
         console.log(`[Referral Process] Koç referansı başarıyla işlendi.`);
-        return;
+        return {
+          success: true,
+          code: 'SUCCESS',
+          message: `Davet kodu (${cleanCode}) başarıyla uygulandı!`
+        };
       }
 
       // --- STUDENT REFERRAL LOGIC ---
@@ -145,7 +170,11 @@ export const referralService = {
       console.log(`[Referral Process] Settings alındı:`, settings);
       if (!settings || !settings.isActive) {
         console.log(`[Referral Process] İptal: Referans sistemi inaktif veya ayarlar alınamadı.`);
-        return;
+        return {
+          success: false,
+          code: 'INACTIVE',
+          message: 'Davet ve referans ödül sistemi şu anda aktif değil.'
+        };
       }
 
       const expirationDate = new Date();
@@ -216,8 +245,27 @@ export const referralService = {
       });
       console.log(`[Referral Process] Geçmiş kaydı başarıyla oluşturuldu. İşlem Tümüyle Başarılı!`);
 
-    } catch (error) {
+      // Send in-app notification to new student
+      await notificationService.addNotification(newUserId, {
+        title: '🎉 Davet Kodu Uygulandı!',
+        message: `${cleanCode} davet kodu ile kaydolduğunuz için hoş geldin indirim kuponunuz cüzdanınıza tanımlandı.`,
+        type: 'system',
+        link: '/panel/ogrenci/cuzdan'
+      });
+
+      return {
+        success: true,
+        code: 'SUCCESS',
+        message: `Davet kodu (${cleanCode}) başarıyla uygulandı! Hoş geldin indirim kuponunuz cüzdanınıza tanımlandı.`
+      };
+
+    } catch (error: any) {
       console.error('[Referral Process] Beklenmeyen Hata Oluştu:', error);
+      return {
+        success: false,
+        code: 'ERROR',
+        message: 'Davet kodu işlenirken bir hata oluştu.'
+      };
     }
   },
 

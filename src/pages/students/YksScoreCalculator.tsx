@@ -56,8 +56,6 @@ export default function YksScoreCalculator() {
       setIsCalculating(true);
       const data = await calculateScores(nets);
       setResults(data);
-      // Scroll to results slightly
-      window.scrollTo({ top: document.body.scrollHeight / 2, behavior: 'smooth' });
     } catch (e) {
       console.error(e);
       alert("Puan hesaplanırken bir hata oluştu. Lütfen tekrar deneyin.");

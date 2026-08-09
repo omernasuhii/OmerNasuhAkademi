@@ -1,39 +1,113 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../lib/AuthContext";
+import { tourService } from "../../services/tourService";
 import { useStudent } from "../../lib/StudentContext";
 import { analysisService } from "../../services/analysisService";
 import { Brain, FileText, Loader2, RefreshCw } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { OnboardingTour, TourStep } from "../../components/OnboardingTour";
+import { SAMPLE_DEMO_STUDENT } from "./CoachStudents";
+
+const DEMO_ANALYSES = [
+  { id: 'demo-1', analysisType: 'Öğrenme Stilleri Envanteri', timestamp: new Date() },
+  { id: 'demo-2', analysisType: 'Sınav Kaygısı Ölçeği', timestamp: new Date() },
+  { id: 'demo-3', analysisType: 'Holland Mesleki İlgi Envanteri', timestamp: new Date() }
+];
+
+const DEMO_REPORT = `### 🧠 Yapay Zeka Koç Değerlendirme & Rehberlik Raporu
+
+**1. Öğrenme Profili (Görsel & İşitsel):**
+Öğrenciniz %48 oranında Görsel, %36 oranında İşitsel öğrenme ağırlıklıdır. Ders çalışırken renkli kodlama, kavram haritaları ve sesli özet dinleme teknikleri ders verimini artırmaktadır.
+
+**2. Sınav Kaygısı & Psikolojik Dayanıklılık:**
+Sınav kaygısı "Orta-Düşük" seviyededir. Özellikle deneme sınavlarının ilk 15 dakikasındaki odaklanmayı artırmak için nefes egzersizi ve soru turu stratejisi önerilir.
+
+**3. Koç Rehberlik Tavsiyesi:**
+Öğrencinin güçlü mantıksal zekası ve araştırma merakı Holland envanterinde Araştırmacı (Investigative) tiplemesini öne çıkarmaktadır. Hedeflenen mühendislik/bilim bölümleri çalışma motivasyonunu desteklemektedir.`;
 
 export default function CoachPersonality() {
-  const { userData } = useAuth();
-  const { selectedStudent } = useStudent();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user, userData } = useAuth();
+  const { selectedStudent, setSelectedStudent } = useStudent();
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [analyses, setAnalyses] = useState<any[]>([]);
   const [report, setReport] = useState<string | null>(null);
+  const [isTourOpen, setIsTourOpen] = useState(false);
+
+  const activeStudent = selectedStudent || (location.state?.startTour || location.state?.isDemo ? SAMPLE_DEMO_STUDENT : null);
+
+  useEffect(() => {
+    if (!selectedStudent && (location.state?.startTour || location.state?.isDemo)) {
+      setSelectedStudent(SAMPLE_DEMO_STUDENT);
+    }
+  }, [selectedStudent, setSelectedStudent, location.state]);
+
+  useEffect(() => {
+    if (tourService.shouldAutoStartTour('coach_personality', userData, location.state?.startTour)) {
+      const timer = setTimeout(() => {
+        setIsTourOpen(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [location.state, userData]);
+
+  const handleEndTour = () => {
+    setIsTourOpen(false);
+    tourService.markTourCompleted('coach_personality', user?.uid);
+  };
+
+  const tourSteps: TourStep[] = [
+    {
+      targetId: 'tour-personality-header',
+      title: 'Kişilik & Rehberlik Analiz Paneli',
+      description: `${activeStudent?.displayName || 'Seçili öğrenci'} tarafından doldurulan mizaç, öğrenme stili ve rehberlik testlerinin koç değerlendirme merkezidir.`,
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-personality-list',
+      title: 'Tamamlanan Analizler & Envanterler',
+      description: 'Öğrencinin tamamladığı Öğrenme Stilleri, Sınav Kaygısı ve Holland Mesleki İlgi gibi testler burada listelenir.',
+      position: 'top'
+    },
+    {
+      targetId: 'tour-personality-report',
+      title: 'Yapay Zeka Destekli Bütünleşik Koç Raporu',
+      description: 'Yapay Zeka, öğrencinin tüm test verilerini harmanlayarak koç için kişiselleştirilmiş rehberlik tavsiyeleri ve pedagojik stratejiler üretir.',
+      position: 'top'
+    },
+    {
+      targetId: 'tour-personality-generate-btn',
+      title: 'Koç Raporu Oluştur & Güncelle',
+      description: 'Öğrenci yeni testler tamamladıkça tek tıkla "Koç Raporu Oluştur/Güncelle" butonuna basarak sentez raporunu güncelleyebilirsiniz.',
+      position: 'bottom'
+    }
+  ];
 
   useEffect(() => {
     fetchData();
-  }, [userData, selectedStudent]);
+  }, [userData, activeStudent]);
 
   const fetchData = async () => {
-    if (!selectedStudent?.uid) return;
+    if (!activeStudent?.uid) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const results = await analysisService.getResults(selectedStudent.uid);
+      const results = await analysisService.getResults(activeStudent.uid);
       setAnalyses(results || []);
       
-      // Check if we have a saved parent report
-      // For simplicity, we can fetch a specific analysis type 'COACH_REPORT'
-      const savedReport = await analysisService.getResults(selectedStudent.uid, 'COACH_REPORT');
+      const savedReport = await analysisService.getResults(activeStudent.uid, 'COACH_REPORT');
       if (savedReport && savedReport.length > 0) {
         setReport(savedReport[0].data.reportText);
       }
     } catch (error: any) {
       console.error("Analizler yüklenirken hata oluştu:", error);
       if (error.message?.includes('Missing or insufficient permissions')) {
-        setReport("Firebase Güvenlik Kuralları henüz güncellenmedi. Lütfen projenizin 'firestore.rules' dosyasındaki kuralları Firebase Console üzerinden yayınlayın.");
+        setReport("Firebase Güvenlik Kuralları henüz güncellenmedi.");
       }
     } finally {
       setLoading(false);
@@ -127,14 +201,21 @@ export default function CoachPersonality() {
     );
   }
 
-  const validAnalyses = analyses.filter(a => !['PARENT_REPORT', 'COACH_REPORT'].includes(a.analysisType));
+  const fetchedValidAnalyses = analyses.filter(a => !['PARENT_REPORT', 'COACH_REPORT'].includes(a.analysisType));
+  const isDemoMode = Boolean(location.state?.startTour || location.state?.isDemo || !selectedStudent);
+
+  const validAnalyses = fetchedValidAnalyses.length > 0 
+    ? fetchedValidAnalyses 
+    : (isDemoMode ? DEMO_ANALYSES : []);
+
+  const displayReport = report || (isDemoMode ? DEMO_REPORT : null);
+
   const coachReport = analyses.find(a => a.analysisType === 'COACH_REPORT');
 
   let isUpToDate = false;
   if (coachReport && validAnalyses.length > 0) {
     const reportDate = coachReport.timestamp?.toDate ? coachReport.timestamp.toDate().getTime() : 0;
     
-    // validAnalyses is already sorted by timestamp desc from the service, but let's be safe
     const latestAnalysis = validAnalyses.reduce((latest, current) => {
       const currentTimestamp = current.timestamp?.toDate ? current.timestamp.toDate().getTime() : 0;
       const latestTimestamp = latest.timestamp?.toDate ? latest.timestamp.toDate().getTime() : 0;
@@ -150,20 +231,35 @@ export default function CoachPersonality() {
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <OnboardingTour
+        steps={tourSteps}
+        isOpen={isTourOpen}
+        onClose={handleEndTour}
+        onComplete={handleEndTour}
+        onNextTour={() => {
+          setIsTourOpen(false);
+          tourService.markTourCompleted('coach_personality', user?.uid);
+          navigate('/panel/koc/ogrenci/hedefler', { state: { startTour: true, isDemo: true } });
+        }}
+        nextTourLabel="Hedefler & Takip Turu"
+        tourKey="coach_personality"
+      />
+
+      <div id="tour-personality-header" className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <Brain className="text-indigo-400" />
             Kişilik & Rehberlik Analizi
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Öğrencinizin tamamladığı analizlerin koç değerlendirme raporu
+            {activeStudent?.displayName || 'Öğrenci'} için tamamlanan analizlerin koç değerlendirme raporu
           </p>
         </div>
         
         {validAnalyses.length > 0 && (
           <div className="flex flex-col items-end">
             <button
+              id="tour-personality-generate-btn"
               onClick={generateReport}
               disabled={generating || isUpToDate}
               className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl flex items-center gap-2 text-sm font-medium transition-colors disabled:opacity-50"
@@ -174,7 +270,7 @@ export default function CoachPersonality() {
               ) : (
                 <RefreshCw size={16} />
               )}
-              {report ? "Raporu Güncelle" : "Koç Raporu Oluştur"}
+              {displayReport ? "Raporu Güncelle" : "Koç Raporu Oluştur"}
             </button>
             {isUpToDate && (
               <span className="text-xs text-emerald-400 mt-2 font-medium">
@@ -196,8 +292,8 @@ export default function CoachPersonality() {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
-            {report ? (
-              <div className="bg-slate-900 border border-slate-700/50 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+            {displayReport ? (
+              <div id="tour-personality-report" className="bg-slate-900 border border-slate-700/50 rounded-2xl p-6 shadow-xl relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500 rounded-l-2xl"></div>
                 <div className="flex items-center gap-3 mb-6 pb-6 border-b border-slate-800">
                   <div className="bg-indigo-500/20 p-3 rounded-xl border border-indigo-500/30">
@@ -210,7 +306,7 @@ export default function CoachPersonality() {
                 </div>
                 
                 <div className="prose prose-invert prose-indigo max-w-none">
-                  <ReactMarkdown>{report}</ReactMarkdown>
+                  <ReactMarkdown>{displayReport}</ReactMarkdown>
                 </div>
               </div>
             ) : (
@@ -236,7 +332,7 @@ export default function CoachPersonality() {
             )}
           </div>
           
-          <div className="lg:col-span-1 space-y-4">
+          <div id="tour-personality-list" className="lg:col-span-1 space-y-4">
             <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest pl-2">
               Tamamlanan Analizler
             </h3>
@@ -249,7 +345,7 @@ export default function CoachPersonality() {
                   <div>
                     <p className="text-sm font-bold text-white">{analysis.analysisType}</p>
                     <p className="text-xs text-slate-500">
-                      {analysis.timestamp?.toDate ? analysis.timestamp.toDate().toLocaleDateString('tr-TR') : ''}
+                      {analysis.timestamp?.toDate ? analysis.timestamp.toDate().toLocaleDateString('tr-TR') : (analysis.timestamp instanceof Date ? analysis.timestamp.toLocaleDateString('tr-TR') : '10.05.2026')}
                     </p>
                   </div>
                 </div>

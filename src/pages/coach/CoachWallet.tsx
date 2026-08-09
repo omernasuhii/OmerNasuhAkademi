@@ -1,12 +1,62 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Wallet, TrendingUp, History, ArrowDownLeft, ArrowUpRight, CreditCard, Users, Loader2, X, Check, Share2, Copy } from 'lucide-react';
+import { Wallet, TrendingUp, History, ArrowDownLeft, ArrowUpRight, CreditCard, Users, Loader2, X, Check, Share2, Copy, Sparkles, Plus } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { tourService } from '../../services/tourService';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { studentDataService } from '../../services/studentDataService';
+import PayTRDepositModal from '../../components/coach/PayTRDepositModal';
+import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
+
+const DEMO_COACH_TXS = [
+  {
+    id: 'tx-c1',
+    amount: 2500,
+    type: 'DEPOSIT',
+    coachId: 'COACH_DEMO',
+    studentName: 'Ahmet Yılmaz',
+    description: 'Aylık Koçluk Hizmeti Ödemesi (Gümüş Paket)',
+    date: new Date(Date.now() - 86400000 * 2).toISOString(),
+    direction: 'in'
+  },
+  {
+    id: 'tx-c2',
+    amount: 1800,
+    type: 'DEPOSIT',
+    coachId: 'COACH_DEMO',
+    studentName: 'Zeynep Kaya',
+    description: 'Aylık Koçluk Hizmeti Ödemesi (Bronz Paket)',
+    date: new Date(Date.now() - 86400000 * 5).toISOString(),
+    direction: 'in'
+  },
+  {
+    id: 'tx-c3',
+    amount: 250,
+    type: 'WITHDRAWAL',
+    coachId: 'COACH_DEMO',
+    studentName: 'Sistem',
+    description: 'Sistem Altyapı ve Lisans Kullanım Kesintisi',
+    date: new Date(Date.now() - 86400000 * 6).toISOString(),
+    direction: 'out',
+    coachDeductionAmount: 250
+  },
+  {
+    id: 'tx-c4',
+    amount: 500,
+    type: 'DEPOSIT',
+    coachId: 'SYSTEM',
+    studentName: 'Sistem',
+    description: 'Koç Davet / Referans Hediye Bakiyesi',
+    date: new Date(Date.now() - 86400000 * 10).toISOString(),
+    direction: 'in'
+  }
+];
 
 export default function CoachWallet() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { userData, user } = useAuth();
   
   const [loading, setLoading] = useState(true);
@@ -15,6 +65,56 @@ export default function CoachWallet() {
   const [rawTransactions, setRawTransactions] = useState<any[]>([]);
   const [systemBalance, setSystemBalance] = useState(0); 
   const [selectedTx, setSelectedTx] = useState<any | null>(null);
+  const [isPayTRModalOpen, setIsPayTRModalOpen] = useState(false);
+
+  const [isTourOpen, setIsTourOpen] = useState(false);
+
+  useEffect(() => {
+    if (tourService.shouldAutoStartTour('coach_wallet', userData, location.state?.startTour)) {
+      const timer = setTimeout(() => {
+        setIsTourOpen(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [location.state, userData]);
+
+  const handleEndTour = () => {
+    setIsTourOpen(false);
+    tourService.markTourCompleted('coach_wallet', user?.uid);
+  };
+
+  const tourSteps: TourStep[] = [
+    {
+      targetId: 'tour-coach-wallet-header',
+      title: 'Cüzdan ve Kazanç Paneli',
+      description: 'Öğrenci ödemelerinden elde ettiğiniz toplam kazançları, sistem kullanım bakiyenizi ve finansal hareketlerinizi takip edeceğiniz merkezdir.',
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-coach-wallet-earnings',
+      title: 'Toplam Kazanç Özet Kartı',
+      description: 'Aktif koçluk yaptığınız öğrencilerden tahsil edilen net kazançlar ve mevcut ay içerisinde gerçekleşen toplam ödemeler burada gösterilir.',
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-coach-wallet-balance',
+      title: 'Sistem İçi Bakiye ve Yükleme',
+      description: 'Öğrencilerinize sağlanan altyapı ve sistem hizmetleri için kullanılan aktif bakiyenizdir. Dilediğiniz zaman bakiye yüklemesi yapabilirsiniz.',
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-coach-wallet-referral',
+      title: 'Koç Referans Programı',
+      description: 'Size özel üretilen referans kodunu meslektaşlarınızla paylaşarak sisteme katılan her koç için hediye sistem bakiyesi kazanırsınız.',
+      position: 'top'
+    },
+    {
+      targetId: 'tour-coach-wallet-history',
+      title: 'Son İşlemler & Detaylı Geçmiş',
+      description: 'Öğrencilerin yaptığı abonelik ödemeleri, kesintiler ve hediye bakiyeler tarih ve tutar bilgileriyle ayrıntılı olarak listelenir.',
+      position: 'top'
+    }
+  ];
 
   useEffect(() => {
     if (user && userData) {
@@ -147,6 +247,18 @@ export default function CoachWallet() {
   const recentTransactions = [...formattedStudentTxs]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
+  const displayTransactions = (recentTransactions.length > 0) 
+    ? recentTransactions 
+    : ((isTourOpen || location.state?.isDemo) ? DEMO_COACH_TXS.map(tx => ({
+        id: tx.id,
+        category: tx.coachId === 'SYSTEM' ? 'system' : 'student',
+        direction: tx.direction,
+        amount: tx.amount,
+        subject: tx.coachId === 'SYSTEM' ? 'Sistem İşlemi' : `Öğrenci Yüklemesi - ${tx.studentName}`,
+        description: tx.description,
+        date: tx.date
+      })) : []);
+
   if (loading) {
     return (
       <div className="flex-1 p-6 md:p-10 flex flex-col items-center justify-center animate-in fade-in duration-500 min-h-[50vh]">
@@ -159,7 +271,15 @@ export default function CoachWallet() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-white/5">
+      <OnboardingTour
+        steps={tourSteps}
+        isOpen={isTourOpen}
+        onClose={handleEndTour}
+        onComplete={handleEndTour}
+        tourKey="coach_wallet"
+      />
+
+      <div id="tour-coach-wallet-header" className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-white/5">
         <motion.div 
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -178,27 +298,11 @@ export default function CoachWallet() {
         </motion.div>
       </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05 }}
-        className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex items-start gap-3"
-      >
-        <div className="mt-0.5">
-           <svg className="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-        </div>
-        <div>
-          <h4 className="text-sm font-bold text-amber-500 mb-1">Sistem Bakiyesi Kuralları</h4>
-          <p className="text-xs text-amber-400/80 leading-relaxed font-medium">
-            Platformumuza yüklenen bakiyeler ve kazanılan hediye referans ödülleri, <strong>yalnızca sistem içi (hizmet satın alımları, abonelikler ve komisyon ödemeleri)</strong> kullanılabilir. Yüklenen bakiyeler ve kazanılan ödüller nakde çevrilemez veya banka hesaplarına iade edilemez. Öğrenci tahsilatlarınız haricindeki sistem içi bakiyeniz FocusON Akademi içerisindeki işlemlerinizde geçerlidir.
-          </p>
-        </div>
-      </motion.div>
-
       {/* Cards Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Earnings Card */}
         <motion.div
+           id="tour-coach-wallet-earnings"
            initial={{ opacity: 0, y: 20 }}
            animate={{ opacity: 1, y: 0 }}
            transition={{ delay: 0.1 }}
@@ -222,6 +326,7 @@ export default function CoachWallet() {
 
         {/* System Balance Card */}
         <motion.div
+           id="tour-coach-wallet-balance"
            initial={{ opacity: 0, y: 20 }}
            animate={{ opacity: 1, y: 0 }}
            transition={{ delay: 0.2 }}
@@ -244,14 +349,34 @@ export default function CoachWallet() {
                </h2>
              </div>
            </div>
-           <p className="text-sm text-amber-200/70 inline-flex items-center gap-1 font-medium bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/10 mt-4 w-fit">
-             Öğrencileriniz sistem içi işlem yaptıkça tahsil edilir.
-           </p>
+
+           <div className="mt-4 space-y-3">
+             <button
+               onClick={() => setIsPayTRModalOpen(true)}
+               className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black py-3 px-4 rounded-2xl flex items-center justify-between shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.02] cursor-pointer group"
+             >
+               <div className="flex items-center gap-2.5">
+                 <div className="p-1.5 bg-white/20 rounded-xl">
+                   <CreditCard size={18} />
+                 </div>
+                 <span className="text-xs uppercase tracking-wider">Kredi Kartı ile Yükle</span>
+               </div>
+               <span className="bg-amber-400 text-slate-950 font-black text-[10px] px-2.5 py-0.5 rounded-full uppercase tracking-widest shadow-sm flex items-center gap-1 group-hover:scale-105 transition-transform">
+                 <Sparkles size={10} />
+                 Yakında
+               </span>
+             </button>
+
+             <p className="text-xs text-amber-200/70 inline-flex items-center gap-1 font-medium bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/10 w-full">
+               Öğrencileriniz sistem içi işlem yaptıkça tahsil edilir.
+             </p>
+           </div>
         </motion.div>
       </div>
 
       {/* Coach Referral Banner */}
       <motion.div
+        id="tour-coach-wallet-referral"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.25 }}
@@ -314,6 +439,7 @@ export default function CoachWallet() {
 
       {/* Transaction History */}
       <motion.div
+        id="tour-coach-wallet-history"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3 }}
@@ -330,13 +456,13 @@ export default function CoachWallet() {
             </p>
           </div>
           <div className="text-[10px] font-bold text-slate-400 border border-slate-700 bg-slate-800/50 px-3 py-1.5 rounded-lg uppercase tracking-widest leading-none">
-             Toplam {recentTransactions.length} İşlem
+             Toplam {displayTransactions.length} İşlem
           </div>
         </div>
         
         <div className="p-4 space-y-2">
-          {recentTransactions.length > 0 ? (
-            recentTransactions.map((tx, idx) => (
+          {displayTransactions.length > 0 ? (
+            displayTransactions.map((tx, idx) => (
               <div 
                 key={tx.id || idx} 
                 className={`flex items-center justify-between p-4 bg-white/[0.02] hover:bg-white/[0.06] border border-transparent hover:border-white/10 rounded-2xl transition-all group ${tx.direction === 'out' ? 'cursor-pointer' : ''}`}
@@ -436,6 +562,12 @@ export default function CoachWallet() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* PayTR Credit Card Informative Modal */}
+      <PayTRDepositModal
+        isOpen={isPayTRModalOpen}
+        onClose={() => setIsPayTRModalOpen(false)}
+      />
     </div>
   );
 }

@@ -1,20 +1,69 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Bot, Send, User, MessageCircle, Sparkles, AlertCircle, Loader2, Users } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
+import { tourService } from '../../services/tourService';
 import { collection, query, where, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 
 import { studentDataService } from '../../services/studentDataService';
 import { analysisService } from '../../services/analysisService';
 import { appointmentService } from '../../services/appointmentService';
+import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
 
 export default function CoachAssistant() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { user, userData } = useAuth();
   const [students, setStudents] = useState<any[]>([]);
-  const [messages, setMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([
+
+  const [isTourOpen, setIsTourOpen] = useState(false);
+
+  useEffect(() => {
+    if (tourService.shouldAutoStartTour('coach_assistant', userData, location.state?.startTour)) {
+      const timer = setTimeout(() => {
+        setIsTourOpen(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [location.state, userData]);
+
+  const handleEndTour = () => {
+    setIsTourOpen(false);
+    tourService.markTourCompleted('coach_assistant', user?.uid);
+  };
+
+  const tourSteps: TourStep[] = [
     {
-      role: 'assistant',
+      targetId: 'tour-assistant-header',
+      title: 'ON Asistan - Akıllı Eğitim Rehberi',
+      description: 'Koçun tüm kayıtlı öğrencilerine ait 100+ akademik ve davranışsal veriye (deneme netleri, soru bankası ilerlemesi, kişilik tiplemeleri, randevular) anlık erişim sağlayan yapay zeka asistanıdır.',
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-assistant-students-badge',
+      title: 'Öğrenci Veri Entegrasyonu',
+      description: 'Koçluğunu yaptığınız tüm öğrencilerin güncel verilerini otomatik olarak analiz eder, bireysel tavsiyeler ve stratejiler üretir.',
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-assistant-chat-container',
+      title: 'Akıllı Sohbet & Analiz Akışı',
+      description: 'Asistan ile gerçekleştirdiğiniz sohbetler, öğrenci gelişim özetleri ve yapay zeka tarafından sağlanan detaylı değerlendirmeler bu akışta görüntülenir.',
+      position: 'top'
+    },
+    {
+      targetId: 'tour-assistant-input-area',
+      title: 'Sorular & Talimatlar',
+      description: 'Öğrencinizin netlerindeki değişimler, konu eksikleri veya haftalık çalışma stratejileri hakkında asistana sorular sorabilir, özel rapor ve program önerileri isteyebilirsiniz.',
+      position: 'top'
+    }
+  ];
+  type Message = { id?: string; role: 'user' | 'model' | 'function'; content?: string; functionCalls?: any[]; functionResponse?: any; name?: string; };
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: 'greeting', role: 'model',
       content: `Merhaba ${userData?.firstName}! Ben ON Asistan. Öğrencilerinizin durumları, gelişimleri ve koçluk süreçleri hakkında fikir alışverişi yapabiliriz. Size nasıl yardımcı olabilirim?`
     }
   ]);
@@ -22,6 +71,7 @@ export default function CoachAssistant() {
   const [loading, setLoading] = useState(false);
   const [studentsLoaded, setStudentsLoaded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (user) {
@@ -33,22 +83,21 @@ export default function CoachAssistant() {
   const loadChatHistory = async () => {
     if (!user) return;
     try {
-      const chatDoc = await getDoc(doc(db, 'coach_chats', user.uid));
-      if (chatDoc.exists()) {
-        const data = chatDoc.data();
-        if (data.messages && data.messages.length > 0) {
-          setMessages(data.messages);
-        }
+      const docRef = doc(db, 'coach_chats', user.uid);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        setMessages(snap.data().messages || []);
       }
     } catch (error) {
-      console.error("Geçmiş sohbetler yüklenirken hata:", error);
+      console.error("Sohbet geçmişi yüklenirken hata:", error);
     }
   };
 
-  const saveChatHistory = async (newMessages: {role: 'user' | 'assistant', content: string}[]) => {
+  const saveChatHistory = async (newMessages: Message[]) => {
     if (!user) return;
     try {
-      await setDoc(doc(db, 'coach_chats', user.uid), { messages: newMessages }, { merge: true });
+      const cleanMessages = JSON.parse(JSON.stringify(newMessages));
+      await setDoc(doc(db, 'coach_chats', user.uid), { messages: cleanMessages }, { merge: true });
     } catch (error) {
       console.error("Sohbet kaydedilirken hata:", error);
     }
@@ -59,7 +108,9 @@ export default function CoachAssistant() {
   }, [messages]);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
   };
 
   const loadStudents = async () => {
@@ -236,6 +287,35 @@ export default function CoachAssistant() {
     return context;
   };
 
+  
+  const executeFunction = async (name: string, args: any) => {
+    if (name === 'get_coach_students_data') {
+      try {
+        const studentName = args.studentName;
+        const dataTypes = args.dataTypes || [];
+        
+        let filteredStudents = students;
+        if (studentName) {
+           filteredStudents = students.filter(s => s.displayName.toLowerCase().includes(studentName.toLowerCase()));
+        }
+
+        const summarized = filteredStudents.map(s => {
+          const res: any = { uid: s.uid, name: s.displayName, package: s.summaryData.subscriptionPlan };
+          if (dataTypes.length === 0 || dataTypes.includes('programs')) res.programs = { daily: s.summaryData.dailyPrograms?.slice(0,3), weekly: s.summaryData.weeklyPrograms?.slice(0,2) };
+          if (dataTypes.length === 0 || dataTypes.includes('books')) res.books = s.summaryData.books?.slice(0,5);
+          if (dataTypes.length === 0 || dataTypes.includes('exams')) { res.exams = s.summaryData.exams?.slice(0,3); res.analyses = s.summaryData.examAnalyses?.slice(0,2); }
+          if (dataTypes.length === 0 || dataTypes.includes('appointments')) res.appointments = s.summaryData.appointments?.filter((a:any) => a.status === 'pending');
+          return res;
+        });
+
+        return { studentsData: summarized };
+      } catch(e:any) {
+        return { error: e.message };
+      }
+    }
+    return { error: "Unknown function" };
+  };
+
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!input.trim() || loading || !studentsLoaded) return;
@@ -243,53 +323,85 @@ export default function CoachAssistant() {
     const userMessage = input.trim();
     setInput('');
     
-    const newMessagesForUser = [...messages, { role: 'user' as const, content: userMessage }];
+    const newMessagesForUser = [...messages, { id: Date.now().toString(), role: 'user' as const, content: userMessage }];
     setMessages(newMessagesForUser);
     saveChatHistory(newMessagesForUser);
     
     setLoading(true);
 
     try {
-      const systemInstruction = `Sen "ON Asistan" adlı yapay zeka eğitim ve koçluk asistanısın. 
-Bir koçla konuşuyorsun. 
-Koçun adı: ${userData?.firstName || 'Koç'}.
-${generateContext()}
-Sen profesyonel, yapıcı ve koça destek olan bir karaktersin. Analizlerini yaparken öğrenci bazlı verileri (Kitap Takibi, Randevular, Haftalık Program, Sınav Sonuçları, Deneme Sınavı Analizleri, Derin Analiz, Öğrenci Profili, Hedefler & Takip, Öğrencinin Koça Olan Cüzdan Ödemeleri vb.) mutlaka göz önünde bulundur ve detaylandır.`;
+      let currentHistory = [...newMessagesForUser];
+      let done = false;
 
-      const res = await fetch('/api/coach-assistant', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          systemInstruction,
-          messages: newMessagesForUser.map(m => ({
-            role: m.role,
-            content: m.content
-          }))
-        })
-      });
+      while (!done) {
+        const res = await fetch('/api/coach-assistant', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            history: currentHistory.map(m => ({
+              role: m.role,
+              content: m.content,
+              functionCalls: m.functionCalls,
+              functionResponse: m.functionResponse,
+              name: m.name
+            })),
+            userContext: { firstName: userData?.firstName }
+          })
+        });
 
-      if (!res.ok) {
-        throw new Error(await res.text() || 'Asistan yanıt veremedi.');
-      }
+        if (!res.ok) {
+          throw new Error(await res.text() || 'Asistan yanıt veremedi.');
+        }
 
-      const resJson = await res.json();
-      const responseText = resJson.text;
-      
-      if (responseText) {
-          const newMessagesForAssistant = [...newMessagesForUser, { role: 'assistant' as const, content: responseText }];
-          setMessages(newMessagesForAssistant);
-          saveChatHistory(newMessagesForAssistant);
-      } else {
-         throw new Error("Empty response");
+        const resJson = await res.json();
+        
+        if (resJson.functionCalls && resJson.functionCalls.length > 0) {
+          const functionCallsMessage: any = {
+            id: Date.now().toString() + "-call",
+            role: 'model',
+            functionCalls: resJson.functionCalls
+          };
+          currentHistory = [...currentHistory, functionCallsMessage];
+          setMessages(prev => [...prev, functionCallsMessage]);
+
+          const results = [];
+          for (const fc of resJson.functionCalls) {
+             const result = await executeFunction(fc.name, fc.args);
+             results.push({ name: fc.name, response: result, id: fc.id });
+          }
+          
+          for (const result of results) {
+            const funcResMsg: any = {
+              id: Date.now().toString() + "-res",
+              role: 'function',
+              name: result.name,
+              functionResponse: result.response
+            };
+            currentHistory = [...currentHistory, funcResMsg];
+            setMessages(prev => [...prev, funcResMsg]);
+          }
+        } else if (resJson.text) {
+          const modelMessage: any = {
+            id: Date.now().toString() + "-model",
+            role: 'model',
+            content: resJson.text
+          };
+          currentHistory = [...currentHistory, modelMessage];
+          setMessages(prev => [...prev, modelMessage]);
+          saveChatHistory(currentHistory as any);
+          done = true;
+        } else {
+          done = true;
+        }
       }
 
     } catch (error) {
       console.error("AI Error:", error);
       setMessages(prev => [
         ...prev, 
-        { role: 'assistant', content: "Üzgünüm, şu anda yanıt veremiyorum. Lütfen teknik ekiple iletişime geçin veya API anahtarınızı kontrol edin." }
+        { role: 'model', content: "Üzgünüm, şu anda yanıt veremiyorum. Lütfen teknik ekiple iletişime geçin veya API anahtarınızı kontrol edin." }
       ]);
     } finally {
       setLoading(false);
@@ -298,7 +410,21 @@ Sen profesyonel, yapıcı ve koça destek olan bir karaktersin. Analizlerini yap
 
   return (
     <div className="w-full max-w-6xl mx-auto flex flex-col h-[calc(100vh-64px)] animate-in fade-in duration-500">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 shrink-0">
+      <OnboardingTour
+        steps={tourSteps}
+        isOpen={isTourOpen}
+        onClose={handleEndTour}
+        onComplete={handleEndTour}
+        onNextTour={() => {
+          setIsTourOpen(false);
+          tourService.markTourCompleted('coach_assistant', user?.uid);
+          navigate('/panel/koc/randevular', { state: { startTour: true, isDemo: true } });
+        }}
+        nextTourLabel="Randevular & Görüşmeler Turu"
+        tourKey="coach_assistant"
+      />
+
+      <div id="tour-assistant-header" className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 shrink-0">
         <motion.div 
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -316,23 +442,35 @@ Sen profesyonel, yapıcı ve koça destek olan bir karaktersin. Analizlerini yap
           </p>
         </motion.div>
         
-        {studentsLoaded && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/5 border border-white/10 text-xs font-bold text-slate-300">
-              <Users size={16} className="text-indigo-400" />
-              {students.length} Öğrenci Bağlı
-            </div>
-        )}
+        <div id="tour-assistant-students-badge">
+          {studentsLoaded ? (
+              <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/5 border border-white/10 text-xs font-bold text-slate-300">
+                <Users size={16} className="text-indigo-400" />
+                {students.length} Öğrenci Bağlı
+              </div>
+          ) : (
+              <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/5 border border-white/10 text-xs font-bold text-slate-300">
+                <Users size={16} className="text-indigo-400" />
+                Öğrenci Verileri Bağlı
+              </div>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-[32px] overflow-hidden flex flex-col shadow-2xl shadow-indigo-500/5">
         {/* Chat Messages */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar">
+        <div 
+          id="tour-assistant-chat-container"
+          ref={chatContainerRef}
+          data-no-auto-scroll-top="true"
+          className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar"
+        >
           {messages.map((message, index) => (
             <div 
               key={index} 
               className={`flex gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              {message.role === 'assistant' && (
+              {message.role === 'model' && (
                 <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
                   <Bot size={20} />
                 </div>
@@ -373,7 +511,7 @@ Sen profesyonel, yapıcı ve koça destek olan bir karaktersin. Analizlerini yap
         </div>
 
         {/* Input Area */}
-        <div className="p-4 md:p-6 bg-slate-950/50 border-t border-white/5 backdrop-blur-xl shrink-0">
+        <div id="tour-assistant-input-area" className="p-4 md:p-6 bg-slate-950/50 border-t border-white/5 backdrop-blur-xl shrink-0">
           <div className="mb-4 flex items-center gap-2 text-[10px] uppercase font-black tracking-widest text-emerald-400 bg-emerald-500/10 w-fit px-3 py-1 rounded-full border border-emerald-500/20">
              <MessageCircle size={12} />
              Sistem İçi Bildirim ve Mesajlaşma

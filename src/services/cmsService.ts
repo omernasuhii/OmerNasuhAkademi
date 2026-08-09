@@ -75,13 +75,13 @@ export const cmsService = {
         q = query(collection(db, collectionPath), limit(resultLimit));
       }
       const snap = await getDocs(q);
-      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() as any }));
     } catch (err) {
       console.warn(`[CMS] Primary query failed for ${collectionPath}, trying fallback without sort:`, err);
       try {
         const q = query(collection(db, collectionPath), limit(resultLimit));
         const snap = await getDocs(q);
-        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        return snap.docs.map(d => ({ id: d.id, ...d.data() as any }));
       } catch (innerErr) {
         console.error(`[CMS] Fallback failed for ${collectionPath}:`, innerErr);
         return [];

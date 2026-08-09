@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useStudent } from '../../lib/StudentContext';
+import { useAuth } from '../../lib/AuthContext';
+import { tourService } from '../../services/tourService';
 import { studentDataService } from '../../services/studentDataService';
 import { 
   Target, 
@@ -19,6 +22,8 @@ import {
   Search
 } from 'lucide-react';
 import { useCurriculum } from '../../lib/CurriculumContext';
+import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
+import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
 
 interface TopicGoal {
   subject: string;
@@ -38,9 +43,78 @@ interface BookGoal {
   currentPage?: number;
 }
 
+const DEMO_TOPIC_GOALS: TopicGoal[] = [
+  { subject: 'Temel Matematik', topic: 'Fonksiyonlar & Grafikler', isCompleted: true },
+  { subject: 'Fizik', topic: 'Elektrik ve Manyetizma', isCompleted: false },
+  { subject: 'Kimya', topic: 'Kimyasal Tepkimelerde Denge', isCompleted: false },
+  { subject: 'Geometri', topic: 'Üçgende Açılar ve Kenarlar', isCompleted: true }
+];
+
+const DEMO_BOOK_GOALS: BookGoal[] = [
+  { bookId: 'b1', bookName: '3D TYT Matematik Soru Bankası', subject: 'Temel Matematik', targetDescription: 'Sayfa 100 - 180', progress: 75, isCompleted: false, startPage: 100, endPage: 180, currentPage: 160 },
+  { bookId: 'b2', bookName: 'Apotemi Fizik Fasikülü', subject: 'Fizik', targetDescription: 'Elektrik Ünitesi', progress: 100, isCompleted: true }
+];
+
+const DEMO_COACH_NOTE = "Öğrencinin bu ay Matematik ve Fizik konularına öncelik vermesi kararlaştırıldı. Sayfa takipli soru bankası ödevlerinin haftalık takibi yapılacaktır.";
+
 export default function StudentGoals() {
+  const { user, userData } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const { curriculum: CURRICULUM } = useCurriculum();
-  const { selectedStudent } = useStudent();
+  const { selectedStudent, setSelectedStudent } = useStudent();
+
+  const activeStudent = selectedStudent || (location.state?.startTour || location.state?.isDemo ? SAMPLE_DEMO_STUDENT : null);
+
+  useEffect(() => {
+    if (!selectedStudent && (location.state?.startTour || location.state?.isDemo)) {
+      setSelectedStudent(SAMPLE_DEMO_STUDENT);
+    }
+  }, [selectedStudent, setSelectedStudent, location.state]);
+
+  const [isTourOpen, setIsTourOpen] = useState(false);
+
+  useEffect(() => {
+    if (tourService.shouldAutoStartTour('student_goals', userData, location.state?.startTour)) {
+      const timer = setTimeout(() => {
+        setIsTourOpen(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [location.state, userData]);
+
+  const handleEndTour = () => {
+    setIsTourOpen(false);
+    tourService.markTourCompleted('student_goals', user?.uid);
+  };
+
+  const tourSteps: TourStep[] = [
+    {
+      targetId: 'tour-goals-header',
+      title: 'Aylık Hedefler & Takip Paneli',
+      description: `${activeStudent?.displayName || 'Seçili öğrenci'} için aylık konu ve kitap bitirme hedeflerinin planlandığı ve anlık takibinin yapıldığı yönetim merkezidir.`,
+      position: 'bottom'
+    },
+    {
+      targetId: 'tour-topic-goals',
+      title: 'Aylık Konu Hedefleri',
+      description: 'Müfredata uygun ders ve konular seçilerek öğrencinin o ay tamamlaması gereken kritik konular hedeflere eklenir ve tamamlanma durumu takip edilir.',
+      position: 'top'
+    },
+    {
+      targetId: 'tour-book-goals',
+      title: 'Kitap & Sayfa Bitirme Hedefleri',
+      description: 'Öğrencinin kaynak kitaplarından belirli sayfa aralıkları veya üniteler hedef gösterilir. Sayfa ilerleme çubuğu ile anlık sayfa takibi yapılır.',
+      position: 'top'
+    },
+    {
+      targetId: 'tour-coach-note',
+      title: 'Koçun Aylık Değerlendirmesi & Strateji Notu',
+      description: 'Koç, öğrencinin aylık genel stratejisini, çalışma taktiğini ve motivasyon notunu bu alana kaydederek öğrenciye rehberlik eder.',
+      position: 'top'
+    }
+  ];
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(() => {
@@ -68,20 +142,27 @@ export default function StudentGoals() {
   const [selectedTopicsToAdd, setSelectedTopicsToAdd] = useState<string[]>([]);
 
   useEffect(() => {
-    if (selectedStudent) {
+    if (activeStudent) {
       loadGoals();
       loadStudentBooks();
+    } else {
+      setLoading(false);
     }
-  }, [selectedStudent, currentMonth]);
+  }, [activeStudent, currentMonth]);
 
   const loadGoals = async () => {
+    if (!activeStudent) return;
     setLoading(true);
     try {
-      const goalData = await studentDataService.getMonthlyGoal(selectedStudent!.uid, currentMonth);
-      if (goalData) {
+      const goalData = await studentDataService.getMonthlyGoal(activeStudent.uid, currentMonth);
+      if (goalData && (goalData.topicGoals?.length > 0 || goalData.bookGoals?.length > 0 || goalData.coachNote)) {
         setTopicGoals(goalData.topicGoals || []);
         setBookGoals(goalData.bookGoals || []);
         setCoachNote(goalData.coachNote || '');
+      } else if (location.state?.startTour || location.state?.isDemo || !selectedStudent) {
+        setTopicGoals(DEMO_TOPIC_GOALS);
+        setBookGoals(DEMO_BOOK_GOALS);
+        setCoachNote(DEMO_COACH_NOTE);
       } else {
         setTopicGoals([]);
         setBookGoals([]);
@@ -89,14 +170,20 @@ export default function StudentGoals() {
       }
     } catch (error) {
       console.error('Error loading goals:', error);
+      if (location.state?.startTour || location.state?.isDemo || !selectedStudent) {
+        setTopicGoals(DEMO_TOPIC_GOALS);
+        setBookGoals(DEMO_BOOK_GOALS);
+        setCoachNote(DEMO_COACH_NOTE);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const loadStudentBooks = async () => {
+    if (!activeStudent) return;
     try {
-      const books = await studentDataService.getBookTracking(selectedStudent!.uid);
+      const books = await studentDataService.getBookTracking(activeStudent.uid);
       setStudentBooks(books);
     } catch (error) {
       console.error('Error loading books:', error);
@@ -104,11 +191,11 @@ export default function StudentGoals() {
   };
 
   const handleSave = async () => {
-    if (!selectedStudent) return;
+    if (!activeStudent) return;
     setSaving(true);
     try {
       await studentDataService.saveMonthlyGoal({
-        studentId: selectedStudent.uid,
+        studentId: activeStudent.uid,
         month: currentMonth,
         topicGoals,
         bookGoals,
@@ -271,7 +358,7 @@ export default function StudentGoals() {
     return date.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' });
   }, [currentMonth]);
 
-  if (!selectedStudent) {
+  if (!activeStudent) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] text-slate-500">
         <AlertCircle size={48} className="mb-4 opacity-20" />
@@ -282,13 +369,27 @@ export default function StudentGoals() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <OnboardingTour
+        steps={tourSteps}
+        isOpen={isTourOpen}
+        onClose={handleEndTour}
+        onComplete={handleEndTour}
+        onNextTour={() => {
+          setIsTourOpen(false);
+          tourService.markTourCompleted('student_goals', user?.uid);
+          navigate('/panel/koc/ogrenci/cuzdan', { state: { startTour: true, isDemo: true } });
+        }}
+        nextTourLabel="Ön Ödemeli Cüzdan Turu"
+        tourKey="student_goals"
+      />
+
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div id="tour-goals-header" className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h1 className="text-3xl font-bold italic text-white uppercase tracking-tight">
              AYLIK HEDEFLER & TAKİP
           </h1>
-          <p className="text-slate-500 mt-1">{selectedStudent.displayName} için {monthLabel} dönemi planı.</p>
+          <p className="text-slate-500 mt-1">{activeStudent.displayName} için {monthLabel} dönemi planı.</p>
         </div>
         
         <div className="flex items-center gap-4 bg-slate-900/40 p-2 rounded-2xl border border-white/5">
@@ -328,7 +429,7 @@ export default function StudentGoals() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           
           {/* Section 1: Monthly Topic Goals */}
-          <div className="space-y-6">
+          <div id="tour-topic-goals" className="space-y-6">
             <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8 h-full flex flex-col">
               <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center gap-3">
@@ -505,7 +606,7 @@ export default function StudentGoals() {
           </div>
 
           {/* Section 2: Book Completion Program */}
-          <div className="space-y-6">
+          <div id="tour-book-goals" className="space-y-6">
             <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8 h-full flex flex-col">
               <div className="flex items-center gap-3 mb-8">
                 <div className="p-2 bg-amber-500/10 rounded-lg text-amber-500">
@@ -656,7 +757,7 @@ export default function StudentGoals() {
       )}
 
       {/* Coach's Monthly Assessment */}
-      <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
+      <div id="tour-coach-note" className="bg-slate-900/40 border border-white/5 rounded-3xl p-8">
          <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-purple-500/10 rounded-lg text-purple-500">
                <Trophy size={20} />

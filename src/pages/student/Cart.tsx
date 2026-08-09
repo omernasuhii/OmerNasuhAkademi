@@ -95,6 +95,18 @@ export default function Cart() {
          if (data.minSystemDeductionSilver !== undefined) minRateSilver = data.minSystemDeductionSilver;
          if (data.minSystemDeductionGold !== undefined) minRateGold = data.minSystemDeductionGold;
       }
+
+      const coachId = userData?.assignedCoachId || userData?.coachId;
+      if (coachId) {
+         const coachDoc = await getDoc(doc(db, 'users', coachId));
+         if (coachDoc.exists()) {
+            const cData = coachDoc.data();
+            if (cData.specialDeductionRate !== undefined) dRate = cData.specialDeductionRate;
+            if (cData.specialMinDeductionBronze !== undefined) minRateBronze = cData.specialMinDeductionBronze;
+            if (cData.specialMinDeductionSilver !== undefined) minRateSilver = cData.specialMinDeductionSilver;
+            if (cData.specialMinDeductionGold !== undefined) minRateGold = cData.specialMinDeductionGold;
+         }
+      }
       
       for (const item of cartItems) {
          let itemTotalPrice = item.price * item.quantity;
@@ -107,10 +119,12 @@ export default function Cart() {
             else if (item.title.toLowerCase().includes('gümüş')) minRate = minRateSilver;
             else if (item.title.toLowerCase().includes('altın')) minRate = minRateGold;
 
+            const basePrice = item.metadata?.originalPrice ? item.metadata.originalPrice * item.quantity : itemTotalPrice;
+
             if (pkg && pkg.systemDeduction !== undefined) {
-               totalCoachDeduction += Math.max(Math.floor(itemTotalPrice * (dRate / 100)), minRate * item.quantity);
+               totalCoachDeduction += Math.max(Math.floor(basePrice * (dRate / 100)), minRate * item.quantity);
             } else {
-               totalCoachDeduction += Math.max(Math.floor(itemTotalPrice * (dRate / 100)), minRate * item.quantity); // Fallback
+               totalCoachDeduction += Math.max(Math.floor(basePrice * (dRate / 100)), minRate * item.quantity); // Fallback
             }
          } else {
             totalCoachDeduction += itemTotalPrice; 

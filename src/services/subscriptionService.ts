@@ -128,6 +128,10 @@ export async function checkAndRenewSubscription(
           pBronze = cData.bronzePrice || 3000;
           pSilver = cData.silverPrice || 4500;
           pGold = cData.goldPrice || 6000;
+          if (cData.specialDeductionRate !== undefined) rate = cData.specialDeductionRate;
+          if (cData.specialMinDeductionBronze !== undefined) minRateBronze = cData.specialMinDeductionBronze;
+          if (cData.specialMinDeductionSilver !== undefined) minRateSilver = cData.specialMinDeductionSilver;
+          if (cData.specialMinDeductionGold !== undefined) minRateGold = cData.specialMinDeductionGold;
         }
       } else {
         const q = query(collection(db, 'users'), where('role', '==', 'coach'));
@@ -151,10 +155,15 @@ export async function checkAndRenewSubscription(
       console.error("Error loading pricing for subscription check:", e);
     }
 
+    const specialDiscounts = userData.specialDiscounts || {};
+    const dBronze = specialDiscounts.bronze ? Math.floor(pBronze * (specialDiscounts.bronze / 100)) : 0;
+    const dSilver = specialDiscounts.silver ? Math.floor(pSilver * (specialDiscounts.silver / 100)) : 0;
+    const dGold = specialDiscounts.gold ? Math.floor(pGold * (specialDiscounts.gold / 100)) : 0;
+
     const packages: SubscriptionPackage[] = [
-      { ...SUBSCRIPTION_PACKAGES[0], price: pBronze, systemDeduction: Math.max(Math.floor(pBronze * (rate / 100)), minRateBronze) },
-      { ...SUBSCRIPTION_PACKAGES[1], price: pSilver, systemDeduction: Math.max(Math.floor(pSilver * (rate / 100)), minRateSilver) },
-      { ...SUBSCRIPTION_PACKAGES[2], price: pGold, systemDeduction: Math.max(Math.floor(pGold * (rate / 100)), minRateGold) }
+      { ...SUBSCRIPTION_PACKAGES[0], price: pBronze - dBronze, systemDeduction: Math.max(Math.floor(pBronze * (rate / 100)), minRateBronze) },
+      { ...SUBSCRIPTION_PACKAGES[1], price: pSilver - dSilver, systemDeduction: Math.max(Math.floor(pSilver * (rate / 100)), minRateSilver) },
+      { ...SUBSCRIPTION_PACKAGES[2], price: pGold - dGold, systemDeduction: Math.max(Math.floor(pGold * (rate / 100)), minRateGold) }
     ];
 
     const currentPkg = matchPackage(subscriptionPlan, packages);

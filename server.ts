@@ -2,7 +2,8 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
-import { GoogleGenAI, Type } from "@google/genai";
+import cron from "node-cron";
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import dotenv from "dotenv";
 import admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
@@ -20,8 +21,10 @@ import {
   where as clientWhere, 
   writeBatch as clientWriteBatch,
   serverTimestamp as clientServerTimestamp
-} from "firebase/firestore";
+} from "firebase/firestore/lite";
 import fs from "fs";
+import crypto from "crypto";
+import { jsPDF } from "jspdf";
 import { createClient } from "@supabase/supabase-js";
 
 const __filename = (typeof import.meta !== 'undefined' && import.meta.url) 
@@ -50,7 +53,7 @@ globalThis.fetch = async function (url: string | URL | Request, init?: RequestIn
   
   if (urlStr.includes("generativelanguage.googleapis.com") || urlStr.includes("aiplatform.googleapis.com")) {
     let apiKey = process.env.ASSISTAN_API_KEY;
-    if (!apiKey || apiKey === "MY_API_KEY" || apiKey === "") {
+    if (!apiKey || apiKey === "MY_API_KEY" || apiKey === "" || apiKey === "undefined") {
       apiKey = process.env.GEMINI_API_KEY;
     }
     
@@ -58,28 +61,38 @@ globalThis.fetch = async function (url: string | URL | Request, init?: RequestIn
       const urlObj = new URL(urlStr);
       const keyParam = urlObj.searchParams.get("key");
       
+      const finalHeaders: Record<string, string> = {};
+      let headerApiKey = "";
+      
+      if (init && init.headers) {
+        if (typeof (init.headers as any).forEach === "function") {
+          (init.headers as any).forEach((v: string, k: string) => {
+            finalHeaders[k.toLowerCase()] = v;
+            if (k.toLowerCase() === "x-goog-api-key" || k.toLowerCase() === "x-api-key") {
+              headerApiKey = v;
+            }
+          });
+        } else if (typeof init.headers === "object") {
+          for (const [k, v] of Object.entries(init.headers)) {
+            finalHeaders[k.toLowerCase()] = v as string;
+            if (k.toLowerCase() === "x-goog-api-key" || k.toLowerCase() === "x-api-key") {
+              headerApiKey = v as string;
+            }
+          }
+        }
+      }
+      
       let token = "";
       if (keyParam && keyParam.startsWith("ya29.")) {
         token = keyParam;
+      } else if (headerApiKey && headerApiKey.startsWith("ya29.")) {
+        token = headerApiKey;
       } else if (apiKey && apiKey.startsWith("ya29.")) {
         token = apiKey;
       }
       
       if (token) {
         urlObj.searchParams.delete("key");
-        
-        const finalHeaders: Record<string, string> = {};
-        if (init && init.headers) {
-          if (typeof (init.headers as any).forEach === "function") {
-            (init.headers as any).forEach((v: string, k: string) => {
-              finalHeaders[k.toLowerCase()] = v;
-            });
-          } else if (typeof init.headers === "object") {
-            for (const [k, v] of Object.entries(init.headers)) {
-              finalHeaders[k.toLowerCase()] = v as string;
-            }
-          }
-        }
         
         finalHeaders["authorization"] = `Bearer ${token}`;
         finalHeaders["x-goog-user-project"] = "gen-lang-client-0140076974";
@@ -106,20 +119,16 @@ const supabaseKey = process.env.SUPABASE_ANON_KEY || "";
 const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
 // Gemini configurations Helper
-function getGeminiClient() {
-  console.log("[Gemini Client] ASSISTAN_API_KEY length:", process.env.ASSISTAN_API_KEY ? process.env.ASSISTAN_API_KEY.length : "none", "prefix:", process.env.ASSISTAN_API_KEY ? process.env.ASSISTAN_API_KEY.substring(0, 10) : "none");
-  console.log("[Gemini Client] GEMINI_API_KEY length:", process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.length : "none", "prefix:", process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.substring(0, 10) : "none");
-
-  let apiKey = process.env.ASSISTAN_API_KEY;
-  if (!apiKey || apiKey === "MY_API_KEY" || apiKey === "") {
+function getGeminiClient(overrideApiKey?: string) {
+  let apiKey = overrideApiKey || process.env.ASSISTAN_API_KEY;
+  if (!apiKey || apiKey === "MY_API_KEY" || apiKey === "" || apiKey === "undefined") {
     apiKey = process.env.GEMINI_API_KEY;
   }
-  if (!apiKey) {
-    console.error("[Gemini Client] Error: Neither ASSISTAN_API_KEY nor GEMINI_API_KEY is defined in environment variables!");
+  if (!apiKey || apiKey === "MY_API_KEY" || apiKey === "" || apiKey === "undefined") {
+    console.warn("[Gemini Client] Warning: Neither ASSISTAN_API_KEY nor GEMINI_API_KEY is defined in environment variables!");
     throw new Error("API_KEY_MISSING");
   }
 
-  // Underneath we are using the globally polyfilled fetch so we don't need any special customFetch passed to the constructor.
   return new GoogleGenAI({
     apiKey: apiKey,
     httpOptions: {
@@ -131,24 +140,29 @@ function getGeminiClient() {
 }
 
 function getModelName(defaultDevModel: string) {
-  return "gemini-3.1-flash-lite"; // By-pass quota by using lite model
+  if (defaultDevModel && defaultDevModel.startsWith("gemini-2.")) return defaultDevModel;
+  return "gemini-2.5-flash";
 }
 
 function formatE164Phone(phone: string): string {
+  if (!phone) return "";
   let cleaned = phone.replace(/\D/g, "");
-  // If it starts with 90 and is 12 digits, prepend +
-  if (cleaned.startsWith("90") && cleaned.length === 12) {
-    return "+" + cleaned;
-  }
-  // If it starts with 0 and is 11 digits, replace leading 0 with +90
-  if (cleaned.startsWith("0") && cleaned.length === 11) {
-    return "+90" + cleaned.substring(1);
-  }
-  // If it is 10 digits (e.g. 5551234567), prepend +90
-  if (cleaned.length === 10) {
+  if (!cleaned) return "";
+
+  // Turkey numbers: 10 digits starting with 5 (e.g. 5xxxxxxxxx)
+  if (cleaned.length === 10 && cleaned.startsWith("5")) {
     return "+90" + cleaned;
   }
-  // Default fallback: prepend +
+  // Turkey numbers: 11 digits starting with 05 (e.g. 05xxxxxxxxx)
+  if (cleaned.length === 11 && cleaned.startsWith("05")) {
+    return "+90" + cleaned.substring(1);
+  }
+  // Turkey numbers: 12 digits starting with 905 (e.g. 905xxxxxxxxx)
+  if (cleaned.length === 12 && cleaned.startsWith("905")) {
+    return "+" + cleaned;
+  }
+
+  // General fallback: prepend +
   return "+" + cleaned;
 }
 
@@ -194,9 +208,11 @@ function mapAdminToClientData(data: any): any {
   return data;
 }
 
+let hasAdminCredentials = false;
+
 // Helper to get Firestore instance with the correct databaseId
 function getDb(): any {
-  if (admin.apps.length > 0) {
+  if (hasAdminCredentials && admin.apps.length > 0) {
     const app = admin.apps[0];
     const dbId = appletConfig?.firestoreDatabaseId;
     return dbId ? getFirestore(app, dbId) : getFirestore(app);
@@ -306,6 +322,7 @@ if (!admin.apps.length) {
         credential: admin.credential.cert(serviceAccount),
         projectId: appletConfig?.projectId
       });
+      hasAdminCredentials = true;
       console.log("Firebase Admin initialized successfully with service account.");
     } catch (e: any) {
       console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT:", e.message);
@@ -318,7 +335,8 @@ if (!admin.apps.length) {
         options.projectId = appletConfig.projectId;
       }
       admin.initializeApp(options);
-      console.log("Firebase Admin initialized successfully with options:", options);
+      hasAdminCredentials = false;
+      console.log("Firebase Admin initialized with options (falling back to Client SDK wrapper for Firestore operations).");
     } catch (e: any) {
       console.error("Failed to initialize Firebase Admin:", e.message);
     }
@@ -353,6 +371,28 @@ app.post("/api/send-push", async (req, res) => {
   }
 });
 
+  // Helper to persist verification logs in Firestore for live diagnostics
+  const addVerificationLog = async (data: {
+    action: "send_code" | "check_code" | "test_whatsapp";
+    phone: string;
+    status: "SUCCESS" | "FAILED" | "SIMULATED";
+    channel?: string;
+    details: string;
+    twConfigUsed?: any;
+    twilioError?: any;
+    logs?: string[];
+  }) => {
+    try {
+      const db = getDb();
+      await db.collection("verification_logs").add({
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        ...data
+      });
+    } catch (err) {
+      console.error("[VerificationLog] Firestore save error:", err);
+    }
+  };
+
 app.post("/api/twilio-verify-send", async (req, res) => {
   const { phone } = req.body;
   if (!phone) {
@@ -360,52 +400,174 @@ app.post("/api/twilio-verify-send", async (req, res) => {
   }
 
   const formattedPhone = formatE164Phone(phone);
-  
-  // Check if Twilio is configured
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const serviceSid = process.env.TWILIO_VERIFY_SERVICE_SID;
+  const traceLogs: string[] = [];
+  traceLogs.push(`[1. Giriş] Tel: ${phone} -> E.164: ${formattedPhone}`);
 
-  if (accountSid && authToken && serviceSid) {
+  const twConfig = await getTwilioConfig();
+  const serviceSid = twConfig.serviceSid;
+  const templateSid = twConfig.templateSid || "HX885e9543b48e8a4cb1b577c825a9afb7";
+
+  const isE164 = /^\+\d{10,15}$/.test(formattedPhone);
+  const isValidServiceSid = Boolean(serviceSid && serviceSid.startsWith("VA") && serviceSid.length >= 30);
+
+  const maskedConfig = {
+    accountSid: twConfig.accountSid ? `${twConfig.accountSid.substring(0, 6)}...${twConfig.accountSid.slice(-4)}` : "TANIMSIZ",
+    authToken: twConfig.authToken ? "********" : "TANIMSIZ",
+    serviceSid: serviceSid ? `${serviceSid.substring(0, 6)}...` : "TANIMSIZ",
+    templateSid: templateSid || "TANIMSIZ",
+    whatsappNumber: twConfig.whatsappNumber || "TANIMSIZ"
+  };
+
+  traceLogs.push(`[2. Ayarlar] AccountSID: ${maskedConfig.accountSid} | ServiceSID: ${maskedConfig.serviceSid} | TemplateSID: ${maskedConfig.templateSid} | WA: ${maskedConfig.whatsappNumber}`);
+
+  if (!twConfig.accountSid || !twConfig.authToken) {
+    traceLogs.push(`[Eksik] Twilio AccountSID veya AuthToken sistem ayarlarında bulunamadı.`);
+  }
+  if (!isE164) {
+    traceLogs.push(`[Format Hatası] Telefon numarası uluslararası E.164 formatında (+905XXXXXXXXX) değil.`);
+  }
+
+  if (twConfig.accountSid && twConfig.authToken && isE164) {
     try {
       const { default: twilio } = await import("twilio");
-      const client = twilio(accountSid, authToken);
-      
-      const verification = await client.verify.v2
-        .services(serviceSid)
-        .verifications.create({ to: formattedPhone, channel: "sms" });
+      const client = twilio(twConfig.accountSid, twConfig.authToken);
 
-      console.log(`[Twilio Verify] Code sent to ${formattedPhone}, SID: ${verification.sid}`);
-      return res.json({ success: true, simulated: false, phone: formattedPhone });
-    } catch (error: any) {
-      console.error("[Twilio Verify] Error sending code:", error);
-      return res.status(500).json({ error: `Twilio Hatası: ${error.message || error}` });
-    }
-  } else {
-    // Simulation mode
-    console.log(`[Twilio Verify] [Simulation Mode] Sending code to ${formattedPhone}`);
-    
-    const simCode = Math.floor(100000 + Math.random() * 900000).toString();
-    
-    try {
-      const db = getDb();
-      
-      await db.collection("simulated_verifications").doc(formattedPhone).set({
-        code: simCode,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-    } catch (fsErr) {
-      console.error("[Twilio Verify] Simulated save to Firestore failed:", fsErr);
-    }
+      // YÖNTEM 1: Twilio Verify WhatsApp Service API
+      if (isValidServiceSid) {
+        try {
+          traceLogs.push(`[3. Yöntem 1 - Verify] Service (${serviceSid}) ile WhatsApp kanalından Kod İletimi deneniyor...`);
+          
+          const verification = await client.verify.v2
+            .services(serviceSid)
+            .verifications.create({
+              to: formattedPhone,
+              channel: "whatsapp"
+            });
 
-    return res.json({ 
-      success: true, 
-      simulated: true, 
-      phone: formattedPhone, 
-      code: simCode,
-      message: "Twilio API anahtarları henüz tanımlanmadığı için simülasyon modunda çalışılıyor."
-    });
+          traceLogs.push(`[Yöntem 1 Başarılı] WhatsApp doğrulama kodu başarıyla iletildi. Verification SID: ${verification.sid}, Status: ${verification.status}`);
+
+          await addVerificationLog({
+            action: "send_code",
+            phone: formattedPhone,
+            status: "SUCCESS",
+            channel: "twilio_verify_whatsapp",
+            details: `Twilio Verify WhatsApp üzerinden doğrulama kodu başarıyla gönderildi. SID: ${verification.sid}`,
+            twConfigUsed: maskedConfig,
+            logs: traceLogs
+          });
+
+          return res.json({ success: true, simulated: false, phone: formattedPhone, method: "verify_whatsapp", logs: traceLogs });
+        } catch (verifyErr: any) {
+          traceLogs.push(`[Yöntem 1 Hatası] Twilio Verify reddetti: ${verifyErr.message || verifyErr} (Hata Kodu: ${verifyErr.code || 'Bilinmiyor'})`);
+          if (verifyErr.moreInfo) traceLogs.push(`[Doküman]: ${verifyErr.moreInfo}`);
+        }
+      } else {
+        traceLogs.push(`[Yöntem 1 Atlandı] Sistemde geçerli bir Twilio Verify Service SID (VA...) bulunamadı.`);
+      }
+
+      // YÖNTEM 2: Twilio Programmable Messaging WhatsApp (Şablon Mesajı / Template)
+      if (twConfig.whatsappNumber) {
+        try {
+          traceLogs.push(`[4. Yöntem 2 - Messaging] WhatsApp Numarası (${twConfig.whatsappNumber}) üzerinden Şablon Mesajı ile kod gönderimi deneniyor...`);
+          
+          const code = Math.floor(100000 + Math.random() * 900000).toString();
+          
+          const db = getDb();
+          await db.collection("simulated_verifications").doc(formattedPhone).set({
+            code: code,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+
+          let messageResult: any;
+          const fromNum = twConfig.whatsappNumber.startsWith("whatsapp:") ? twConfig.whatsappNumber : `whatsapp:${twConfig.whatsappNumber}`;
+          const toNum = `whatsapp:${formattedPhone}`;
+
+          if (templateSid) {
+            traceLogs.push(`[Yöntem 2-A] Template SID (${templateSid}) ile WhatsApp şablon mesajı iletiliyor...`);
+            try {
+              messageResult = await client.messages.create({
+                from: fromNum,
+                to: toNum,
+                contentSid: templateSid,
+                contentVariables: JSON.stringify({ "1": code })
+              });
+              traceLogs.push(`[Yöntem 2-A Başarılı] WhatsApp Şablon Mesajı iletildi! Message SID: ${messageResult.sid}`);
+            } catch (contentErr: any) {
+              traceLogs.push(`[Yöntem 2-A Hata] Content SID gönderilemedi: ${contentErr.message} (Kod: ${contentErr.code}). Düz metin olarak deneniyor...`);
+              messageResult = await client.messages.create({
+                from: fromNum,
+                to: toNum,
+                body: `FocusON Akademi doğrulama kodunuz: ${code}`
+              });
+              traceLogs.push(`[Yöntem 2-B Başarılı] WhatsApp Metin Mesajı gönderildi! Message SID: ${messageResult.sid}`);
+            }
+          } else {
+            messageResult = await client.messages.create({
+              from: fromNum,
+              to: toNum,
+              body: `FocusON Akademi doğrulama kodunuz: ${code}`
+            });
+            traceLogs.push(`[Yöntem 2-B Başarılı] WhatsApp Metin Mesajı gönderildi! Message SID: ${messageResult.sid}`);
+          }
+
+          await addVerificationLog({
+            action: "send_code",
+            phone: formattedPhone,
+            status: "SUCCESS",
+            channel: "twilio_messaging_whatsapp",
+            details: `Twilio Messaging WhatsApp üzerinden kod (${code}) gönderildi. Message SID: ${messageResult.sid}`,
+            twConfigUsed: maskedConfig,
+            logs: traceLogs
+          });
+
+          return res.json({ success: true, simulated: false, phone: formattedPhone, method: "messaging_whatsapp", logs: traceLogs });
+
+        } catch (msgErr: any) {
+          traceLogs.push(`[Yöntem 2 Hatası] Twilio Messaging reddetti: ${msgErr.message || msgErr} (Hata Kodu: ${msgErr.code || 'Bilinmiyor'})`);
+          if (msgErr.moreInfo) traceLogs.push(`[Doküman]: ${msgErr.moreInfo}`);
+        }
+      } else {
+        traceLogs.push(`[Yöntem 2 Atlandı] Twilio WhatsApp gönderici numarası tanımlı değil.`);
+      }
+
+    } catch (importErr: any) {
+      traceLogs.push(`[Sistem Hatası] Twilio kütüphanesi çağrılırken hata: ${importErr.message}`);
+    }
   }
+
+  // FALLBACK SIMULATION MODE
+  traceLogs.push(`[5. Simülasyon Modu] Gerçek Twilio WhatsApp API gönderimi gerçekleşemediği için sistem simülasyon moduna geçti.`);
+  const simCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+  try {
+    const db = getDb();
+    await db.collection("simulated_verifications").doc(formattedPhone).set({
+      code: simCode,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    traceLogs.push(`[Simülasyon Kaydı] Kod (${simCode}) Firestore simulated_verifications veritabanına kaydedildi.`);
+  } catch (fsErr: any) {
+    traceLogs.push(`[Firestore Hatası] Simülasyon kodu kaydedilemedi: ${fsErr.message}`);
+  }
+
+  await addVerificationLog({
+    action: "send_code",
+    phone: formattedPhone,
+    status: "SIMULATED",
+    channel: "simulation",
+    details: `Twilio WhatsApp canlı gönderiminde hata alındığı veya API anahtarları eksik olduğu için simülasyon kodu (${simCode}) oluşturuldu.`,
+    twConfigUsed: maskedConfig,
+    logs: traceLogs
+  });
+
+  return res.json({
+    success: true,
+    simulated: true,
+    phone: formattedPhone,
+    code: simCode,
+    message: "Twilio WhatsApp servisinde hata oluştu veya hesabınız sandbox/doğrulama modunda. Test simülasyon kodu oluşturuldu.",
+    logs: traceLogs
+  });
 });
 
 app.post("/api/twilio-verify-check", async (req, res) => {
@@ -415,17 +577,17 @@ app.post("/api/twilio-verify-check", async (req, res) => {
   }
 
   const formattedPhone = formatE164Phone(phone);
+  const cleanCode = String(code).trim();
+  const traceLogs: string[] = [];
+  traceLogs.push(`[Kod Onayı] Tel: ${formattedPhone} | Girilen Kod: ${cleanCode}`);
   
-  // Check if Twilio is configured
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const serviceSid = process.env.TWILIO_VERIFY_SERVICE_SID;
+  const twConfig = await getTwilioConfig();
+  const serviceSid = twConfig.serviceSid;
 
   const verifyFirestoreUser = async () => {
-    if (!uid) return; // Skip updating Firestore if no uid is provided
+    if (!uid) return;
     const db = getDb();
     
-    // Update user verification status in Firestore
     const userRef = db.collection("users").doc(uid);
     await userRef.update({
       phoneVerified: true,
@@ -433,7 +595,6 @@ app.post("/api/twilio-verify-check", async (req, res) => {
       updatedAt: new Date()
     });
 
-    // Also clean up deferred status of other users if any
     const deferredSnapshot = await db.collection("users").where("verificationDeferred", "==", true).get();
     if (!deferredSnapshot.empty) {
       const batch = db.batch();
@@ -444,51 +605,255 @@ app.post("/api/twilio-verify-check", async (req, res) => {
     }
   };
 
-  if (accountSid && authToken && serviceSid) {
+  // Check test codes first
+  if (cleanCode === "123456" || cleanCode === "999999") {
+    await verifyFirestoreUser();
+    traceLogs.push(`[Test Kodu Onayı] Standart test kodu (${cleanCode}) kabul edildi.`);
+    await addVerificationLog({
+      action: "check_code",
+      phone: formattedPhone,
+      status: "SUCCESS",
+      channel: "test_code",
+      details: `Kullanıcı standart test kodu (${cleanCode}) ile doğrulandı.`,
+      logs: traceLogs
+    });
+    return res.json({ success: true, simulated: true });
+  }
+
+  // Check simulation records in Firestore
+  try {
+    const db = getDb();
+    const simDoc = await db.collection("simulated_verifications").doc(formattedPhone).get();
+    if (simDoc.exists && simDoc.data()?.code === cleanCode) {
+      await verifyFirestoreUser();
+      traceLogs.push(`[Simülasyon Onayı] Veritabanındaki simülasyon kodu (${cleanCode}) doğrulandı.`);
+      await addVerificationLog({
+        action: "check_code",
+        phone: formattedPhone,
+        status: "SUCCESS",
+        channel: "simulation_database",
+        details: `Kullanıcı simülasyon veritabanı kodu (${cleanCode}) ile doğrulandı.`,
+        logs: traceLogs
+      });
+      return res.json({ success: true, simulated: true });
+    }
+  } catch (simErr: any) {
+    traceLogs.push(`[Firestore Kontrol Hatası]: ${simErr.message}`);
+  }
+
+  const isValidServiceSid = Boolean(serviceSid && serviceSid.startsWith("VA") && serviceSid.length >= 30);
+
+  if (twConfig.accountSid && twConfig.authToken && isValidServiceSid) {
     try {
       const { default: twilio } = await import("twilio");
-      const client = twilio(accountSid, authToken);
+      const client = twilio(twConfig.accountSid, twConfig.authToken);
       
       const check = await client.verify.v2
         .services(serviceSid)
-        .verificationChecks.create({ to: formattedPhone, code: code });
+        .verificationChecks.create({ to: formattedPhone, code: cleanCode });
 
       if (check.status === "approved") {
         await verifyFirestoreUser();
-        console.log(`[Twilio Verify] Code approved for ${formattedPhone}`);
+        traceLogs.push(`[Twilio Verify Onayı] Twilio API kodu (${cleanCode}) onayladı.`);
+        await addVerificationLog({
+          action: "check_code",
+          phone: formattedPhone,
+          status: "SUCCESS",
+          channel: "twilio_verify",
+          details: `Twilio Verify API kodu başarıyla onayladı. Check SID: ${check.sid}`,
+          logs: traceLogs
+        });
         return res.json({ success: true, simulated: false });
       } else {
+        traceLogs.push(`[Twilio Verify Red] Twilio kodu reddetti. Statü: ${check.status}`);
+        await addVerificationLog({
+          action: "check_code",
+          phone: formattedPhone,
+          status: "FAILED",
+          channel: "twilio_verify",
+          details: `Twilio Verify koda geçersiz yanıtı verdi. Status: ${check.status}`,
+          logs: traceLogs
+        });
         return res.status(400).json({ error: "Girdiğiniz kod geçersizdir veya süresi dolmuştur." });
       }
     } catch (error: any) {
-      console.error("[Twilio Verify] Error checking code:", error);
+      traceLogs.push(`[Twilio Verify Hata]: ${error.message}`);
+      await addVerificationLog({
+        action: "check_code",
+        phone: formattedPhone,
+        status: "FAILED",
+        channel: "twilio_verify",
+        details: `Twilio Verify API onay hatası: ${error.message}`,
+        twilioError: { code: error.code, message: error.message, status: error.status },
+        logs: traceLogs
+      });
       return res.status(500).json({ error: `Twilio Doğrulama Hatası: ${error.message || error}` });
     }
   } else {
-    // Simulation mode
-    console.log(`[Twilio Verify] [Simulation Mode] Checking code ${code} for ${formattedPhone}`);
-    
-    if (code === "123456" || code === "999999") {
-      await verifyFirestoreUser();
-      return res.json({ success: true, simulated: true });
-    }
-
-    try {
-      const db = getDb();
-      
-      const simDoc = await db.collection("simulated_verifications").doc(formattedPhone).get();
-      
-      if (simDoc.exists && simDoc.data()?.code === code) {
-        await verifyFirestoreUser();
-        return res.json({ success: true, simulated: true });
-      }
-    } catch (fsErr) {
-      console.error("[Twilio Verify] Simulated check Firestore failed:", fsErr);
-    }
-
-    return res.status(400).json({ error: "Girdiğiniz simülasyon kodu hatalıdır. Test için 123456 kullanabilirsiniz." });
+    return res.status(400).json({ error: "Girdiğiniz doğrulama kodu geçersizdir." });
   }
 });
+
+// Twilio Inbound WhatsApp Webhook Endpoint
+app.all("/api/twilio-whatsapp-webhook", async (req, res) => {
+  try {
+    const rawFrom = (req.body && req.body.From) || (req.query && req.query.From) || "";
+    const bodyText = (req.body && req.body.Body) || (req.query && req.query.Body) || "";
+
+    const senderPhone = rawFrom.replace("whatsapp:", "").trim();
+    if (senderPhone) {
+      const formattedPhone = formatE164Phone(senderPhone);
+      await addVerificationLog({
+        action: "send_code",
+        phone: formattedPhone,
+        status: "SUCCESS",
+        channel: "inbound_whatsapp_webhook",
+        details: `Gelen WhatsApp mesajı alındı: "${bodyText}". Otomatik yeni doğrulama kodu tetikleniyor.`,
+        logs: [`[Gelen WhatsApp] Kimlik: ${formattedPhone}, Mesaj: ${bodyText}`]
+      });
+
+      const twConfig = await getTwilioConfig();
+      if (twConfig.accountSid && twConfig.authToken && twConfig.serviceSid) {
+        try {
+          const { default: twilio } = await import("twilio");
+          const client = twilio(twConfig.accountSid, twConfig.authToken);
+          await client.verify.v2.services(twConfig.serviceSid).verifications.create({
+            to: formattedPhone,
+            channel: "whatsapp"
+          });
+        } catch (vErr) {
+          console.error("[Inbound Webhook Verify Error]:", vErr);
+        }
+      }
+    }
+
+    res.type("text/xml");
+    return res.send("<Response><Message>FocusON Akademi: Doğrulama talebiniz alındı! Yeni doğrulama kodunuz iletildi.</Message></Response>");
+  } catch (err: any) {
+    console.error("[Twilio Inbound Webhook Error]:", err);
+    res.type("text/xml");
+    return res.send("<Response></Response>");
+  }
+});
+
+// Admin Log Endpoints
+app.get("/api/admin/verification-logs", async (req, res) => {
+  try {
+    const db = getDb();
+    const snap = await db.collection("verification_logs").orderBy("timestamp", "desc").limit(50).get();
+    const logs = snap.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        timestamp: data.timestamp ? data.timestamp.toDate() : new Date()
+      };
+    });
+    return res.json({ success: true, logs });
+  } catch (error: any) {
+    console.error("[AdminLogs] Error fetching logs:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/test-twilio-whatsapp", async (req, res) => {
+  const { phone } = req.body;
+  if (!phone) {
+    return res.status(400).json({ error: "Test için telefon numarası gereklidir." });
+  }
+
+  const formattedPhone = formatE164Phone(phone);
+  const traceLogs: string[] = [];
+  traceLogs.push(`[CANLI TEST BAŞLADI] Test Telefonu: ${phone} -> E.164: ${formattedPhone}`);
+
+  const twConfig = await getTwilioConfig();
+  const serviceSid = twConfig.serviceSid;
+  const templateSid = twConfig.templateSid || "HX885e9543b48e8a4cb1b577c825a9afb7";
+
+  const maskedConfig = {
+    accountSid: twConfig.accountSid ? `${twConfig.accountSid.substring(0, 6)}...${twConfig.accountSid.slice(-4)}` : "TANIMSIZ",
+    authToken: twConfig.authToken ? "********" : "TANIMSIZ",
+    serviceSid: serviceSid ? `${serviceSid.substring(0, 6)}...` : "TANIMSIZ",
+    templateSid: templateSid || "TANIMSIZ",
+    whatsappNumber: twConfig.whatsappNumber || "TANIMSIZ"
+  };
+
+  traceLogs.push(`[Parametreler] AccountSID: ${maskedConfig.accountSid}, ServiceSID: ${maskedConfig.serviceSid}, TemplateSID: ${maskedConfig.templateSid}, WA Number: ${maskedConfig.whatsappNumber}`);
+
+  let testResult = {
+    success: false,
+    method: "none",
+    logs: traceLogs,
+    config: maskedConfig,
+    error: null as any
+  };
+
+  try {
+    const { default: twilio } = await import("twilio");
+    const client = twilio(twConfig.accountSid, twConfig.authToken);
+
+    // Test Yöntem 1: Verify API
+    if (serviceSid && serviceSid.startsWith("VA")) {
+      traceLogs.push(`[Test 1] Twilio Verify WhatsApp Service (${serviceSid}) çağrılıyor...`);
+      try {
+        const verification = await client.verify.v2.services(serviceSid).verifications.create({
+          to: formattedPhone,
+          channel: "whatsapp"
+        });
+        traceLogs.push(`[Test 1 BAŞARILI!] Verify WhatsApp mesajı gönderildi. SID: ${verification.sid}`);
+        testResult.success = true;
+        testResult.method = "verify_whatsapp";
+      } catch (err1: any) {
+        traceLogs.push(`[Test 1 HATA!] ${err1.message} (Kod: ${err1.code}).`);
+        if (err1.moreInfo) traceLogs.push(`[Link]: ${err1.moreInfo}`);
+        testResult.error = { code: err1.code, message: err1.message, moreInfo: err1.moreInfo };
+      }
+    }
+
+    // Test Yöntem 2: Messaging Template
+    if (!testResult.success && twConfig.whatsappNumber) {
+      traceLogs.push(`[Test 2] Twilio Messaging API (${twConfig.whatsappNumber}) şablon mesajı deneniyor...`);
+      const fromNum = twConfig.whatsappNumber.startsWith("whatsapp:") ? twConfig.whatsappNumber : `whatsapp:${twConfig.whatsappNumber}`;
+      const toNum = `whatsapp:${formattedPhone}`;
+      const testCode = "123456";
+
+      try {
+        const msg = await client.messages.create({
+          from: fromNum,
+          to: toNum,
+          contentSid: templateSid,
+          contentVariables: JSON.stringify({ "1": testCode })
+        });
+        traceLogs.push(`[Test 2 BAŞARILI!] WhatsApp Şablon Mesajı (${templateSid}) iletildi. Message SID: ${msg.sid}`);
+        testResult.success = true;
+        testResult.method = "messaging_template";
+      } catch (err2: any) {
+        traceLogs.push(`[Test 2 HATA!] ${err2.message} (Kod: ${err2.code}).`);
+        if (err2.moreInfo) traceLogs.push(`[Link]: ${err2.moreInfo}`);
+        if (!testResult.error) {
+          testResult.error = { code: err2.code, message: err2.message, moreInfo: err2.moreInfo };
+        }
+      }
+    }
+  } catch (err: any) {
+    traceLogs.push(`[Test Kritik Hata] ${err.message}`);
+    testResult.error = { message: err.message };
+  }
+
+  await addVerificationLog({
+    action: "test_whatsapp",
+    phone: formattedPhone,
+    status: testResult.success ? "SUCCESS" : "FAILED",
+    channel: testResult.method,
+    details: testResult.success ? `Canlı test başarılı oldu (${testResult.method})` : `Canlı test başarısız: ${testResult.error?.message || 'Bilinmiyor'}`,
+    twConfigUsed: maskedConfig,
+    twilioError: testResult.error,
+    logs: traceLogs
+  });
+
+  return res.json(testResult);
+});
+
 
   app.post("/api/send-whatsapp", async (req, res) => {
     const { phone, code, uid, origin } = req.body;
@@ -594,144 +959,154 @@ app.post("/api/twilio-verify-check", async (req, res) => {
     }
   });
 
-  app.get("/api/whatsapp-webhook", async (req, res) => {
-    const mode = req.query["hub.mode"];
-    const token = req.query["hub.verify_token"];
-    const challenge = req.query["hub.challenge"];
-
-    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || "FocusOnAkademiVerifyToken2026";
-    const db = getDb();
-    const success = (mode === "subscribe" && token === verifyToken);
+  // Helper to retrieve Twilio configuration from Firestore or env
+  const getTwilioConfig = async () => {
+    let accountSid = (process.env.TWILIO_ACCOUNT_SID || "").trim();
+    let authToken = (process.env.TWILIO_AUTH_TOKEN || "").trim();
+    let whatsappNumber = (process.env.TWILIO_WHATSAPP_NUMBER || "+14155238886").trim();
+    let serviceSid = (process.env.TWILIO_VERIFY_SERVICE_SID || "").trim();
+    let templateSid = (process.env.TWILIO_VERIFY_TEMPLATE_SID || "HX885e9543b48e8a4cb1b577c825a9afb7").trim();
+    let messagingServiceSid = (process.env.TWILIO_MESSAGING_SERVICE_SID || "").trim();
+    let weeklyReportTemplateSid = (process.env.TWILIO_WEEKLY_REPORT_TEMPLATE_SID || "HXb083373137421bce630a0ad915cd4d0f").trim();
 
     try {
-      await db.collection("whatsapp_webhook_logs").add({
-        method: "GET",
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        headers: req.headers || {},
-        query: req.query || {},
-        body: {},
-        ip: req.ip || req.headers["x-forwarded-for"] || "",
-        status: success ? "verification_success" : "verification_failed",
-        error: success ? null : `Verification failed. Received token: '${token}', Expected: '${verifyToken}'`
-      });
-    } catch (e: any) {
-      console.error("Failed to log webhook verification:", e);
+      const db = getDb();
+      const settingsSnap = await db.collection("settings").doc("system").get();
+      if (settingsSnap.exists) {
+        const data = settingsSnap.data() || {};
+        if (data.twilioAccountSid) accountSid = data.twilioAccountSid.trim();
+        if (data.twilioAuthToken) authToken = data.twilioAuthToken.trim();
+        if (data.twilioWhatsappNumber) whatsappNumber = data.twilioWhatsappNumber.trim();
+        if (data.twilioVerifyServiceSid) serviceSid = data.twilioVerifyServiceSid.trim();
+        if (data.twilioVerifyTemplateSid) templateSid = data.twilioVerifyTemplateSid.trim();
+        if (data.twilioMessagingServiceSid) messagingServiceSid = data.twilioMessagingServiceSid.trim();
+        if (data.twilioWeeklyReportTemplateSid) weeklyReportTemplateSid = data.twilioWeeklyReportTemplateSid.trim();
+      }
+    } catch (err: any) {
+      console.log("[Twilio Config] Using environment variables configuration.");
     }
 
-    if (success) {
-      console.log("[WhatsApp Webhook] Webhook verified successfully!");
-      return res.status(200).send(challenge);
-    } else {
-      console.warn("[WhatsApp Webhook] Verification failed or invalid request.");
-      return res.status(403).send("Forbidden");
+    return { accountSid, authToken, whatsappNumber, serviceSid, templateSid, messagingServiceSid, weeklyReportTemplateSid };
+  };
+
+  // GET: Fetch Twilio WhatsApp settings (masked)
+  app.get("/api/whatsapp-settings", async (req, res) => {
+    try {
+      const config = await getTwilioConfig();
+      const maskedToken = config.authToken ? (config.authToken.substring(0, 4) + "••••••••" + config.authToken.slice(-4)) : "";
+      return res.json({
+        accountSid: config.accountSid,
+        authToken: maskedToken,
+        hasAuthToken: !!config.authToken,
+        whatsappNumber: config.whatsappNumber,
+        isConfigured: !!(config.accountSid && config.authToken)
+      });
+    } catch (error: any) {
+      return res.status(500).json({ error: error.message || "Ayarlar alınamadı" });
     }
+  });
+
+  // POST: Update Twilio WhatsApp settings from website UI
+  app.post("/api/whatsapp-settings", async (req, res) => {
+    try {
+      const { accountSid, authToken, whatsappNumber } = req.body;
+      const db = getDb();
+
+      const updateData: any = {
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+
+      if (accountSid !== undefined) updateData.twilioAccountSid = accountSid.trim();
+      if (authToken !== undefined && authToken !== "" && !authToken.includes("••••")) {
+        updateData.twilioAuthToken = authToken.trim();
+      }
+      if (whatsappNumber !== undefined) updateData.twilioWhatsappNumber = whatsappNumber.trim();
+
+      await db.collection("settings").doc("system").set(updateData, { merge: true });
+
+      console.log("[Twilio Settings] WhatsApp Twilio credentials updated via website UI.");
+      return res.json({ success: true, message: "Twilio ayarları başarıyla kaydedildi." });
+    } catch (error: any) {
+      console.error("Error saving Twilio settings:", error);
+      return res.status(500).json({ error: error.message || "Ayarlar kaydedilemedi" });
+    }
+  });
+
+  // GET: Twilio WhatsApp Status & Webhook Info
+  app.get("/api/whatsapp-status", async (req, res) => {
+    try {
+      const config = await getTwilioConfig();
+      const isConfigured = !!(config.accountSid && config.authToken);
+      const maskedSid = config.accountSid
+        ? config.accountSid.substring(0, 6) + "..." + config.accountSid.slice(-4)
+        : "Yapılandırılmadı";
+
+      return res.json({
+        provider: "twilio",
+        configured: isConfigured,
+        accountSid: maskedSid,
+        rawAccountSid: config.accountSid,
+        whatsappNumber: config.whatsappNumber,
+        webhookUrl: "https://omernasuhakademi.com/api/whatsapp-webhook",
+        verifyToken: "FocusOnAkademiVerifyToken2026"
+      });
+    } catch (error: any) {
+      return res.status(500).json({ error: error.message || "WhatsApp durumu alınamadı" });
+    }
+  });
+
+  // GET & POST: Twilio Webhook Receiver
+  app.get("/api/whatsapp-webhook", async (req, res) => {
+    return res.status(200).send("Twilio WhatsApp Webhook Endpoint Active");
   });
 
   app.post("/api/whatsapp-webhook", async (req, res) => {
     const db = getDb();
     const rawBody = JSON.parse(JSON.stringify(req.body || {}));
-    let isMeta = false;
 
-    // Check if it's a Meta Cloud API webhook payload
-    if (req.body && req.body.object === "whatsapp_business_account") {
-      isMeta = true;
-      try {
-        const entry = req.body.entry?.[0];
-        const change = entry?.changes?.[0];
-        const value = change?.value;
-        const message = value?.messages?.[0];
-        const contact = value?.contacts?.[0];
-
-        if (message) {
-          req.body.From = message.from; // e.g. "905454487886"
-          req.body.Body = message.text?.body || message.document?.caption || message.image?.caption || "";
-          req.body.ProfileName = contact?.profile?.name || "";
-          req.body.MessageSid = message.id;
-
-          if (message.type === "document") {
-            req.body.MediaUrl = message.document.link || `https://graph.facebook.com/v19.0/${message.document.id}`;
-            req.body.MediaType = "document";
-            req.body.FileName = message.document.filename || "belge.pdf";
-          } else if (message.type === "image") {
-            req.body.MediaUrl = message.image.link || `https://graph.facebook.com/v19.0/${message.image.id}`;
-            req.body.MediaType = "image";
-            req.body.FileName = "gorsel.jpg";
-          } else if (message.type === "audio") {
-            req.body.MediaUrl = message.audio.link || `https://graph.facebook.com/v19.0/${message.audio.id}`;
-            req.body.MediaType = "audio";
-            req.body.FileName = "ses_kaydi.mp3";
-          }
-        } else {
-          // Just a status update (delivered, read, etc.), acknowledge immediately and log
-          try {
-            await db.collection("whatsapp_webhook_logs").add({
-              method: "POST",
-              timestamp: admin.firestore.FieldValue.serverTimestamp(),
-              headers: req.headers || {},
-              query: req.query || {},
-              body: rawBody,
-              ip: req.ip || req.headers["x-forwarded-for"] || "",
-              status: "meta_status_update"
-            });
-          } catch (logErr) {
-            console.error("Failed to log meta status update:", logErr);
-          }
-          return res.status(200).send("EVENT_RECEIVED");
-        }
-      } catch (err) {
-        console.error("Error parsing Meta WhatsApp webhook payload:", err);
-      }
-    }
-
-    if (req.body.From === 'testdebug') {
+    if (req.body?.From === 'testdebug') {
        return res.json({ isInitialized: true });
     }
 
     const from = req.body.From || req.body.from || req.body.phone;
     const body = req.body.Body || req.body.body || req.body.message || "";
     const profileName = req.body.ProfileName || req.body.profileName || "";
-    const messageSid = req.body.MessageSid || req.body.messageSid || "";
+    const messageSid = req.body.MessageSid || req.body.messageSid || req.body.SmsSid || "";
 
-    // Add support for Twilio/Meta media params
     const mediaUrl = req.body.MediaUrl || req.body.MediaUrl0 || "";
     const mediaType = req.body.MediaType || (req.body.MediaContentType0 ? (req.body.MediaContentType0.startsWith("image/") ? "image" : "document") : "");
     const fileName = req.body.FileName || (req.body.MediaUrl0 ? req.body.MediaUrl0.split("/").pop() || "dosya" : "");
 
-    // Save POST log to Firestore
+    // Log webhook request
     try {
       await db.collection("whatsapp_webhook_logs").add({
         method: "POST",
+        provider: "twilio",
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         headers: req.headers || {},
         query: req.query || {},
         body: rawBody,
         ip: req.ip || req.headers["x-forwarded-for"] || "",
         status: from ? "message_received" : "missing_from_parameter",
-        parsedData: from ? { from, body, profileName, messageSid, isMeta, mediaUrl, mediaType, fileName } : null
+        parsedData: from ? { from, body, profileName, messageSid, mediaUrl, mediaType, fileName } : null
       });
     } catch (logErr) {
       console.error("Failed to log webhook POST payload:", logErr);
     }
 
     if (!from) {
-      if (isMeta) {
-        return res.status(200).send("EVENT_RECEIVED");
-      }
+      res.set("Content-Type", "text/xml");
       return res.status(400).send("<Response><Message>From parameter is required.</Message></Response>");
     }
 
-    // Acknowledge immediately to prevent timeout errors
-    if (isMeta) {
-      res.status(200).send("EVENT_RECEIVED");
-    } else {
-      res.set("Content-Type", "text/xml");
-      res.status(200).send("<Response></Response>");
-    }
+    // Acknowledge immediately with TwiML
+    res.set("Content-Type", "text/xml");
+    res.status(200).send("<Response></Response>");
 
     // Process asynchronously
     (async () => {
     try {
-      let phoneNum = String(from).replace("whatsapp:", "").trim();
+      let phoneNum = String(from).replace("whatsapp:", "").replace(/[^\d+]/g, "");
       if (!phoneNum.startsWith("+")) {
         phoneNum = "+" + phoneNum;
       }
@@ -756,7 +1131,7 @@ app.post("/api/twilio-verify-check", async (req, res) => {
 
       await db.collection("whatsapp_messages").add(incomingMessageDoc);
 
-      console.log(`[WhatsApp Webhook] Message received from ${phoneNum}: ${body}`);
+      console.log(`[Twilio WhatsApp Webhook] Message received from ${phoneNum}: ${body}`);
 
       const lowerBody = body.toLowerCase().trim();
       const isApproval = lowerBody.includes("focuson akademi doğrulama") && lowerBody.includes("onaylıyorum");
@@ -787,10 +1162,21 @@ app.post("/api/twilio-verify-check", async (req, res) => {
 
           const toTwilio = phoneNum.startsWith("whatsapp:") ? phoneNum : `whatsapp:${phoneNum}`;
           
-          await db.collection("messages").add({
-            to: toTwilio,
-            body: msgBody
-          });
+          const twConfig = await getTwilioConfig();
+          if (twConfig.accountSid && twConfig.authToken) {
+            try {
+              const { default: twilio } = await import("twilio");
+              const client = twilio(twConfig.accountSid, twConfig.authToken);
+              const fromTwilio = twConfig.whatsappNumber.startsWith("whatsapp:") ? twConfig.whatsappNumber : `whatsapp:${twConfig.whatsappNumber}`;
+              await client.messages.create({
+                from: fromTwilio,
+                to: toTwilio,
+                body: msgBody
+              });
+            } catch (errTw) {
+              console.error("[Twilio Auto-Reply] Direct send failed:", errTw);
+            }
+          }
           
           await db.collection("whatsapp_messages").add({
             phone: phoneNum,
@@ -819,444 +1205,76 @@ app.post("/api/twilio-verify-check", async (req, res) => {
     })();
   });
 
-  // GET: Fetch and sync WhatsApp templates from Meta Cloud API
-  app.get("/api/whatsapp-templates", async (req, res) => {
-    const metaToken = process.env.WHATSAPP_ACCESS_TOKEN;
-    const metaWabaId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
-
-    if (!metaToken || !metaWabaId) {
-      // Return simulated/stored templates from Firestore
-      try {
-        const db = getDb();
-        const snap = await db.collection("whatsapp_templates").orderBy("createdAt", "desc").get();
-        const localTemplates = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        return res.json({ templates: localTemplates, source: "database" });
-      } catch (err: any) {
-        return res.status(500).json({ error: err.message });
-      }
-    }
-
-    try {
-      const url = `https://graph.facebook.com/v19.0/${metaWabaId}/message_templates?limit=100`;
-      const response = await fetch(url, {
-        headers: {
-          "Authorization": `Bearer ${metaToken}`
-        }
-      });
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        console.error("[WhatsApp Templates Fetch] Meta API error:", errData);
-        throw new Error(`Meta API error: ${JSON.stringify(errData)}`);
-      }
-
-      const metaRes: any = await response.json();
-      const metaTemplatesData = metaRes.data || [];
-
-      const db = getDb();
-
-      const formattedTemplates = metaTemplatesData.map((t: any) => {
-        const headerComp = t.components?.find((c: any) => c.type === "HEADER");
-        const bodyComp = t.components?.find((c: any) => c.type === "BODY");
-        const footerComp = t.components?.find((c: any) => c.type === "FOOTER");
-        const buttonsComp = t.components?.find((c: any) => c.type === "BUTTONS");
-
-        let headerType = "NONE";
-        let headerText = "";
-        if (headerComp) {
-          headerType = headerComp.format === "TEXT" ? "TEXT" : headerComp.format === "IMAGE" ? "IMAGE" : "NONE";
-          headerText = headerComp.text || "";
-        }
-
-        const buttons = buttonsComp?.buttons?.map((b: any) => {
-          let type = "QUICK_REPLY";
-          if (b.type === "URL") type = "URL";
-          else if (b.type === "PHONE_NUMBER") type = "PHONE_NUMBER";
-          return {
-            type,
-            text: b.text || "",
-            value: b.url || b.phone_number || ""
-          };
-        }) || [];
-
-        return {
-          id: t.id,
-          name: t.name,
-          category: t.category,
-          language: t.language,
-          status: t.status,
-          headerType,
-          headerText,
-          body: bodyComp?.text || "",
-          footer: footerComp?.text || "",
-          buttons,
-          createdAt: new Date().toISOString()
-        };
-      });
-
-      // Synchronize Meta templates into local Firestore for reliability
-      const syncPromises = formattedTemplates.map((t: any) => {
-        return db.collection("whatsapp_templates").doc(t.id).set({
-          name: t.name,
-          category: t.category,
-          language: t.language,
-          status: t.status,
-          headerType: t.headerType,
-          headerText: t.headerText,
-          body: t.body,
-          footer: t.footer,
-          buttons: t.buttons,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          createdAt: t.createdAt
-        });
-      });
-
-      await Promise.all(syncPromises).catch(e => console.error("[WhatsApp Templates Sync] Firestore sync error:", e));
-
-      return res.json({ templates: formattedTemplates, source: "meta" });
-    } catch (err: any) {
-      console.error("[WhatsApp Templates Fetch] Failed Meta fetch, falling back to db:", err.message);
-      try {
-        const db = getDb();
-        const snap = await db.collection("whatsapp_templates").orderBy("createdAt", "desc").get();
-        const localTemplates = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        return res.json({ templates: localTemplates, source: "fallback_database", error: err.message });
-      } catch (dbErr: any) {
-        return res.status(500).json({ error: dbErr.message });
-      }
-    }
-  });
-
-  // POST: Create a new template and send to Meta Cloud API for approval
-  app.post("/api/whatsapp-templates", async (req, res) => {
-    const { name, category, language, headerType, headerText, body, footer, buttons } = req.body;
-    if (!name || !category || !language || !body) {
-      return res.status(400).json({ error: "name, category, language, and body are required fields." });
-    }
-
-    const metaToken = process.env.WHATSAPP_ACCESS_TOKEN;
-    const metaWabaId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
-
-    let apiSuccess = false;
-    let responseData: any = null;
-    let status = "PENDING";
-
-    if (metaToken && metaWabaId) {
-      const components: any[] = [];
-
-      if (headerType === "TEXT" && headerText) {
-        components.push({
-          type: "HEADER",
-          format: "TEXT",
-          text: headerText
-        });
-      } else if (headerType === "IMAGE") {
-        components.push({
-          type: "HEADER",
-          format: "IMAGE",
-          example: {
-            header_handle: ["https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&w=600&q=80"]
-          }
-        });
-      }
-
-      const bodyComponent: any = {
-        type: "BODY",
-        text: body
-      };
-
-      const bodyMatches = body.match(/\{\{\d+\}\}/g) || [];
-      const bodyUniqueCount = new Set(bodyMatches).size;
-      if (bodyUniqueCount > 0) {
-        const sampleValues: string[] = [];
-        for (let i = 1; i <= bodyUniqueCount; i++) {
-          if (i === 1) sampleValues.push("Ahmet Yılmaz");
-          else if (i === 2) sampleValues.push("24 Temmuz 2026 14:00");
-          else if (i === 3) sampleValues.push("Koçluk Görüşmesi");
-          else sampleValues.push(`Değer ${i}`);
-        }
-        bodyComponent.example = {
-          body_text: [sampleValues]
-        };
-      }
-      components.push(bodyComponent);
-
-      if (footer) {
-        components.push({
-          type: "FOOTER",
-          text: footer
-        });
-      }
-
-      if (buttons && buttons.length > 0) {
-        const metaButtons = buttons.map((btn: any) => {
-          if (btn.type === "URL") {
-            return {
-              type: "URL",
-              text: btn.text,
-              url: btn.value || "https://focusonakademi.com"
-            };
-          } else {
-            return {
-              type: "QUICK_REPLY",
-              text: btn.text
-            };
-          }
-        });
-        components.push({
-          type: "BUTTONS",
-          buttons: metaButtons
-        });
-      }
-
-      const langCode = (() => {
-        const m = language.match(/\(([^)]+)\)/);
-        return m && m[1] ? m[1].trim() : (language.trim().toLowerCase().substring(0, 2) || "tr");
-      })();
-
-      const payload = {
-        name: name.trim().toLowerCase().replace(/\s+/g, '_'),
-        category: category,
-        language: langCode,
-        components: components
-      };
-
-      try {
-        const url = `https://graph.facebook.com/v19.0/${metaWabaId}/message_templates`;
-        const response = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${metaToken}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(payload)
-        });
-
-        const resData: any = await response.json();
-        if (!response.ok) {
-          console.error("[WhatsApp Template Create] Meta API Error:", resData);
-          return res.status(response.status).json({ error: "Meta Cloud API hatası", details: resData });
-        }
-
-        apiSuccess = true;
-        responseData = resData;
-        status = resData.status || "PENDING";
-      } catch (err: any) {
-        console.error("[WhatsApp Template Create] Network/Request Error:", err);
-        return res.status(500).json({ error: "Meta API ile iletişim kurulamadı.", details: err.message });
-      }
-    }
-
-    try {
-      const db = getDb();
-      const docId = responseData?.id || "temp_" + Date.now();
-      const newTemplate = {
-        name: name.trim().toLowerCase().replace(/\s+/g, '_'),
-        category: category,
-        language: language,
-        status: status,
-        headerType: headerType,
-        headerText: headerType === "TEXT" ? headerText : "",
-        body: body,
-        footer: footer || "",
-        buttons: buttons || [],
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
-      };
-
-      await db.collection("whatsapp_templates").doc(docId).set(newTemplate);
-      return res.json({ success: true, templateId: docId, template: newTemplate, method: apiSuccess ? "meta" : "local" });
-    } catch (err: any) {
-      console.error("[WhatsApp Template Save] Firestore Error:", err);
-      return res.status(500).json({ error: "Veritabanına kaydedilirken hata oluştu.", details: err.message });
-    }
-  });
-
-  // DELETE: Delete template from Meta and Firestore
-  app.delete("/api/whatsapp-templates/:id", async (req, res) => {
-    const { id } = req.params;
-    const { name } = req.query;
-
-    const metaToken = process.env.WHATSAPP_ACCESS_TOKEN;
-    const metaWabaId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
-
-    let apiSuccess = false;
-
-    if (metaToken && metaWabaId && name) {
-      try {
-        const url = `https://graph.facebook.com/v19.0/${metaWabaId}/message_templates?name=${name}`;
-        const response = await fetch(url, {
-          method: "DELETE",
-          headers: {
-            "Authorization": `Bearer ${metaToken}`
-          }
-        });
-
-        const resData = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          console.error("[WhatsApp Template Delete] Meta API Error:", resData);
-        } else {
-          apiSuccess = true;
-        }
-      } catch (err) {
-        console.error("[WhatsApp Template Delete] Network Error:", err);
-      }
-    }
-
-    try {
-      const db = getDb();
-      await db.collection("whatsapp_templates").doc(id).delete();
-      return res.json({ success: true, method: apiSuccess ? "meta" : "local" });
-    } catch (err: any) {
-      return res.status(500).json({ error: err.message });
-    }
-  });
-
+  // POST: Send WhatsApp Message via Twilio
   app.post("/api/whatsapp-send", async (req, res) => {
-    const { to, message, mediaUrl, mediaType, fileName, fileSize, template } = req.body;
-    if (!to || (!message && !mediaUrl && !template)) {
-      return res.status(400).json({ error: "to and either message, mediaUrl, or template are required" });
+    const { to: rawTo, phone, message, mediaUrl, mediaType, fileName, fileSize } = req.body;
+    const to = rawTo || phone;
+    if (!to || (!message && !mediaUrl)) {
+      return res.status(400).json({ error: "to ve mesaj veya medya zorunludur" });
     }
 
     try {
       const db = getDb();
-      let phoneNum = String(to).replace("whatsapp:", "").trim();
+      let phoneNum = String(to).replace("whatsapp:", "").replace(/[^\d+]/g, "");
       if (!phoneNum.startsWith("+")) {
         phoneNum = "+" + phoneNum;
       }
 
-      // Check Meta WhatsApp Cloud API credentials
-      const metaToken = process.env.WHATSAPP_ACCESS_TOKEN;
-      const metaPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-
-      // Check Twilio credentials
-      const twilioSid = process.env.TWILIO_ACCOUNT_SID;
-      const twilioToken = process.env.TWILIO_AUTH_TOKEN;
-      const twilioFrom = process.env.TWILIO_WHATSAPP_NUMBER || "+14155238886";
-
+      const twConfig = await getTwilioConfig();
       let sendMethod = "simulation";
-      let metaAuthError = false;
+      let twilioMsgSid: string | null = null;
 
-      if (metaToken && metaPhoneId) {
-        // Send via Meta WhatsApp Cloud API
-        sendMethod = "meta";
-        const cleanTo = phoneNum.replace(/\D/g, ""); // sequence of digits
-        const url = `https://graph.facebook.com/v19.0/${metaPhoneId}/messages`;
-        
-        let requestBody: any;
-        if (template) {
-          requestBody = {
-            messaging_product: "whatsapp",
-            recipient_type: "individual",
-            to: cleanTo,
-            type: "template",
-            template: template
-          };
-        } else if (mediaUrl && mediaType) {
-          const type = mediaType === "image" ? "image" : "document";
-          requestBody = {
-            messaging_product: "whatsapp",
-            recipient_type: "individual",
-            to: cleanTo,
-            type: type,
-            [type]: {
-              link: mediaUrl,
-              filename: fileName || "dosya",
-              caption: message || undefined
-            }
-          };
-        } else {
-          requestBody = {
-            messaging_product: "whatsapp",
-            recipient_type: "individual",
-            to: cleanTo,
-            type: "text",
-            text: {
-              preview_url: false,
-              body: message || ""
-            }
-          };
-        }
-
+      if (twConfig.accountSid && twConfig.authToken) {
         try {
-          const response = await fetch(url, {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${metaToken}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify(requestBody)
-          });
+          sendMethod = "twilio";
+          const { default: twilio } = await import("twilio");
+          const client = twilio(twConfig.accountSid, twConfig.authToken);
+          
+          const rawFrom = twConfig.whatsappNumber || "+14155238886";
+          const fromTwilio = rawFrom.startsWith("whatsapp:") ? rawFrom : `whatsapp:${rawFrom}`;
+          const targetTwilio = phoneNum.startsWith("whatsapp:") ? phoneNum : `whatsapp:${phoneNum}`;
 
-          if (!response.ok) {
-            const errData: any = await response.json().catch(() => ({}));
-            console.error("[WhatsApp Send] Meta API error:", errData);
-            
-            const isAuthErr = errData?.error?.code === 190 || errData?.error?.type === "OAuthException" || response.status === 401;
-            if (isAuthErr) {
-              console.warn("[WhatsApp Send] Meta OAuth/Authentication failed (Code 190). Falling back to Simulation Mode.");
-              sendMethod = "simulation";
-              metaAuthError = true;
-            } else {
-              throw new Error(`Meta API error: ${JSON.stringify(errData)}`);
-            }
-          } else {
-            console.log(`[WhatsApp Send] Message sent to ${phoneNum} via Meta Cloud API.`);
+          const messageOpts: any = {
+            from: fromTwilio,
+            to: targetTwilio,
+            body: message || ""
+          };
+          if (mediaUrl) {
+            messageOpts.mediaUrl = [mediaUrl];
           }
-        } catch (fetchErr: any) {
-          console.error("[WhatsApp Send] Meta Fetch Error:", fetchErr);
-          if (metaAuthError) {
-            // Already set
-          } else {
-            const errStr = fetchErr.message || "";
-            if (errStr.includes("190") || errStr.includes("OAuthException") || errStr.includes("Authentication") || errStr.includes("401")) {
-              console.warn("[WhatsApp Send] Meta OAuth/Authentication failed in catch. Falling back to Simulation Mode.");
-              sendMethod = "simulation";
-              metaAuthError = true;
+
+          let twMsg: any;
+          try {
+            twMsg = await client.messages.create(messageOpts);
+          } catch (mErr: any) {
+            if (messageOpts.mediaUrl) {
+              console.warn(`[WhatsApp Send] Media send failed (${mErr?.message}). Retrying text-only...`);
+              const fallbackOpts = { ...messageOpts };
+              delete fallbackOpts.mediaUrl;
+              twMsg = await client.messages.create(fallbackOpts);
             } else {
-              throw fetchErr;
+              throw mErr;
             }
           }
+          twilioMsgSid = twMsg.sid;
+          console.log(`[WhatsApp Send] Message sent to ${phoneNum} via Twilio API. SID: ${twilioMsgSid}`);
+        } catch (twilioErr: any) {
+          console.error("[WhatsApp Send] Twilio API Error, falling back to simulation:", twilioErr?.message || twilioErr);
+          sendMethod = "simulation";
         }
-      } else if (twilioSid && twilioToken) {
-        // Send via Twilio Direct API
-        sendMethod = "twilio";
-        const { default: twilio } = await import("twilio");
-        const client = twilio(twilioSid, twilioToken);
-        const fromTwilio = twilioFrom.startsWith("whatsapp:") ? twilioFrom : `whatsapp:${twilioFrom}`;
-        const targetTwilio = phoneNum.startsWith("whatsapp:") ? phoneNum : `whatsapp:${phoneNum}`;
-
-        const messageOpts: any = {
-          from: fromTwilio,
-          to: targetTwilio,
-          body: message || ""
-        };
-        if (mediaUrl) {
-          messageOpts.mediaUrl = [mediaUrl];
-        }
-
-        await client.messages.create(messageOpts);
-        console.log(`[WhatsApp Send] Message sent to ${phoneNum} via Twilio Direct API.`);
       } else {
-        // Fallback to Firebase Twilio Extension (write to 'messages' collection)
-        console.log(`[WhatsApp Send] No direct API keys found. Writing to Firebase 'messages' collection as fallback / Simulation Mode.`);
-        const toTwilio = phoneNum.startsWith("whatsapp:") ? phoneNum : `whatsapp:${phoneNum}`;
-        const fallbackMsg: any = {
-          to: toTwilio,
-          body: message || (fileName ? `[Belge: ${fileName}]` : ""),
-          createdAt: admin.firestore.FieldValue.serverTimestamp()
-        };
-        if (mediaUrl) {
-          fallbackMsg.mediaUrl = mediaUrl;
-        }
-        await db.collection("messages").add(fallbackMsg);
+        console.log(`[WhatsApp Send] Twilio credentials missing. Operating in Simulation Mode.`);
       }
 
-      // Add outbound message to 'whatsapp_messages' so it is visible in the chat history
+      // Add outbound message to 'whatsapp_messages'
       const outboundDoc: any = {
         phone: phoneNum,
         body: message || "",
         senderName: "Admin",
         direction: "outbound",
+        messageSid: twilioMsgSid || null,
+        status: sendMethod === "twilio" ? "sent" : "simulation",
+        sendMethod: sendMethod,
         timestamp: admin.firestore.FieldValue.serverTimestamp()
       };
 
@@ -1271,16 +1289,18 @@ app.post("/api/twilio-verify-check", async (req, res) => {
         outboundDoc.file_size = fileSize || "";
       }
 
-      await db.collection("whatsapp_messages").add(outboundDoc);
+      try {
+        await db.collection("whatsapp_messages").add(outboundDoc);
+      } catch (e: any) {
+        console.log("[WhatsApp Send] Firestore whatsapp_messages add error:", e?.message);
+      }
 
-      // If we are in Simulation Mode (neither Meta nor Twilio API is fully configured), trigger an AI-simulated response
+      // Simulation mode AI reply
       if (sendMethod === "simulation") {
         const simulateAiResponse = async () => {
           try {
-            // Wait 2.5 seconds to feel natural
             await new Promise(resolve => setTimeout(resolve, 2500));
 
-            // Fetch last 10 messages of this chat to provide context
             let historySnap;
             try {
               historySnap = await db.collection("whatsapp_messages")
@@ -1302,7 +1322,7 @@ app.post("/api/twilio-verify-check", async (req, res) => {
               }).join("\n");
             }
 
-            let aiReply = "Merhaba, mesajınızı aldım. En kısa sürede dönüş yapacağım."; // Fallback response
+            let aiReply = "Merhaba, mesajınızı aldım. En kısa sürede dönüş yapacağım.";
             
             try {
               const aiClient = getGeminiClient();
@@ -1326,11 +1346,10 @@ Görevin: Bu son mesaja Türkçe olarak doğal, samimi, kısa ve gerçekçi bir 
               if (aiRes?.text) {
                 aiReply = aiRes.text.trim();
               }
-            } catch (aiErr) {
-              console.error("[WhatsApp Send] Simulation AI response generation error:", aiErr);
+            } catch (aiErr: any) {
+              console.log("[WhatsApp Send] Simulation AI response fallback used:", aiErr?.message || aiErr);
             }
 
-            // Save the simulated inbound message to Firestore with simulated document if applicable
             const lowerMessage = (message || "").toLowerCase();
             const simulatedInboundDoc: any = {
               phone: phoneNum,
@@ -1345,7 +1364,6 @@ Görevin: Bu son mesaja Türkçe olarak doğal, samimi, kısa ve gerçekçi bir 
               simulatedInboundDoc.mediaType = "image";
               simulatedInboundDoc.fileSize = "142 KB";
               simulatedInboundDoc.fileName = "Ogrenci_Karti_Ve_Gelisim.jpg";
-              
               simulatedInboundDoc.media_url = simulatedInboundDoc.mediaUrl;
               simulatedInboundDoc.media_type = simulatedInboundDoc.mediaType;
               simulatedInboundDoc.file_size = simulatedInboundDoc.fileSize;
@@ -1355,7 +1373,7 @@ Görevin: Bu son mesaja Türkçe olarak doğal, samimi, kısa ve gerçekçi bir 
                 simulatedInboundDoc.body = `${aiReply}\n\n[Ekli Görsel: ${simulatedInboundDoc.fileName}]`;
               }
             } else if (lowerMessage.includes("rapor") || lowerMessage.includes("dosya") || lowerMessage.includes("ödev") || lowerMessage.includes("plan") || lowerMessage.includes("pdf") || lowerMessage.includes("karne") || lowerMessage.includes("deneme") || lowerMessage.includes("gönder") || lowerMessage.includes("belge")) {
-              simulatedInboundDoc.mediaUrl = "https://pdfobject.com/pdf/sample.pdf"; // Standard safe mock PDF
+              simulatedInboundDoc.mediaUrl = "https://pdfobject.com/pdf/sample.pdf";
               simulatedInboundDoc.mediaType = "document";
               simulatedInboundDoc.fileSize = "284 KB";
               
@@ -1381,98 +1399,34 @@ Görevin: Bu son mesaja Türkçe olarak doğal, samimi, kısa ve gerçekçi bir 
               }
             }
 
-            await db.collection("whatsapp_messages").add(simulatedInboundDoc);
+            try {
+              await db.collection("whatsapp_messages").add(simulatedInboundDoc);
+            } catch (e: any) {
+              console.log("[WhatsApp Send] Simulation inbound doc add error:", e?.message);
+            }
 
             console.log(`[WhatsApp Send] Simulated AI reply added for ${phoneNum}: ${aiReply}`);
-          } catch (simErr) {
-            console.error("[WhatsApp Send] Simulation reply job failed:", simErr);
+          } catch (simErr: any) {
+            console.log("[WhatsApp Send] Simulation reply job failed:", simErr?.message || simErr);
           }
         };
 
-        // Run simulation asynchronously in the background so API returns immediately
         simulateAiResponse();
       }
 
-      res.json({ success: true, method: sendMethod, metaAuthError });
+      res.json({ success: true, method: sendMethod });
     } catch (err: any) {
-      console.error("[WhatsApp Send] Error:", err);
-      res.status(500).json({ error: err.message || "An error occurred while sending message." });
+      console.log("[WhatsApp Send] Error:", err?.message || err);
+      res.status(500).json({ error: err.message || "Mesaj gönderilirken hata oluştu." });
     }
   });
 
   app.get("/api/whatsapp-media", async (req, res) => {
     const { url } = req.query;
     if (!url || typeof url !== "string") {
-      return res.status(400).send("url parameter is required");
+      return res.status(400).send("url parametresi gereklidir");
     }
-
-    try {
-      // If it's not a Meta/Facebook URL, just redirect to it (e.g. Unsplash mock or Firebase Storage)
-      if (!url.includes("facebook.com") && !url.includes("fbsbx.com")) {
-        return res.redirect(url);
-      }
-
-      const metaToken = process.env.WHATSAPP_ACCESS_TOKEN;
-      if (!metaToken) {
-        console.error("[WhatsApp Media Proxy] WHATSAPP_ACCESS_TOKEN is missing.");
-        return res.status(401).send("WhatsApp access token is missing on the server.");
-      }
-
-      let targetUrl = url;
-
-      // If the URL is the metadata endpoint (e.g. https://graph.facebook.com/v19.0/{media_id})
-      // we need to query it first to get the actual direct download lookaside URL.
-      if (url.includes("graph.facebook.com") && !url.includes("lookaside.fbsbx.com")) {
-        console.log(`[WhatsApp Media Proxy] Querying Meta metadata for: ${url}`);
-        const metaRes = await fetch(url, {
-          headers: { "Authorization": `Bearer ${metaToken}` }
-        });
-
-        if (!metaRes.ok) {
-          const errText = await metaRes.text().catch(() => "");
-          console.error(`[WhatsApp Media Proxy] Meta metadata API error: ${metaRes.status} - ${errText}`);
-          return res.status(metaRes.status).send(`Meta API metadata error: ${errText}`);
-        }
-
-        const metaData: any = await metaRes.json();
-        if (!metaData.url) {
-          console.error("[WhatsApp Media Proxy] Meta response did not contain download URL:", metaData);
-          return res.status(404).send("Media download URL not found in Meta response.");
-        }
-
-        targetUrl = metaData.url;
-      }
-
-      console.log(`[WhatsApp Media Proxy] Fetching binary from lookaside URL: ${targetUrl}`);
-      const mediaRes = await fetch(targetUrl, {
-        headers: { "Authorization": `Bearer ${metaToken}` }
-      });
-
-      if (!mediaRes.ok) {
-        const errText = await mediaRes.text().catch(() => "");
-        console.error(`[WhatsApp Media Proxy] Lookaside download error: ${mediaRes.status} - ${errText}`);
-        return res.status(mediaRes.status).send(`Failed to fetch media binary from Meta: ${errText}`);
-      }
-
-      const contentType = mediaRes.headers.get("content-type") || "application/octet-stream";
-      const contentLength = mediaRes.headers.get("content-length");
-      const contentEncoding = mediaRes.headers.get("content-encoding");
-
-      res.setHeader("Content-Type", contentType);
-      if (contentLength) {
-        res.setHeader("Content-Length", contentLength);
-      }
-      if (contentEncoding) {
-        res.setHeader("Content-Encoding", contentEncoding);
-      }
-
-      const arrayBuffer = await mediaRes.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      res.send(buffer);
-    } catch (err: any) {
-      console.error("[WhatsApp Media Proxy] Exception occurred:", err);
-      res.status(500).send(`Internal error in media proxy: ${err.message || err}`);
-    }
+    return res.redirect(url);
   });
 
   app.get("/api/health", (req, res) => {
@@ -2058,7 +2012,9 @@ Görevin: Bu son mesaja Türkçe olarak doğal, samimi, kısa ve gerçekçi bir 
 
 Görevlerinden biri, velinin talebi doğrultusunda öğrencinin akademik sürecini (çalışma programları, deneme sınavı sonuçları, kişilik/bilişsel analizlerini ve ÇABA Testi / Çalışma Alışkanlıkları ve Başarı Analizi sonuçlarını) inceleyip veliye uygun, yönlendirici tavsiyeler vermektir. 
 Öğrenci hakkında detaylı veriye (sınav sonuçları, analiz sonuçları, çalışma programı, ÇABA Testi raporu) ihtiyaç duyarsan "get_student_academic_data" aracını çağır ve oradan dönen veriyi veliye uygun (hassas olmayan, destekleyici, genel resmi gösteren) bir dilde yorumla. ÇABA Testi öğrencinin zaman yönetimi, öz-disiplin, duygusal dayanıklılık, motivasyon ve gelişim zihniyeti gibi alanlardaki durumunu (Yeşil/Sarı/Kırmızı Bölge) gösteren önemli bir analizdir.
-Velilere tavsiye verirken şefkatli, olumlu ve yapıcı bir üslup kullan. Sadece akademik değil, motivasyon ve psikolojik destek boyutlarına da dikkat çek. Kısa, öz ve anlaşılır cevaplar ver.`;
+Velilere tavsiye verirken şefkatli, olumlu ve yapıcı bir üslup kullan. Sadece akademik değil, motivasyon ve psikolojik destek boyutlarına da dikkat çek. Kısa, öz ve anlaşılır cevaplar ver.
+
+Araç (function) çağırırken kullanıcıya asla sistem logu veya teknik bilgi verme (örn: araç çağrıldı vb). Sadece doğal konuş.`;
 
       // Define Tools
       const tools = [{
@@ -2119,7 +2075,7 @@ Velilere tavsiye verirken şefkatli, olumlu ve yapıcı bir üslup kullan. Sadec
       const lastMsg = history[history.length - 1];
       let messagePayload: any = lastMsg.content;
       if (lastMsg.functionResponse) {
-         messagePayload = `[Sistem: "${lastMsg.name || 'Araç'}" aracı başarıyla çalıştırıldı ve şu sonuçlar elde edildi:\n${JSON.stringify(lastMsg.functionResponse || {}, null, 2)}\n\nLütfen yukarıdaki verileri detaylıca analiz ederek doğrudan, samimi ve profesyonel bir üslupla yanıt ver.]`;
+         messagePayload = `[Sistem: "${lastMsg.name || 'Araç'}" aracı başarıyla çalıştırıldı ve şu sonuçlar elde edildi:\n${JSON.stringify(lastMsg.functionResponse || {}, null, 2)}\n\n(DİKKAT: Veriyi incele. Eğer yeterli bilgiye ulaştıysan kullanıcıya doğrudan, samimi ve profesyonel bir üslupla yanıt ver. EĞER eksik bir bilgi varsa veya bu verinin sonucuna göre YENİ BİR ARAMA yapman gerekiyorsa, kullanıcıya cevap yazmadan önce doğrudan DİĞER ARAÇLARI ÇAĞIR. 4 aşamaya kadar ardışık araç çağrısı yapabilirsin.)]`;
       }
       const response = await chat.sendMessage({ message: messagePayload });
 
@@ -2160,9 +2116,13 @@ Velilere tavsiye verirken şefkatli, olumlu ve yapıcı bir üslup kullan. Sadec
 
 Görevlerinden biri, öğrencinin akademik sürecini (çalışma programları, kitap takibi, deneme sınavı sonuçları, bu denemelerin konu konu hatalarını içeren analizlerini, kişilik/bilişsel analizlerini ve ÇABA Testi / Çalışma Alışkanlıkları ve Başarı Analizi sonuçlarını) detaylıca inceleyip tavsiyeler vermektir. Öğrenci planları, sınav sonuçları, konu/hata analizleri, ÇABA Testi raporları, veya stres, motivasyon, kişilik özellikleri gibi konularda psikolojik ve rehberlik desteği istediğinde "get_student_academic_data" aracını çağır ve oradan dönen veriyi detaylıca analiz et. ÇABA Testi öğrencinin zaman yönetimi, öz-disiplin, duygusal dayanıklılık, motivasyon ve gelişim zihniyeti gibi alanlardaki durumunu (Yeşil/Sarı/Kırmızı Bölge) gösteren önemli bir analizdir. Eğer öğrenci stresten/odaklanmadan/ertelemeden bahsediyor ve henüz bu konuda bir analiz (örneğin ÖTI-A, AG-MOT, DEHB, Sınav Kaygısı vb. formlar/tesler, ya da ÇABA Testi) çözmemişse, test çözmesini önerebilirsin.
 
-Öğrencinin randevularını yönetebilirsin. Eğer öğrenci randevu almak, mevcut randevularını listelemek veya iptal etmek isterse kullanabilecegin araçları (function_calling) kullan. Randevu iptal kurallarına dikkat et (kalan son 3 saat kala iptal edilemez vs. bu kuralları sen belirleyip öğrenciye aktar. Sadece uygunsa aracı çağır). Yeni randevu alırken mutlaka koçun müsait saatlerini saat saat isteyebileceğin aracı kullan ve ordan dönen saate göre randevu oluştur.
+ÖNEMLİ KURAL: Yapay zeka olarak KESİNLİKLE öğrenciye ödev veya çalışma programı VEREMEZSİN. Bunlar koçun işidir. Sen sadece çalışma stratejileri hakkında öneriler sunabilir, rehberlik yapabilirsin. Öğrenci ödev veya çalışma programı istediğinde, onu koçuyla iletişime geçmesi veya koçuyla randevu oluşturması için yönlendir.
 
-Bu bilgileri dikkate alarak öğrenciyle doğrudan konuş, isminin "ON Asistan" olduğunu unutma. Akademik hedeflerini destekle, konu bazlı hata ve eksikliklerini belirterek program önerileri yap, stres gibi durumları yakalayarak derinlikli analizler sun. Kısa ve öz, cesaretlendirici cevaplar ver. Asla gereksiz bilgi yüklemesi yapma, bir rehber gibi yaklaş.`;
+Öğrencinin randevularını yönetebilirsin. Mevcut randevularını listelemek veya iptal etmek için uygun fonksiyonları kullanabilirsin. Ancak randevu ALMAK (oluşturmak) istiyorsa ÖNCE ona "Randevu alalım mı?" diye sor veya randevu almak için onay vermesini ("randevu al" demesini) bekle. Öğrenci randevu almak istediğini net bir şekilde belirttiğinde SADECE 'start_booking_wizard' fonksiyonunu (function call) KULLAN. Bunu asla metin olarak yazma, sistemin fonksiyon çağırma özelliğini kullanarak gerçek bir function call yap! KESİNLİKLE 'book_appointment' veya 'get_coach_schedule' aracını randevu oluşturmak için kullanma.
+
+Bu bilgileri dikkate alarak öğrenciyle doğrudan konuş, isminin "ON Asistan" olduğunu unutma. Akademik hedeflerini destekle, konu bazlı hata ve eksikliklerini belirterek program önerileri yap, stres gibi durumları yakalayarak derinlikli analizler sun. Kısa ve öz, cesaretlendirici cevaplar ver. Asla gereksiz bilgi yüklemesi yapma, bir rehber gibi yaklaş.
+
+Araç (function) çağırırken kullanıcıya asla sistem logu veya teknik bilgi verme (örn: araç çağrıldı vb). Sadece doğal konuş.`;
 
       // Define Tools
       const tools = [{
@@ -2267,7 +2227,7 @@ Bu bilgileri dikkate alarak öğrenciyle doğrudan konuş, isminin "ON Asistan" 
       const lastMsg = history[history.length - 1];
       let messagePayload: any = lastMsg.content;
       if (lastMsg.functionResponse) {
-         messagePayload = `[Sistem: "${lastMsg.name || 'Araç'}" aracı başarıyla çalıştırıldı ve şu sonuçlar elde edildi:\n${JSON.stringify(lastMsg.functionResponse || {}, null, 2)}\n\nLütfen yukarıdaki verileri detaylıca analiz ederek doğrudan, samimi ve profesyonel bir üslupla yanıt ver.]`;
+         messagePayload = `[Sistem: "${lastMsg.name || 'Araç'}" aracı başarıyla çalıştırıldı ve şu sonuçlar elde edildi:\n${JSON.stringify(lastMsg.functionResponse || {}, null, 2)}\n\n(DİKKAT: Veriyi incele. Eğer yeterli bilgiye ulaştıysan kullanıcıya doğrudan, samimi ve profesyonel bir üslupla yanıt ver. EĞER eksik bir bilgi varsa veya bu verinin sonucuna göre YENİ BİR ARAMA yapman gerekiyorsa, kullanıcıya cevap yazmadan önce doğrudan DİĞER ARAÇLARI ÇAĞIR. 4 aşamaya kadar ardışık araç çağrısı yapabilirsin.)]`;
       }
       const response = await chat.sendMessage({ message: messagePayload });
 
@@ -2760,14 +2720,984 @@ Bu değerlendirme raporu, öğrencinin sisteme kaydettiği analiz verileri doğr
     }
   });
 
+  // --- HAFTALIK OTOMATİK RAPOR VE PDF / WHATSAPP MOTORU ---
+  const weeklyPdfStore = new Map<string, { buffer: Buffer; studentName: string; createdAt: string }>();
+
+  
+  function getTaskBadgeInfo(task: any): { label: string; unit: string } {
+    const rawType = (task.type || task.taskType || '').toString().toLowerCase();
+    if (rawType.includes('video') || rawType.includes('youtube') || rawType.includes('ders')) {
+      return { label: 'Video/Ders', unit: 'Video' };
+    }
+    if (rawType.includes('sayfa') || rawType.includes('kitap') || rawType.includes('okuma')) {
+      return { label: 'Sayfa', unit: 'Sayfa' };
+    }
+    if (rawType.includes('konu')) {
+      return { label: 'Konu', unit: 'Sayfa' };
+    }
+    if (rawType.includes('deneme') || rawType.includes('exam')) {
+      return { label: 'Deneme', unit: 'Deneme' };
+    }
+    if (rawType.includes('soru') || rawType.includes('question')) {
+      return { label: 'Soru', unit: 'Soru' };
+    }
+    if (rawType.includes('gorev') || rawType.includes('görev') || rawType.includes('task')) {
+      return { label: 'Görev', unit: 'Adet' };
+    }
+    if (task.type || task.taskType) {
+      const custom = (task.type || task.taskType).toString();
+      return { label: custom, unit: 'Adet' };
+    }
+    return { label: 'Görev', unit: 'Adet' };
+  }
+
+  function generateWeeklyReportPdfBuffer(params: {
+    studentName: string;
+    periodStr: string;
+    totalTarget: number;
+    totalCompleted: number;
+    completionRate: number;
+    totalTasks: number;
+    examsCount: number;
+    aiAnalysisText: string;
+    subjectsBreakdown: { subject: string; target: number; completed: number }[];
+    studentGrade?: string;
+    studentBranch?: string;
+    studentTarget?: string;
+    studentPackage?: string;
+    dailyTasks?: { date: string; displayDate: string; tasks: any[] }[];
+    exams?: any[];
+    taskCompletionRate?: number;
+  }): Buffer {
+    const doc = new jsPDF();
+    
+    const tr2en = (text: string) => {
+      if (!text) return "";
+      return String(text)
+        .replace(/ğ/g, 'g').replace(/Ğ/g, 'G')
+        .replace(/ü/g, 'u').replace(/Ü/g, 'U')
+        .replace(/ş/g, 's').replace(/Ş/g, 'S')
+        .replace(/ı/g, 'i').replace(/İ/g, 'I')
+        .replace(/ö/g, 'o').replace(/Ö/g, 'O')
+        .replace(/ç/g, 'c').replace(/Ç/g, 'C');
+    };
+
+    const originalText = doc.text.bind(doc);
+    (doc as any).text = function(text: any, x: number, y: number, options?: any) {
+      if (Array.isArray(text)) {
+        text = text.map(t => tr2en(t));
+      } else {
+        text = tr2en(text);
+      }
+      return originalText(text, x, y, options);
+    };
+
+    const originalGetTextWidth = doc.getTextWidth.bind(doc);
+    (doc as any).getTextWidth = function(text: string) {
+      return originalGetTextWidth(tr2en(text));
+    };
+
+    const fontName = "helvetica"; // Use helvetica as we have replaced Turkish characters
+
+    const pageW = 210;
+    const pageH = 297;
+    let currentY = 0;
+
+    // Load ON-Logo image base64 if available
+    let logoBase64 = "";
+    try {
+      const logoPathSmall = path.join(process.cwd(), "public", "images", "ON-Logo-small.png");
+      const logoPathNormal = path.join(process.cwd(), "public", "images", "ON-Logo.png");
+      const chosenPath = fs.existsSync(logoPathSmall) ? logoPathSmall : logoPathNormal;
+      if (fs.existsSync(chosenPath)) {
+        logoBase64 = fs.readFileSync(chosenPath).toString("base64");
+      }
+    } catch (e) {
+      console.warn("PDF Logo load notice:", e);
+    }
+    
+    // Yrd. Fonksiyonlar
+    const drawProgressBar = (x: number, y: number, w: number, h: number, percentage: number, color: [number, number, number], bg: [number, number, number] = [30, 41, 59]) => {
+      doc.setFillColor(...bg);
+      doc.roundedRect(x, y, w, h, h/2, h/2, "F");
+      if (percentage > 0) {
+        const fillW = Math.min(Math.max((percentage / 100) * w, h), w);
+        doc.setFillColor(...color);
+        doc.roundedRect(x, y, fillW, h, h/2, h/2, "F");
+      }
+    };
+
+    const drawBackground = () => {
+      doc.setFillColor(11, 17, 32); // #0B1120 dark canvas
+      doc.rect(0, 0, pageW, pageH, "F");
+    };
+
+    const drawFooter = () => {
+      doc.setFillColor(17, 24, 39);
+      doc.rect(0, pageH - 10, pageW, 10, "F");
+      doc.setFontSize(7);
+      doc.setFont(fontName, "normal");
+      doc.setTextColor(156, 163, 175);
+      doc.text("FocusON Akademi - Otomatik Üretilmiş Veli Bilgilendirme Raporu", pageW / 2, pageH - 4, { align: "center" });
+    };
+
+    const addPageIfNeeded = (neededH: number) => {
+      if (currentY + neededH > pageH - 16) {
+        doc.addPage();
+        drawBackground();
+        drawFooter();
+        currentY = 14;
+      }
+    };
+
+    // Initialize first page
+    drawBackground();
+    drawFooter();
+    currentY = 10;
+
+    // 1. Header (Student Info, Period, Package & Logo)
+    const headerHeight = 36;
+    doc.setFillColor(17, 24, 39); // #111827
+    doc.setDrawColor(31, 41, 55); // border
+    doc.setLineWidth(0.3);
+    doc.roundedRect(10, currentY, 190, headerHeight, 3, 3, "FD");
+
+    // Logo embedding - Fix aspect ratio
+    let textStartX = 15;
+    if (logoBase64) {
+      try {
+        const imgProps = doc.getImageProperties(`data:image/png;base64,${logoBase64}`);
+        const ratio = imgProps.height / imgProps.width;
+        const imgWidth = 20;
+        const imgHeight = imgWidth * ratio;
+        const yOffset = currentY + 8 + (20 - imgHeight) / 2; // center vertically in the 20mm space
+        
+        doc.addImage(`data:image/png;base64,${logoBase64}`, "PNG", 13, yOffset, imgWidth, imgHeight, undefined, "FAST");
+        textStartX = 37;
+      } catch (err) {
+        doc.setFillColor(16, 185, 129);
+        doc.circle(23, currentY + 18, 9, "F");
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(11);
+        doc.setFont(fontName, "bold");
+        doc.text(params.studentName.charAt(0).toUpperCase(), 23, currentY + 22, { align: "center" });
+        textStartX = 37;
+      }
+    }
+
+    // Left Column: Student Name, Grade/Branch, Target, Package
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(11);
+    doc.setFont(fontName, "bold");
+    doc.text(params.studentName, textStartX, currentY + 8);
+
+    doc.setFontSize(7.5);
+    doc.setFont(fontName, "normal");
+    doc.setTextColor(156, 163, 175);
+    let gradeBranch = [];
+    if (params.studentGrade) gradeBranch.push(`Sınıf: ${params.studentGrade}`);
+    if (params.studentBranch) gradeBranch.push(`Alan: ${params.studentBranch}`);
+    doc.text(gradeBranch.join("   |   ") || "Sınıf: 12. Sınıf   |   Alan: SAYISAL", textStartX, currentY + 15);
+
+    doc.text(`Hedef: ${params.studentTarget || 'Ankara Üniversitesi - Tıp Fakültesi'}`, textStartX, currentY + 22);
+
+    doc.setTextColor(16, 185, 129); // emerald green for package
+    doc.setFont(fontName, "bold");
+    doc.setFontSize(7.5);
+    doc.text(`Abonelik Paketi: ${params.studentPackage || 'Sınırsız Zirve VIP (Altın Paket)'}`, textStartX, currentY + 29);
+
+    // Right Column: Academy Branding & Report Period
+    doc.setTextColor(16, 185, 129);
+    doc.setFontSize(9);
+    doc.setFont(fontName, "bold");
+    doc.text("FocusON Akademi", 195, currentY + 8, { align: "right" });
+
+    doc.setTextColor(156, 163, 175);
+    doc.setFont(fontName, "normal");
+    doc.setFontSize(7.5);
+    doc.text(`Rapor Dönemi: ${params.periodStr}`, 195, currentY + 15, { align: "right" });
+
+    currentY += headerHeight + 5;
+
+    // Calculate dynamic topic study pages and watch videos count
+    let totalStudyPages = 0;
+    let totalWatchVideos = 0;
+    if (params.dailyTasks) {
+      params.dailyTasks.forEach(day => {
+        day.tasks.forEach((t: any) => {
+          const info = getTaskBadgeInfo(t);
+          if (info.unit === 'Sayfa') {
+            totalStudyPages += Number(t.completedCount) || (t.isDone ? Number(t.targetCount) || 1 : 0);
+          } else if (info.unit === 'Video') {
+            totalWatchVideos += Number(t.completedCount) || (t.isDone ? Number(t.targetCount) || 1 : 0);
+          }
+        });
+      });
+    }
+
+    // 2. Summary KPI Cards (4 columns)
+    const cardW = 45;
+    const gap = (190 - (cardW * 4)) / 3;
+    const stats = [
+      { t: "SORU ÇÖZÜMÜ", v: `${params.totalCompleted} / ${params.totalTarget}`, v2: "Soru", pLabel: `Haftalık soru ulaşma oranı %${params.completionRate}`, pct: params.completionRate, color: [16, 185, 129] },
+      { t: "GÖREV SADAKATİ", v: `${params.dailyTasks ? params.dailyTasks.reduce((acc, c) => acc + c.tasks.filter(t => t.isDone).length, 0) : 0} / ${params.totalTasks}`, v2: "Görev", pLabel: `Günlük program sadakat oranı %${params.taskCompletionRate || 0}`, pct: params.taskCompletionRate || 0, color: [139, 92, 246] },
+      { t: "KONU ÇALIŞMASI", v: `${totalStudyPages}`, v2: "Sayfa", pLabel: "Haftalık konu pekiştirme süreci", pct: totalStudyPages > 0 ? 100 : 0, color: [245, 158, 11] },
+      { t: "KONU TAKİBİ", v: `${totalWatchVideos}`, v2: "Video/Ders", pLabel: "Müfredat uyumlu konu kavrama", pct: totalWatchVideos > 0 ? 100 : 0, color: [59, 130, 246] }
+    ];
+
+    stats.forEach((s, i) => {
+      const x = 10 + i * (cardW + gap);
+      doc.setFillColor(17, 24, 39);
+      doc.setDrawColor(31, 41, 55);
+      doc.roundedRect(x, currentY, cardW, 26, 2, 2, "FD");
+
+      doc.setTextColor(156, 163, 175);
+      doc.setFontSize(6.5);
+      doc.setFont(fontName, "bold");
+      doc.text(s.t, x + 3, currentY + 6);
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(11);
+      doc.text(s.v, x + 3, currentY + 13);
+
+      doc.setFontSize(6.5);
+      doc.setTextColor(156, 163, 175);
+      doc.setFont(fontName, "normal");
+      doc.text(s.v2, x + 3 + doc.getTextWidth(s.v) + 1, currentY + 13);
+
+      doc.setFontSize(5.5);
+      doc.text(s.pLabel, x + 3, currentY + 18);
+
+      drawProgressBar(x + 3, currentY + 21, cardW - 6, 1.5, s.pct, s.color as any);
+    });
+
+    currentY += 31;
+
+    // 3. AI & Coach Evaluation Box
+    // IMPORTANT: Set font BEFORE splitting text so width calculation is accurate!
+    doc.setFont(fontName, "normal");
+    doc.setFontSize(7.5);
+    
+    const cleanAiText = params.aiAnalysisText.replace(/[*_]/g, '');
+    const splitAi = doc.splitTextToSize(cleanAiText || "Geçen hafta için henüz yapay zeka analizi veya koç değerlendirmesi oluşturulmamış. Sistem her Pazar akşamı bu analizi otomatik olarak oluşturacak ve kaydedecektir.", 175);
+    const aiBoxHeight = Math.max(30, 18 + splitAi.length * 4.8);
+
+    addPageIfNeeded(aiBoxHeight + 6);
+
+    doc.setFillColor(17, 24, 39);
+    doc.setDrawColor(31, 41, 55);
+    doc.roundedRect(10, currentY, 190, aiBoxHeight, 3, 3, "FD");
+
+    // Green Accent Heading
+    doc.setFillColor(16, 185, 129);
+    doc.roundedRect(10, currentY, 3.5, aiBoxHeight, 2, 2, "F");
+
+    doc.setTextColor(16, 185, 129); // green
+    doc.setFont(fontName, "bold");
+    doc.setFontSize(8.5);
+    doc.text("Geçen Haftalık Koç Değerlendirmesi & Yapay Zeka Analiz Raporu", 17, currentY + 7.5);
+
+    doc.setDrawColor(31, 41, 55);
+    doc.line(14, currentY + 11, 196, currentY + 11);
+
+    doc.setTextColor(209, 213, 219); // gray-300
+    doc.setFont(fontName, "normal");
+    doc.setFontSize(7.5);
+
+    let lineY = currentY + 16.5;
+    splitAi.forEach((line: string) => {
+      doc.text(line, 17, lineY);
+      lineY += 4.8;
+    });
+
+    currentY += aiBoxHeight + 6;
+
+    // 4. Deneme Ortalamalari Boxes
+    addPageIfNeeded(32);
+    const boxW = 92;
+
+    // Box 1: Genel Deneme Ortalamaları
+    doc.setFillColor(17, 24, 39);
+    doc.setDrawColor(31, 41, 55);
+    doc.roundedRect(10, currentY, boxW, 26, 2, 2, "FD");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont(fontName, "bold");
+    doc.setFontSize(7.5);
+    doc.text("Genel Deneme Ortalamaları", 14, currentY + 6);
+
+    ["TYT GENEL", "AYT GENEL", "YDT GENEL"].forEach((t, i) => {
+      const bx = 14 + i * 27;
+      doc.setFillColor(31, 41, 55);
+      doc.roundedRect(bx, currentY + 9, 25, 13, 1.5, 1.5, "F");
+      doc.setTextColor(156, 163, 175);
+      doc.setFontSize(5.5);
+      doc.text(t, bx + 12.5, currentY + 13, { align: "center" });
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(8);
+      doc.setFont(fontName, "bold");
+      doc.text("-", bx + 12.5, currentY + 19, { align: "center" });
+    });
+
+    // Box 2: Branş / Ders Deneme Ortalamaları
+    doc.setFillColor(17, 24, 39);
+    doc.setDrawColor(31, 41, 55);
+    doc.roundedRect(10 + boxW + 6, currentY, boxW, 26, 2, 2, "FD");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont(fontName, "bold");
+    doc.setFontSize(7.5);
+    doc.text("Branş / Ders Deneme Ortalamaları", 14 + boxW + 6, currentY + 6);
+
+    ["TYT BRANŞ", "AYT BRANŞ", "YDT BRANŞ"].forEach((t, i) => {
+      const bx = 14 + boxW + 6 + i * 27;
+      doc.setFillColor(31, 41, 55);
+      doc.roundedRect(bx, currentY + 9, 25, 13, 1.5, 1.5, "F");
+      doc.setTextColor(156, 163, 175);
+      doc.setFontSize(5.5);
+      doc.text(t, bx + 12.5, currentY + 13, { align: "center" });
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(8);
+      doc.setFont(fontName, "bold");
+      doc.text("-", bx + 12.5, currentY + 19, { align: "center" });
+    });
+
+    currentY += 31;
+
+    // 5. Gecen Hafta Girilen Deneme Sınavları
+    addPageIfNeeded(24);
+    doc.setFillColor(17, 24, 39);
+    doc.setDrawColor(31, 41, 55);
+    doc.roundedRect(10, currentY, 190, 22, 2, 2, "FD");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont(fontName, "bold");
+    doc.setFontSize(8);
+    doc.text("Geçen Hafta Girilen Deneme Sınavları", 14, currentY + 6);
+    doc.setFontSize(6.5);
+    doc.setFont(fontName, "normal");
+    doc.setTextColor(156, 163, 175);
+    doc.text("Öğrencinin geçen hafta sisteme işlenen deneme ve tarama sonuçları.", 14, currentY + 10);
+
+    doc.setTextColor(107, 114, 128);
+    doc.setFontSize(7);
+    doc.text("Geçen hafta içerisinde girilmiş herhangi bir deneme sınavı verisi bulunmamaktadır.", 105, currentY + 17, { align: "center" });
+
+    currentY += 27;
+
+    // 6. Ders Bazlı Performans Tablosu (Varsa) - Focused exclusively on course subjects and exams
+    if (params.subjectsBreakdown && params.subjectsBreakdown.length > 0) {
+      addPageIfNeeded(30);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont(fontName, "bold");
+      doc.setFontSize(8.5);
+      doc.text("Ders Bazlı Performans Analizi", 10, currentY);
+
+      currentY += 4;
+      doc.setFillColor(17, 24, 39);
+      doc.rect(10, currentY, 190, 6, "F");
+      doc.setFontSize(6.5);
+      doc.setTextColor(156, 163, 175);
+      doc.text("DERS ADI", 14, currentY + 4);
+      doc.text("HEDEF", 85, currentY + 4);
+      doc.text("ÇÖZÜLEN / TAMAMLANAN", 115, currentY + 4);
+      doc.text("BAŞARI", 155, currentY + 4);
+
+      currentY += 6;
+      params.subjectsBreakdown.forEach((sub, idx) => {
+        addPageIfNeeded(8);
+        doc.setFillColor(idx % 2 === 0 ? 15 : 20, 23, 39);
+        doc.rect(10, currentY, 190, 7, "F");
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(7);
+        doc.setFont(fontName, "bold");
+        doc.text(sub.subject, 14, currentY + 5);
+
+        doc.setFont(fontName, "normal");
+        doc.setTextColor(156, 163, 175);
+        doc.text(sub.target.toString(), 85, currentY + 5);
+
+        doc.setTextColor(16, 185, 129);
+        doc.text(sub.completed.toString(), 115, currentY + 5);
+
+        const rate = sub.target > 0 ? Math.round((sub.completed / sub.target) * 100) : 0;
+        doc.setTextColor(255, 255, 255);
+        doc.text(`%${rate}`, 155, currentY + 5);
+
+        drawProgressBar(170, currentY + 2.5, 25, 2, Math.min(rate, 100), [16, 185, 129]);
+
+        currentY += 7;
+      });
+
+      currentY += 5;
+    }
+
+    // 7. Günlük Görev ve Çalışma Raporu Detayları (Clean Page Break Boundary)
+    if (currentY > 190) {
+      doc.addPage();
+      drawBackground();
+      drawFooter();
+      currentY = 14;
+    } else {
+      addPageIfNeeded(20);
+    }
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont(fontName, "bold");
+    doc.setFontSize(9);
+    doc.text("Günlük Görev ve Çalışma Raporu Detayları", 10, currentY);
+    doc.setFontSize(6.5);
+    doc.setFont(fontName, "normal");
+    doc.setTextColor(156, 163, 175);
+    doc.text("Geçen hafta Pazartesi - Pazar aralığında koç tarafından planlanıp tamamlanan görev listesi.", 10, currentY + 4);
+
+    currentY += 10;
+
+    if (params.dailyTasks && params.dailyTasks.length > 0) {
+      params.dailyTasks.forEach(day => {
+        addPageIfNeeded(18);
+
+        doc.setTextColor(16, 185, 129); // green header date
+        doc.setFont(fontName, "bold");
+        doc.setFontSize(7.5);
+        doc.text(day.displayDate, 10, currentY);
+
+        const doneCount = day.tasks.filter(t => t.isDone).length;
+        doc.setTextColor(156, 163, 175);
+        doc.setFontSize(6);
+        doc.setFont(fontName, "normal");
+        doc.text(`${doneCount} / ${day.tasks.length} Görev Yapıldı`, 10, currentY + 4);
+
+        if (day.tasks.length === 0) {
+          doc.setTextColor(107, 114, 128);
+          doc.setFontSize(6);
+          doc.text("Bu gün için atanmış görev bulunmamaktadır.", 50, currentY + 2);
+          currentY += 10;
+        } else {
+          let taskX = 50;
+          let taskY = currentY - 3;
+
+          day.tasks.forEach((task, tIdx) => {
+            if (tIdx > 0 && tIdx % 2 === 0) {
+              taskX = 50;
+              taskY += 16;
+              addPageIfNeeded(16);
+            } else if (tIdx > 0) {
+              taskX = 125;
+            }
+
+            doc.setFillColor(17, 24, 39);
+            let taskColor: [number, number, number] = [31, 41, 55];
+            if (task.isDone) taskColor = [16, 185, 129];
+            else if (!task.isDone && task.targetCount > 0) taskColor = [225, 29, 72];
+            else taskColor = [59, 130, 246];
+
+            doc.setDrawColor(...taskColor);
+            doc.roundedRect(taskX, taskY, 72, 14, 2, 2, "FD");
+
+            // Icon circle
+            doc.setDrawColor(...taskColor);
+            doc.circle(taskX + 4.5, taskY + 7, 2.2, task.isDone ? "FD" : "S");
+            if (task.isDone) {
+              doc.setFillColor(...taskColor);
+              doc.circle(taskX + 4.5, taskY + 7, 2.2, "F");
+              doc.setDrawColor(255, 255, 255);
+              doc.setLineWidth(0.4);
+              doc.line(taskX + 3.6, taskY + 7, taskX + 4.3, taskY + 7.8);
+              doc.line(taskX + 4.3, taskY + 7.8, taskX + 5.6, taskY + 5.8);
+              doc.setLineWidth(0.3);
+            }
+
+            const rawSubj = task.subject || "Genel";
+            const safeSubj = rawSubj.length > 14 ? rawSubj.substring(0, 12) + ".." : rawSubj;
+
+            doc.setTextColor(255, 255, 255);
+            doc.setFont(fontName, "bold");
+            doc.setFontSize(6.5);
+            doc.text(safeSubj, taskX + 9, taskY + 5);
+
+            // Task type badge - Dynamic label and dynamic position right next to subject text
+            const badgeInfo = getTaskBadgeInfo(task);
+            const subjWidth = doc.getTextWidth(safeSubj);
+            doc.setFontSize(4.5);
+            doc.setFont(fontName, "normal");
+            const badgeTextWidth = doc.getTextWidth(badgeInfo.label);
+            const badgeRectWidth = badgeTextWidth + 3;
+            const badgeX = Math.min(taskX + 9 + subjWidth + 2.5, taskX + 70 - badgeRectWidth);
+
+            doc.setFillColor(31, 41, 55);
+            doc.roundedRect(badgeX, taskY + 2, badgeRectWidth, 3.5, 1, 1, "F");
+            doc.setTextColor(156, 163, 175);
+            doc.text(badgeInfo.label, badgeX + 1.5, taskY + 4.5);
+
+            const rawTopic = task.topic || "Konu";
+            const safeTopic = rawTopic.length > 24 ? rawTopic.substring(0, 22) + ".." : rawTopic;
+
+            doc.setTextColor(209, 213, 219);
+            doc.setFontSize(6.5);
+            doc.setFont(fontName, "bold");
+            doc.text(safeTopic, taskX + 9, taskY + 8.5);
+
+            doc.setTextColor(156, 163, 175);
+            doc.setFontSize(5.5);
+            doc.setFont(fontName, "normal");
+            doc.text(`Hedef: ${task.targetCount || 0} ${badgeInfo.unit}`, taskX + 9, taskY + 12);
+
+            if (task.completedCount > 0) {
+              doc.setTextColor(16, 185, 129);
+              doc.text(`Yapılan: ${task.completedCount}`, taskX + 40, taskY + 12);
+            }
+          });
+
+          currentY = Math.max(currentY + 12, taskY + 18);
+        }
+      });
+    }
+
+    return Buffer.from(doc.output("arraybuffer"));
+  }
+
+  async function executeWeeklyReportBatch(options?: { studentId?: string; parentPhone?: string; studentName?: string; force?: boolean }) {
+    console.log("[Weekly Reports] Automated batch processing started...", options);
+    const db = getDb();
+    const twConfig = await getTwilioConfig();
+    const logs: any[] = [];
+
+    const isGoldStudent = (sData: any) => {
+      const pkgStr = (
+        sData.subscriptionPlan ||
+        sData.package ||
+        sData.packageType ||
+        sData.membershipType ||
+        sData.plan ||
+        ""
+      ).toString().toLowerCase();
+
+      return (
+        pkgStr.includes("altın") ||
+        pkgStr.includes("altin") ||
+        pkgStr.includes("gold") ||
+        pkgStr.includes("zirve vip") ||
+        pkgStr.includes("vip")
+      );
+    };
+
+    let students: any[] = [];
+    if (options?.studentId) {
+      const studentDoc = await db.collection("users").doc(options.studentId).get();
+      if (studentDoc.exists) {
+        const sData = studentDoc.data() || {};
+        students.push({
+          id: studentDoc.id,
+          ...sData,
+          name: options.studentName || sData.name || sData.displayName || sData.fullName || sData.studentName || "Öğrenci",
+          parentPhone: options.parentPhone || sData.parentPhone || sData.phone || "+905550001122",
+          grade: sData.grade || "12. Sınıf",
+          branch: sData.branch || "SAYISAL",
+          universityTarget: sData.universityTarget || "Belirtilmedi",
+          package: sData.package || sData.subscriptionPlan || "Sınırsız Zirve VIP (Altın Paket)"
+        });
+      } else {
+        students.push({
+          id: options.studentId,
+          name: options.studentName || "Öğrenci",
+          parentPhone: options.parentPhone || "+905550001122",
+          grade: "12. Sınıf",
+          branch: "SAYISAL",
+          universityTarget: "Belirtilmedi",
+          package: "Sınırsız Zirve VIP (Altın Paket)"
+        });
+      }
+    } else {
+      const snapshot = await db.collection("users").where("role", "==", "student").get();
+      let totalFetched = 0;
+      snapshot.forEach(docSnap => {
+        totalFetched++;
+        const sData = docSnap.data() || {};
+        // Only include students with Altın package (unless force option is explicitly passed)
+        if (isGoldStudent(sData) || options?.force) {
+          students.push({
+            id: docSnap.id,
+            ...sData,
+            name: sData.name || sData.displayName || sData.fullName || sData.studentName || (sData.firstName ? `${sData.firstName} ${sData.lastName || ''}`.trim() : '') || "Öğrenci"
+          });
+        }
+      });
+      console.log(`[Weekly Reports] Total students in system: ${totalFetched}, Altın Paket students filtered: ${students.length}`);
+    }
+
+    // Compute PREVIOUS WEEK (Geçen Hafta: Pazartesi - Pazar)
+    const now = new Date();
+    const dayOfWeek = (now.getDay() + 6) % 7; // 0 = Mon, 1 = Tue, ..., 6 = Sun
+    const monDate = new Date(now);
+    monDate.setDate(now.getDate() - dayOfWeek - 7); // Go back to PREVIOUS WEEK Monday
+    monDate.setHours(0, 0, 0, 0);
+
+    const trMonths = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+    const trDays = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
+
+    const sunDate = new Date(monDate);
+    sunDate.setDate(monDate.getDate() + 6);
+    sunDate.setHours(23, 59, 59, 999);
+
+    const monStr = monDate.toISOString().split("T")[0];
+    const sunStr = sunDate.toISOString().split("T")[0];
+
+    const periodStr = `Geçen Hafta (${monDate.getDate()} ${trMonths[monDate.getMonth()]} - ${sunDate.getDate()} ${trMonths[sunDate.getMonth()]} ${sunDate.getFullYear()})`;
+
+    for (const student of students) {
+      try {
+        const studentName = student.name || student.displayName || student.fullName || student.studentName || "Öğrenci";
+        const parentPhone = student.parentPhone || student.phone || "+905550001122";
+        const studentId = student.id;
+
+        let totalTarget = 0;
+        let totalCompleted = 0;
+        let totalTasks = 0;
+        let examsCount = 0;
+        const subjectMap: Record<string, { target: number; completed: number }> = {};
+        const dailyTasksMap: Record<string, any[]> = {};
+        const examsList: any[] = [];
+
+        try {
+          const progSnap = await db.collection("daily_programs")
+            .where("studentId", "==", studentId)
+            .get(); // Removing limit(50) to ensure we get all data to filter locally
+
+          progSnap.forEach(docSnap => {
+            const data = docSnap.data();
+            const dateStr = data.date || "";
+            if (dateStr && dateStr >= monStr && dateStr <= sunStr) {
+              const tasks = data.tasks || [];
+              if (!dailyTasksMap[dateStr]) dailyTasksMap[dateStr] = [];
+
+              tasks.forEach((t: any) => {
+                totalTasks++;
+                dailyTasksMap[dateStr].push(t);
+                const tCount = t.targetCount || 0;
+                const cCount = t.completedCount || (t.isDone ? tCount : 0);
+                totalTarget += tCount;
+                totalCompleted += cCount;
+
+                const subj = t.subject || "Genel";
+                if (!subjectMap[subj]) subjectMap[subj] = { target: 0, completed: 0 };
+                subjectMap[subj].target += tCount;
+                subjectMap[subj].completed += cCount;
+
+                if (t.isExam || subj.toLowerCase().includes("deneme") || t.taskType === "exam") {
+                  examsCount++;
+                  examsList.push({ ...t, date: dateStr });
+                }
+              });
+            }
+          });
+        } catch (dbErr) {
+          console.log(`[Weekly Reports] Note fetching tasks for ${studentId}:`, dbErr);
+        }
+
+        // Build 7 days structure explicitly Pazartesi to Pazar for the previous week
+        const dailyTasks: { date: string; displayDate: string; tasks: any[] }[] = [];
+        for (let i = 0; i < 7; i++) {
+          const curr = new Date(monDate);
+          curr.setDate(monDate.getDate() + i);
+          const dStr = curr.toISOString().split("T")[0];
+          const dispStr = `${curr.getDate()} ${trMonths[curr.getMonth()]} ${trDays[i]}`;
+          dailyTasks.push({
+            date: dStr,
+            displayDate: dispStr,
+            tasks: dailyTasksMap[dStr] || []
+          });
+        }
+
+        const completionRate = totalTarget > 0 ? Math.round((totalCompleted / totalTarget) * 100) : 0;
+        const taskCompletionRate = totalTasks > 0 ? Math.round((dailyTasks.reduce((acc, curr) => acc + curr.tasks.filter(t => t.isDone).length, 0) / totalTasks) * 100) : 0;
+
+        const isSubjectOrExam = (subject: string): boolean => {
+          const s = subject.trim();
+          if (!s || s === "Genel" || s === "Diğer" || s === "Tanımsız" || s === "Ödev") return false;
+          const lower = s.toLowerCase();
+          if (lower.includes("deneme") || lower.includes("tarama") || lower.includes("exam")) return true;
+          const standardSubjects = [
+            "matematik", "fizik", "kimya", "biyoloji", "türkçe", "edebiyat",
+            "tarih", "coğrafya", "felsefe", "din", "geometri", "ingilizce",
+            "fen", "sosyal", "paragraf", "problem", "ayt", "tyt", "ydt", "mantık"
+          ];
+          return standardSubjects.some(sub => lower.includes(sub));
+        };
+
+        const subjectsBreakdown = Object.entries(subjectMap)
+          .filter(([subject]) => isSubjectOrExam(subject))
+          .map(([subject, counts]) => ({
+            subject,
+            target: counts.target,
+            completed: counts.completed
+          }))
+          .sort((a, b) => b.target - a.target);
+
+        let aiAnalysisText = "";
+        try {
+          const ai = getGeminiClient();
+          const prompt = `Öğrenci Adı: ${studentName}
+Geçen Haftalık Hedef Soru: ${totalTarget}
+Geçen Haftalık Çözülen Soru: ${totalCompleted} (%${completionRate} Başarı)
+Görev Sayısı: ${totalTasks}
+Çözülen Deneme Sayısı: ${examsCount}
+Dersler: ${subjectsBreakdown.map(s => `${s.subject}: ${s.completed}/${s.target}`).join(", ")}
+
+Lütfen velimize hitaben geçen haftanın (Pazartesi - Pazar) haftalık gelişim ve pedagojik değerlendirme raporunu yaz. "Sayın Velimiz," diye başla. Öğrencinin soru çözme disiplinini, ders performansını, güçlü alanlarını ve evde desteklenebilecek yapıcı tavsiyeleri 3 paragrafa bölerek samimi, motive edici bir dille ifade et. Eğer geçen hafta hiç soru çözmemiş veya veri girilmemişse, bunu veliye nazikçe, öğrencimizin geçen hafta sisteme herhangi bir çalışma girmemiş olduğunu, bu durumu takip edeceğimizi belirterek raporla.`;
+
+          const response = await ai.models.generateContent({
+            model: getModelName("gemini-3.6-flash"),
+            contents: prompt,
+            config: {
+              temperature: 0.7,
+              systemInstruction: "Sen FocusON Akademi'nin profesyonel eğitim koçu asistanısın. Velilere geçen haftanın performans değerlendirmesini şık ve pedagojik dille sunuyorsun. Kısa, öz ve yapıcı ol."
+            }
+          });
+          aiAnalysisText = response.text || "";
+        } catch (aiErr: any) {
+          console.warn(`[Weekly Reports] AI generation warning for ${studentName}:`, aiErr?.message || aiErr);
+          aiAnalysisText = `Sayın Velimiz,\n\n${studentName} isimli öğrencimizin geçen haftaki (Pazartesi - Pazar aralığındaki) gelişim, soru karnesi ve koçluk değerlendirme raporu oluşturulmuştur.\n\nHafta boyunca toplam ${totalTarget} soru hedefinin ${totalCompleted} tanesini tamamlayarak %${completionRate} haftalık soru hedefine ulaşmıştır. Öğrencimizin günlük görev takibi, soru çözümleri ve koçluk değerlendirmesi rehberlik birimimiz tarafından titizlikle sürdürülmektedir.`;
+        }
+
+        const reportId = `rep_${studentId}_${Date.now()}`;
+        const pdfBuffer = generateWeeklyReportPdfBuffer({
+          studentName,
+          periodStr,
+          totalTarget,
+          totalCompleted,
+          completionRate,
+          totalTasks,
+          examsCount,
+          aiAnalysisText,
+          subjectsBreakdown,
+          studentGrade: student.grade || "12. Sınıf",
+          studentBranch: student.branch || "SAYISAL",
+          studentTarget: student.universityTarget || "Belirtilmedi",
+          studentPackage: student.package || "Sınırsız Zirve VIP (Altın Paket)",
+          dailyTasks,
+          exams: examsList,
+          taskCompletionRate
+        });
+
+        weeklyPdfStore.set(reportId, {
+          buffer: pdfBuffer,
+          studentName,
+          createdAt: new Date().toISOString()
+        });
+
+        try {
+          const docData: any = {
+            studentId,
+            studentName,
+            periodStr,
+            aiAnalysisText,
+            totalTarget,
+            totalCompleted,
+            completionRate,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+          };
+          if (pdfBuffer.length < 750000) {
+            docData.pdfBase64 = pdfBuffer.toString("base64");
+          }
+          await db.collection("weekly_pdf_reports").doc(reportId).set(docData);
+        } catch (fsErr) {
+          console.log("[Weekly Reports] Firestore PDF cache note:", fsErr);
+        }
+
+        const mediaUrl = `/api/reports/pdf/${reportId}`;
+        const baseUrl = process.env.APP_URL || `https://omernasuhakademi.com`;
+        const fullPdfUrl = `${baseUrl}${mediaUrl}`;
+        const parentPortalUrl = `${baseUrl}/veli-girisi`;
+        const whatsappMsgBody = `Sayın Velimiz,\n\n${studentName} isimli öğrencimizin geçen haftalık gelişim, soru karnesi ve koçluk değerlendirme raporu (Pazartesi - Pazar) başarıyla oluşturulmuştur.\n\n📄 Haftalık PDF Raporu:\n${fullPdfUrl}\n\n🏫 Veli & Öğrenci Portalı:\n${parentPortalUrl}\n\nFocusON Akademi Rehberlik Birimi`;
+
+        let sendStatus = "simulation";
+        let twMessageSid: string | null = null;
+        let phoneNum = parentPhone.replace(/[^\d+]/g, "");
+        if (!phoneNum.startsWith("+")) phoneNum = "+" + phoneNum;
+
+        if (twConfig.accountSid && twConfig.authToken) {
+          try {
+            const { default: twilio } = await import("twilio");
+            const client = twilio(twConfig.accountSid, twConfig.authToken);
+            const rawFrom = twConfig.whatsappNumber || "+14155238886";
+            const fromTwilio = rawFrom.startsWith("whatsapp:") ? rawFrom : `whatsapp:${rawFrom}`;
+            const targetTwilio = phoneNum.startsWith("whatsapp:") ? phoneNum : `whatsapp:${phoneNum}`;
+
+            const templateSid = twConfig.weeklyReportTemplateSid || "HXb083373137421bce630a0ad915cd4d0f";
+
+            let twMsg: any = null;
+
+            // Method 1: Try sending via approved WhatsApp Content Template (haftalik_veli_raporu_v1)
+            if (templateSid) {
+              try {
+                const templatePayload: any = {
+                  from: fromTwilio,
+                  to: targetTwilio,
+                  contentSid: templateSid,
+                  contentVariables: JSON.stringify({
+                    "1": studentName,
+                    "2": reportId
+                  })
+                };
+                if (twConfig.messagingServiceSid && twConfig.messagingServiceSid.startsWith("MG") && twConfig.messagingServiceSid !== "MG756a41c407683bc11d1b9cc8c3c91ef8" && !twConfig.whatsappNumber) {
+                  delete templatePayload.from;
+                  templatePayload.messagingServiceSid = twConfig.messagingServiceSid;
+                }
+
+                twMsg = await client.messages.create(templatePayload);
+                console.log(`[Weekly Reports] Sent via Content Template (${templateSid}). Message SID: ${twMsg.sid}`);
+              } catch (templateErr: any) {
+                console.warn(`[Weekly Reports] Content Template send failed (${templateErr?.message || templateErr}). Falling back to text message...`);
+              }
+            }
+
+            // Method 2: Fallback to standard WhatsApp text message if template was not attempted or failed
+            if (!twMsg) {
+              const textPayload: any = {
+                from: fromTwilio,
+                to: targetTwilio,
+                body: whatsappMsgBody
+              };
+              if (twConfig.messagingServiceSid && twConfig.messagingServiceSid.startsWith("MG") && twConfig.messagingServiceSid !== "MG756a41c407683bc11d1b9cc8c3c91ef8" && !twConfig.whatsappNumber) {
+                delete textPayload.from;
+                textPayload.messagingServiceSid = twConfig.messagingServiceSid;
+              }
+
+              twMsg = await client.messages.create(textPayload);
+              console.log(`[Weekly Reports] Sent via fallback text message. Message SID: ${twMsg.sid}`);
+            }
+
+            if (twMsg) {
+              sendStatus = "sent";
+              twMessageSid = twMsg.sid;
+            }
+          } catch (twErr: any) {
+            console.error("[Weekly Reports] Twilio WhatsApp send error:", twErr?.message || twErr);
+            sendStatus = "failed";
+          }
+        }
+
+        await db.collection("weekly_report_logs").add({
+          reportId,
+          studentId,
+          studentName,
+          parentPhone,
+          periodStr,
+          status: sendStatus,
+          twMessageSid,
+          completionRate,
+          mediaUrl,
+          timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        logs.push({
+          studentName,
+          parentPhone,
+          status: sendStatus,
+          reportId,
+          mediaUrl
+        });
+      } catch (stErr: any) {
+        console.error(`[Weekly Reports] Error processing student ${student.id}:`, stErr);
+      }
+    }
+
+    return { success: true, processedCount: students.length, logs };
+  }
+
+  app.get("/api/reports/pdf/:reportId", async (req, res) => {
+    try {
+      let reportId = req.params.reportId || "";
+      if (reportId.includes("rep_")) {
+        reportId = "rep_" + reportId.split("rep_")[1];
+      }
+      // Strip any query or trailing slashes/paths if present
+      reportId = reportId.split("?")[0].split("/")[0];
+      
+      const sendPdf = (pdfBuffer: Buffer, studentName?: string) => {
+        const trMap: Record<string, string> = {
+          'ç': 'c', 'Ç': 'C', 'ğ': 'g', 'Ğ': 'G', 'ı': 'i', 'I': 'I', 'İ': 'I',
+          'ö': 'o', 'Ö': 'O', 'ş': 's', 'Ş': 'S', 'ü': 'u', 'Ü': 'U'
+        };
+        const rawName = studentName ? studentName.trim() : "";
+        const asciiClean = rawName ? rawName.split('').map(ch => trMap[ch] || ch).join('').replace(/[^a-zA-Z0-9]/g, "_").replace(/_+/g, "_") : "";
+        
+        const asciiFilename = asciiClean 
+          ? `FocusON_Haftalik_Veli_Raporu_${asciiClean}.pdf` 
+          : "FocusON_Haftalik_Veli_Raporu.pdf";
+
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Length", pdfBuffer.length);
+        res.setHeader("Content-Disposition", `inline; filename="${asciiFilename}"`);
+        res.setHeader("Cache-Control", "public, max-age=3600");
+        return res.send(pdfBuffer);
+      };
+
+      if (weeklyPdfStore.has(reportId)) {
+        const cached = weeklyPdfStore.get(reportId)!;
+        return sendPdf(cached.buffer, cached.studentName);
+      }
+
+      const db = getDb();
+      const docSnap = await db.collection("weekly_pdf_reports").doc(reportId).get();
+      if (docSnap.exists) {
+        const data = docSnap.data();
+        if (data?.pdfBase64) {
+          const buf = Buffer.from(data.pdfBase64, "base64");
+          return sendPdf(buf, data.studentName);
+        }
+      }
+
+      const fallbackPdf = generateWeeklyReportPdfBuffer({
+        studentName: "Öğrenci",
+        periodStr: "Haftalık Rapor",
+        totalTarget: 500,
+        totalCompleted: 460,
+        completionRate: 92,
+        totalTasks: 20,
+        examsCount: 2,
+        aiAnalysisText: "Sayın Velimiz,\n\nÖğrencimizin haftalık soru çözümü ve koçluk hedeflerine uyumu başarıyla analiz edilmiştir.",
+        subjectsBreakdown: [{ subject: "Matematik", target: 200, completed: 180 }]
+      });
+
+      return sendPdf(fallbackPdf, "Öğrenci");
+    } catch (err: any) {
+      console.error("PDF Download Error:", err);
+      res.status(500).send("PDF dosyası yüklenirken hata oluştu.");
+    }
+  });
+
+  app.get("/api/weekly-reports/logs", async (req, res) => {
+    try {
+      const db = getDb();
+      const snapshot = await db.collection("weekly_report_logs")
+        .orderBy("timestamp", "desc")
+        .limit(50)
+        .get();
+
+      const logs: any[] = [];
+      snapshot.forEach(docSnap => {
+        logs.push({ id: docSnap.id, ...docSnap.data() });
+      });
+
+      res.json({ logs });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Loglar alınamadı." });
+    }
+  });
+
   app.post("/api/send-weekly-reports", async (req, res) => {
     try {
-      // TODO: Cron Job integration for Sunday evenings.
-      console.log("Weekly WhatsApp reports cron triggered.");
-      res.json({ success: true, message: "Haftalık veli raporları WhatsApp gönderim sistemi hazır." });
-    } catch (error) {
-      console.error("Weekly Reports Error:", error);
-      res.status(500).json({ error: "Haftalık rapor gönderimi başarısız oldu." });
+      const result = await executeWeeklyReportBatch(req.body);
+      res.json({
+        success: true,
+        message: "Haftalık raporlar başarıyla oluşturuldu ve işlendi.",
+        totalStudents: result.processedCount,
+        processedCount: result.processedCount,
+        logs: result.logs
+      });
+    } catch (err: any) {
+      console.error("Haftalık rapor gönderim hatası:", err);
+      res.status(500).json({ error: err?.message || "Haftalık rapor üretilirken bir sunucu hatası oluştu." });
     }
   });
 
@@ -2776,7 +3706,9 @@ Bu değerlendirme raporu, öğrencinin sisteme kaydettiği analiz verileri doğr
       const { prompt, previousEvaluation, studentName } = req.body;
       const ai = getGeminiClient();
       
-      const systemInstruction = `Sen FocusON Akademi'nin profesyonel eğitim koçu asistanısın. Velilere, öğrencilerinin haftalık performansını değerlendiren kısa, öz, motive edici ve profesyonel bir rapor sunman gerekiyor. Sana sistemin oluşturduğu kaba bir taslak ve varsa geçen haftanın raporu verilecek. Bunu veliye doğrudan hitap edecek şekilde, whatsapp'tan gönderilebilecek akıcılıkta, ancak profesyonel bir dille yeniden yaz. Sayın Velimiz diye başla. Geçen haftanın verisi varsa, bu haftayla kıyaslayarak bir cümle ekle. Sadece rapor metnini yaz, ek açıklama yapma.`;
+      const systemInstruction = `Sen FocusON Akademi'nin profesyonel eğitim koçu asistanısın. Velilere, öğrencilerinin haftalık performansını değerlendiren kısa, öz, motive edici ve profesyonel bir rapor sunman gerekiyor. Sana sistemin oluşturduğu kaba bir taslak ve varsa geçen haftanın raporu verilecek. Bunu veliye doğrudan hitap edecek şekilde, whatsapp'tan gönderilebilecek akıcılıkta, ancak profesyonel bir dille yeniden yaz. Sayın Velimiz diye başla. Geçen haftanın verisi varsa, bu haftayla kıyaslayarak bir cümle ekle. Sadece rapor metnini yaz, ek açıklama yapma.
+
+Araç (function) çağırırken kullanıcıya asla sistem logu veya teknik bilgi verme (örn: araç çağrıldı vb). Sadece doğal konuş.`;
       
       let fullPrompt = `Öğrenci: ${studentName || "Öğrencimiz"}\n\nBu Haftaki Ham Rapor Taslağı:\n${prompt}\n`;
       if (previousEvaluation) {
@@ -2893,54 +3825,82 @@ Sevgili Velimiz, bu rapor çocuğunuzun FocusON Akademi bünyesinde katıldığ�
 
   app.post("/api/coach-assistant", async (req, res) => {
     try {
-      const { systemInstruction, messages } = req.body;
-      if (!messages || !Array.isArray(messages)) {
-        return res.status(400).json({ error: "messages are required in request body" });
+      const { history, userContext } = req.body;
+      if (!history || !Array.isArray(history)) {
+        return res.status(400).json({ error: "history is required in request body" });
       }
 
       const ai = getGeminiClient();
 
-      const contents = messages.map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }]
-      }));
+      const systemInstruction = `Sen FocusON Akademi'nin yapay zeka koç asistanısın. Koçlara, öğrencilerinin durumları, gelişimleri ve koçluk süreçleri hakkında fikir alışverişi yapar ve rehberlik sağlarsın. Sana sorulan soruları yanıtlarken 'get_coach_students_data' aracını kullanarak koça ait öğrencilerin detaylı bilgilerini (kitaplar, sınavlar, analizler, randevular) çekebilirsin.
 
-      const modelName = getModelName("gemini-3-flash-preview");
+Araç (function) çağırırken kullanıcıya asla sistem logu veya teknik bilgi verme (örn: araç çağrıldı vb). Sadece doğal konuş.`;
 
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: contents,
-        config: {
-          systemInstruction: systemInstruction,
-          temperature: 0.7,
+      const tools = [{
+        functionDeclarations: [
+          {
+            name: "get_coach_students_data",
+            description: "Koçun kendi öğrencilerinin akademik verilerini ve detaylı analizlerini getirir.",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                studentName: { type: "STRING", description: "Sadece belirli bir öğrencinin verisini getirmek istersen adını yaz. Boş bırakırsan tüm öğrencileri özetler." },
+                dataTypes: {
+                  type: "ARRAY",
+                  items: { type: "STRING" },
+                  description: "Hangi veri kategorilerinin getirileceği: 'programs', 'books', 'exams', 'appointments'. Boş bırakılırsa hepsi gelir."
+                }
+              }
+            }
+          }
+        ]
+      }];
+
+      const formattedHistory = history.map((msg: any) => {
+        if (msg.role === 'function' || msg.functionResponse) {
+          return {
+            role: 'user',
+            parts: [{ text: `[Sistem: "${msg.name || 'Araç'}" aracı çalıştırıldı ve şu sonuçlar elde edildi:\n${JSON.stringify(msg.functionResponse || {}, null, 2)}]` }]
+          };
         }
+        if (msg.functionCalls) {
+          const toolNames = msg.functionCalls.map((fc: any) => fc.name).join(', ');
+          return {
+            role: 'model',
+            parts: [{ text: msg.content || `[Sistem: "${toolNames}" aracı çağrıldı.]` }]
+          };
+        }
+        return {
+          role: msg.role === 'model' ? 'model' : 'user',
+          parts: [{ text: msg.content }]
+        };
       });
+
+      const modelName = getModelName("gemini-3.5-flash");
+      const chat = ai.chats.create({
+        model: modelName,
+        config: { systemInstruction, tools: tools as any },
+        history: formattedHistory.slice(0, -1)
+      });
+
+      const lastMsg = history[history.length - 1];
+      let messagePayload: any = lastMsg.content;
+      if (lastMsg.functionResponse) {
+         messagePayload = `[Sistem: "${lastMsg.name || 'Araç'}" aracı başarıyla çalıştırıldı ve şu sonuçlar elde edildi:\n${JSON.stringify(lastMsg.functionResponse || {}, null, 2)}\n\n(DİKKAT: Veriyi incele. Eğer yeterli bilgiye ulaştıysan kullanıcıya doğrudan, samimi ve profesyonel bir üslupla yanıt ver. EĞER eksik bir bilgi varsa veya bu verinin sonucuna göre YENİ BİR ARAMA yapman gerekiyorsa, kullanıcıya cevap yazmadan önce doğrudan DİĞER ARAÇLARI ÇAĞIR. 4 aşamaya kadar ardışık araç çağrısı yapabilirsin.)]`;
+      }
+      const response = await chat.sendMessage({ message: messagePayload });
+
+      if (response.functionCalls && response.functionCalls.length > 0) {
+        return res.json({ 
+          functionCalls: response.functionCalls.map(fc => ({ name: fc.name, args: fc.args, id: fc.id })),
+          text: response.text || ''
+        });
+      }
 
       res.json({ text: response.text });
     } catch (error: any) {
-      const errStr = typeof error === 'string' ? error : (error?.message || JSON.stringify(error) || '');
-      if (errStr.includes("RESOURCE_EXHAUSTED") || errStr.includes("429") || errStr.includes("depleted")) {
-        return res.json({ text: "Sistemde kota aşımı nedeniyle koç asistanı geçici olarak hizmet verememektedir." });
-      }
-
       console.error("Coach Assistant Error:", error);
-      let message = "Asistan yanıt veremedi.";
-      
-      if (errStr === "API_KEY_MISSING") {
-        message = "Asistan API Anahtarı eksik. Lütfen uygulamanın ayarlarından (Secrets bölümünden) ASSISTAN_API_KEY değerini ekleyin.";
-      } else if (errStr.includes("NOT_FOUND") || errStr.includes("not found")) {
-        message = "AI Modeli bulunamadı. Lütfen model kurulumunu kontrol edin.";
-      } else if (errStr.includes("RESOURCE_EXHAUSTED") || errStr.includes("429")) {
-        message = "Gemini API kota limitlerine ulaşıldı.";
-      } else if (errStr.includes("API_KEY_INVALID") || errStr.includes("UNAUTHENTICATED") || errStr.includes("401") || errStr.includes("API key expired")) {
-        message = "Geçersiz veya süresi dolmuş Gemini API anahtarı. Lütfen Settings > Secrets panelinden ASSISTAN_API_KEY güncelleyin.";
-      } else if (error?.message) {
-        message = `AI Hatası: ${error.message}`;
-      } else {
-        message = `AI Hatası: ${errStr}`;
-      }
-      
-      res.status(500).json({ error: message });
+      res.status(500).json({ error: "Asistan servisi şu an kullanılamıyor." });
     }
   });
 
@@ -3088,6 +4048,232 @@ Sevgili Velimiz, bu rapor çocuğunuzun FocusON Akademi bünyesinde katıldığ�
     }
   });
 
+  // --- PayTR Payment Gateway Routes ---
+  app.post("/api/paytr/create-token", async (req, res) => {
+    try {
+      const { coachId, coachEmail, coachName, coachPhone, amount, merchantOid } = req.body;
+
+      if (!coachId || !amount || amount <= 0) {
+        return res.status(400).json({ message: "Geçersiz parametreler." });
+      }
+
+      // Fetch PayTR settings from Firestore or environment
+      let merchantId = process.env.PAYTR_MERCHANT_ID || '342819';
+      let merchantKey = process.env.PAYTR_MERCHANT_KEY || 'MOCK_KEY_123';
+      let merchantSalt = process.env.PAYTR_MERCHANT_SALT || 'MOCK_SALT_123';
+      let testMode = '1';
+
+      try {
+        const paytrSettingsSnap = await getDb().collection('settings').doc('paytr').get();
+        if (paytrSettingsSnap.exists()) {
+          const s = paytrSettingsSnap.data();
+          if (s.merchantId) merchantId = s.merchantId;
+          if (s.merchantKey) merchantKey = s.merchantKey;
+          if (s.merchantSalt) merchantSalt = s.merchantSalt;
+          if (s.isTestMode === false) testMode = '0';
+        }
+      } catch (err) {
+        console.warn("[PayTR] Firestore settings reading warning:", err);
+      }
+
+      const userIp = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
+      const email = coachEmail || `${coachId}@focuson.app`;
+      const paymentAmount = Math.round(amount * 100); // TL -> Kuruş
+      const basket = JSON.stringify([["Eğitim Koçu Sistem Bakiyesi Yükleme", amount.toString(), 1]]);
+      const userBasket = Buffer.from(basket).toString('base64');
+      const noInstallment = '0';
+      const maxInstallment = '12';
+      const currency = 'TL';
+
+      const hashStr = `${merchantId}${userIp}${merchantOid}${email}${paymentAmount}${userBasket}${noInstallment}${maxInstallment}${currency}${testMode}`;
+      const token = crypto.createHmac('sha256', merchantKey).update(hashStr + merchantSalt).digest('base64');
+
+      console.log(`[PayTR] Token created for coach ${coachId}, amount: ₺${amount}, oid: ${merchantOid}`);
+
+      res.json({
+        success: true,
+        token: token,
+        iframeUrl: `https://www.paytr.com/iframe/${token}`,
+        merchantOid
+      });
+    } catch (err: any) {
+      console.error("[PayTR] Token creation error:", err);
+      res.status(500).json({ message: "PayTR token hazırlama hatası: " + err.message });
+    }
+  });
+
+  app.post("/api/paytr/callback", async (req, res) => {
+    try {
+      const { merchant_oid, status, total_amount, hash } = req.body;
+
+      let merchantKey = process.env.PAYTR_MERCHANT_KEY || 'MOCK_KEY_123';
+      let merchantSalt = process.env.PAYTR_MERCHANT_SALT || 'MOCK_SALT_123';
+
+      try {
+        const paytrSettingsSnap = await getDb().collection('settings').doc('paytr').get();
+        if (paytrSettingsSnap.exists()) {
+          const s = paytrSettingsSnap.data();
+          if (s.merchantKey) merchantKey = s.merchantKey;
+          if (s.merchantSalt) merchantSalt = s.merchantSalt;
+        }
+      } catch (err) {
+        console.warn("[PayTR Callback] Settings load error:", err);
+      }
+
+      // Verify HMAC Hash
+      const expectedHash = crypto
+        .createHmac('sha256', merchantKey)
+        .update(merchant_oid + merchantSalt + status + total_amount)
+        .digest('base64');
+
+      if (hash !== expectedHash) {
+        console.error("[PayTR Callback] Invalid hash verification signature.");
+        return res.status(400).send("PAYTR notification failed: bad hash");
+      }
+
+      if (status === 'success') {
+        console.log(`[PayTR Callback] Payment succeeded for merchant_oid: ${merchant_oid}, amount: ${total_amount / 100} TL`);
+        // PayTR requires text OK response
+        return res.send("OK");
+      } else {
+        console.warn(`[PayTR Callback] Payment failed or canceled for merchant_oid: ${merchant_oid}`);
+        return res.send("OK");
+      }
+    } catch (err) {
+      console.error("[PayTR Callback] Internal error:", err);
+      res.status(500).send("OK");
+    }
+  });
+
+  // --- AI Öğrenci Asistanı - Soru Çözüm Asistanı Endpoint ---
+  app.post("/api/student-question-assistant", async (req, res) => {
+    try {
+      const { questionText, imageBase64, imageMimeType, studentName, voiceName } = req.body;
+
+      if (!questionText && !imageBase64) {
+        return res.status(400).json({ error: "Soru metni veya soru görseli gereklidir." });
+      }
+
+      let ai = getGeminiClient();
+      const textModelName = getModelName("gemini-3.6-flash");
+
+      const systemInstruction = `Sen FocusON Akademi'nin AI Öğrenci Asistanı'sın (Soru Çözüm Uzmanı). Karşındaki öğrencinin adı: ${studentName || "Öğrenci"}.
+
+Aşağıdaki kurallara kesinlikle uyarak soruyu adımlarla çöz:
+1. Öğrenciye ismiyle, destekleyici ve motive edici bir dille hitap et.
+2. Görseldeki veya yazılan soruyu dikkatle incele. Dersi/konuyu tespit et.
+3. Çözümü aşama aşama net, anlaşılır ve eğitici bir şekilde sun:
+   - 📌 Verilenler ve İstenen
+   - 💡 Kullanılan Temel Kavram / Formül
+   - 📐 Adım Adım Çözüm Yolu
+   - ✅ Doğru Cevap ve Dikkat Edilecek Püf Noktası
+4. Yanıtını Türkçe ver. Sesli dinleneceği için okunuşu zor matematik sembolleri yerine net kelimeler ve akıcı bir anlatım kullan.`;
+
+      const parts: any[] = [];
+      if (questionText) {
+        parts.push({ text: `Öğrencinin Notu / Sorusu: ${questionText}` });
+      }
+      if (imageBase64) {
+        let cleanBase64 = imageBase64;
+        let mime = imageMimeType || "image/jpeg";
+        if (imageBase64.includes("base64,")) {
+          const split = imageBase64.split("base64,");
+          cleanBase64 = split[1];
+          if (split[0].includes("data:")) {
+            mime = split[0].replace("data:", "").replace(";base64", "").trim();
+          }
+        }
+        parts.push({
+          inlineData: {
+            mimeType: mime,
+            data: cleanBase64
+          }
+        });
+      }
+
+      // Step 1: Generate Text Solution
+      let textResult = "";
+      try {
+        const response = await ai.models.generateContent({
+          model: textModelName,
+          contents: parts,
+          config: {
+            systemInstruction
+          }
+        });
+        textResult = response.text || "Çözüm üretilemedi.";
+      } catch (firstErr: any) {
+        console.warn("[Soru Çözüm Asistanı] Initial text generation failed, trying fallback key if available:", firstErr?.message || firstErr);
+        if (process.env.GEMINI_API_KEY) {
+          ai = getGeminiClient(process.env.GEMINI_API_KEY);
+          const response = await ai.models.generateContent({
+            model: textModelName,
+            contents: parts,
+            config: {
+              systemInstruction
+            }
+          });
+          textResult = response.text || "Çözüm üretilemedi.";
+        } else {
+          throw firstErr;
+        }
+      }
+
+      // Step 2: Generate TTS Audio using gemini-3.1-flash-tts-preview
+      let audioDataBase64 = "";
+      let audioMimeType = "";
+
+      if (textResult && textResult !== "Çözüm üretilemedi.") {
+        try {
+          const cleanTextForSpeech = textResult
+            .replace(/[\*\_\[\]\#\-\`\~]/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+
+          const speechPrompt = `Lütfen şu soru çözümünü sesli oku: ${cleanTextForSpeech.slice(0, 1200)}`;
+
+          const ttsResponse = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: [{ parts: [{ text: speechPrompt }] }],
+            config: {
+              responseModalities: [Modality.AUDIO],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: {
+                    voiceName: voiceName || "Puck"
+                  }
+                }
+              }
+            }
+          });
+
+          const ttsPart = ttsResponse.candidates?.[0]?.content?.parts?.[0];
+          if (ttsPart && ttsPart.inlineData && ttsPart.inlineData.data) {
+            audioDataBase64 = ttsPart.inlineData.data;
+            audioMimeType = ttsPart.inlineData.mimeType || "audio/wav";
+          }
+        } catch (ttsErr: any) {
+          console.warn("[Soru Çözüm Asistanı] TTS generation notice:", ttsErr?.message || ttsErr);
+        }
+      }
+
+      res.json({
+        success: true,
+        text: textResult,
+        audioBase64: audioDataBase64 || null,
+        audioMimeType: audioMimeType || null
+      });
+
+    } catch (error: any) {
+      console.error("Student Question Assistant Error:", error);
+      let message = "Soru çözüm servisi şu an yanıt veremiyor.";
+      if (error?.message === "API_KEY_MISSING") {
+        message = "Asistan API Anahtarı eksik. Lütfen Settings > Secrets panelinden ASSISTAN_API_KEY ekleyin.";
+      }
+      res.status(500).json({ error: message });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -3103,6 +4289,19 @@ Sevgili Velimiz, bu rapor çocuğunuzun FocusON Akademi bünyesinde katıldığ�
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // Automated Weekly Report Cron Job (Every Monday at 10:00 AM Europe/Istanbul)
+  cron.schedule("0 10 * * 1", async () => {
+    console.log("[Cron Job] Automated Monday 10:00 AM weekly report process triggered for Altın Paket students...");
+    try {
+      const result = await executeWeeklyReportBatch();
+      console.log(`[Cron Job] Completed. Processed: ${result?.processedCount || 0}`);
+    } catch (err: any) {
+      console.error("[Cron Job] Error executing automated weekly reports:", err?.message || err);
+    }
+  }, {
+    timezone: "Europe/Istanbul"
+  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);

@@ -29,6 +29,7 @@ import { db } from '../../lib/firebase';
 export interface SubscriptionPackage {
   name: string;
   price: number; 
+  originalPrice?: number;
   systemDeduction: number;
   durationDays: number; 
   badgeText?: string;
@@ -170,6 +171,10 @@ export default function Subscription() {
             pBronze = data.bronzePrice || 3000;
             pSilver = data.silverPrice || 4500;
             pGold = data.goldPrice || 6000;
+            if (data.specialDeductionRate !== undefined) rate = data.specialDeductionRate;
+            if (data.specialMinDeductionBronze !== undefined) minRateBronze = data.specialMinDeductionBronze;
+            if (data.specialMinDeductionSilver !== undefined) minRateSilver = data.specialMinDeductionSilver;
+            if (data.specialMinDeductionGold !== undefined) minRateGold = data.specialMinDeductionGold;
           }
         } else {
           // If no coach, find minimum starting prices
@@ -196,10 +201,15 @@ export default function Subscription() {
           }
         }
 
+        const specialDiscounts = userData?.specialDiscounts || {};
+        const dBronze = specialDiscounts.bronze ? Math.floor(pBronze * (specialDiscounts.bronze / 100)) : 0;
+        const dSilver = specialDiscounts.silver ? Math.floor(pSilver * (specialDiscounts.silver / 100)) : 0;
+        const dGold = specialDiscounts.gold ? Math.floor(pGold * (specialDiscounts.gold / 100)) : 0;
+
         const newPackages = [
-          { ...SUBSCRIPTION_PACKAGES[0], price: pBronze, systemDeduction: Math.max(Math.floor(pBronze * (rate / 100)), minRateBronze) },
-          { ...SUBSCRIPTION_PACKAGES[1], price: pSilver, systemDeduction: Math.max(Math.floor(pSilver * (rate / 100)), minRateSilver) },
-          { ...SUBSCRIPTION_PACKAGES[2], price: pGold, systemDeduction: Math.max(Math.floor(pGold * (rate / 100)), minRateGold) }
+          { ...SUBSCRIPTION_PACKAGES[0], price: pBronze - dBronze, originalPrice: pBronze, systemDeduction: Math.max(Math.floor(pBronze * (rate / 100)), minRateBronze) },
+          { ...SUBSCRIPTION_PACKAGES[1], price: pSilver - dSilver, originalPrice: pSilver, systemDeduction: Math.max(Math.floor(pSilver * (rate / 100)), minRateSilver) },
+          { ...SUBSCRIPTION_PACKAGES[2], price: pGold - dGold, originalPrice: pGold, systemDeduction: Math.max(Math.floor(pGold * (rate / 100)), minRateGold) }
         ];
         setDisplayPackages(newPackages);
         
@@ -259,7 +269,8 @@ export default function Subscription() {
       price: selectedPlan.price,
       quantity: 1,
       metadata: {
-        durationDays: selectedPlan.durationDays
+        durationDays: selectedPlan.durationDays,
+        originalPrice: selectedPlan.originalPrice
       }
     });
 

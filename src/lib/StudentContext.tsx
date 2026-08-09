@@ -25,6 +25,9 @@ interface Student {
   parentUid?: string;
   parentFirstName?: string;
   parentLastName?: string;
+  parentPhone?: string;
+  phone?: string;
+  isDemo?: boolean;
 }
 
 interface StudentContextType {

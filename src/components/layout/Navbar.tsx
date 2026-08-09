@@ -248,16 +248,10 @@ export default function Navbar() {
                 )}
                 
                 {userData?.role === 'coach' && (
-                  <>
-                    <Link to="/panel/koc" className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm">
-                      <LayoutDashboard size={16} className="text-emerald-400" />
-                      Koç Paneli
-                    </Link>
-                    <Link to="/panel/koc/musaitlik" className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm">
-                      <Clock size={16} className="text-emerald-400" />
-                      Müsaitlik Ayarları
-                    </Link>
-                  </>
+                  <Link to="/panel/koc" className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm">
+                    <LayoutDashboard size={16} className="text-emerald-400" />
+                    Koç Paneli
+                  </Link>
                 )}
 
                 {userData?.role === 'parent' && (
@@ -503,14 +497,9 @@ export default function Navbar() {
                   </Link>
                 )}
                 {userData?.role === 'coach' && (
-                  <>
-                    <Link to="/panel/koc" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
-                      <LayoutDashboard size={18} /> Koç Paneli
-                    </Link>
-                    <Link to="/panel/koc/musaitlik" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
-                      <Clock size={18} /> Müsaitlik Ayarları
-                    </Link>
-                  </>
+                  <Link to="/panel/koc" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
+                    <LayoutDashboard size={18} /> Koç Paneli
+                  </Link>
                 )}
                 {userData?.role === 'admin' && (
                   <>

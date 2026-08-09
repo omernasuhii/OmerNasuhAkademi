@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
+import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
 import { 
   Users, 
   LayoutDashboard, 
@@ -20,7 +21,9 @@ import {
   PanelLeftOpen,
   Wallet,
   X,
-  Lock
+  Lock,
+  MessageSquare,
+  Bot
 } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
 import { isSubscriptionActive } from '../../services/subscriptionService';
@@ -56,6 +59,12 @@ export default function CoachLayout() {
   useEffect(() => {
     setIsMobileMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if ((location.state?.isDemo || location.state?.startTour) && !selectedStudent) {
+      setSelectedStudent(SAMPLE_DEMO_STUDENT as any);
+    }
+  }, [location.state, selectedStudent, setSelectedStudent]);
 
   useEffect(() => {
     if (user && userData) {
@@ -137,6 +146,7 @@ export default function CoachLayout() {
     { title: 'Sınav Sonuçları', path: 'sonuclar', icon: ClipboardCheck },
     { title: 'Sınav Analizleri', path: 'analizler', icon: BarChart3 },
     { title: 'Derin Analiz', path: 'derin-analiz', icon: Search },
+    { title: 'Yapay Zeka Sohbetleri', path: 'ai-sohbetleri', icon: Bot },
     { title: 'Öğrenci Profili', path: 'profil', icon: BrainCircuit },
     { title: 'Kişilik Analizi', path: 'kisilik-analizi', icon: Brain },
     { title: 'Hedefler & Takip', path: 'hedefler', icon: Target },
@@ -364,9 +374,16 @@ export default function CoachLayout() {
               } else if (hasActiveSub) {
                 const plan = selectedStudent?.subscriptionPlan || '';
                 const isBronze = plan.includes('Bronz');
+                const isSilver = plan.includes('Gümüş');
+                
                 if (isBronze && (currentPath === 'derin-analiz' || currentPath === 'kisilik-analizi')) {
                   isAllowed = false;
                   restrictionMessage = "Seçili öğrencinin paketi Bronz'dur. Derin Analiz ve Kişilik Analizi özelliklerine erişmek için lütfen öğrencinin abonelik paketini Gümüş veya Altın pakete yükseltin.";
+                }
+                
+                if ((isBronze || isSilver) && currentPath === 'ai-sohbetleri') {
+                  isAllowed = false;
+                  restrictionMessage = "Yapay Zeka Sohbetleri özelliğine erişmek için lütfen öğrencinin abonelik paketini Altın pakete yükseltin.";
                 }
               }
 

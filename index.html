@@ -1,16 +1,68 @@
 <!doctype html>
-<html lang="en">
+<html lang="tr" translate="no" class="notranslate">
   <head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-5QS82G2HQE"></script>
     <script>
-      // Suppress benign Vite WebSocket errors to prevent AI Studio error overlay
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-5QS82G2HQE');
+    </script>
+    <meta name="google" content="notranslate" />
+    <script>
+      // DOM patch to prevent React removeChild & insertBefore crashes caused by Google Translate & browser extensions
+      if (typeof Node !== 'undefined' && Node.prototype) {
+        const originalRemoveChild = Node.prototype.removeChild;
+        Node.prototype.removeChild = function(child) {
+          if (child.parentNode !== this) {
+            if (child.parentNode) {
+              return child.parentNode.removeChild(child);
+            }
+            return child;
+          }
+          return originalRemoveChild.call(this, child);
+        };
+
+        const originalInsertBefore = Node.prototype.insertBefore;
+        Node.prototype.insertBefore = function(newNode, referenceNode) {
+          if (referenceNode && referenceNode.parentNode !== this) {
+            if (referenceNode.parentNode) {
+              return referenceNode.parentNode.insertBefore(newNode, referenceNode);
+            }
+            return this.appendChild(newNode);
+          }
+          return originalInsertBefore.call(this, newNode, referenceNode);
+        };
+      }
+
+      // Suppress benign Vite WebSocket & browser extension DOM errors to prevent app crashes
       window.addEventListener('error', function(e) {
-        if (e.message && (e.message.includes('WebSocket') || e.message.includes('[vite]'))) {
+        if (e.message && (
+          e.message.includes('WebSocket') || 
+          e.message.includes('[vite]') ||
+          e.message.includes('removeChild') ||
+          e.message.includes('insertBefore') ||
+          e.message.includes('Kaldırılacak düğüm') ||
+          e.message.includes('NotFoundError')
+        )) {
           e.preventDefault();
           e.stopImmediatePropagation();
         }
       }, true);
       window.addEventListener('unhandledrejection', function(e) {
-        if (e.reason && (String(e.reason).includes('WebSocket') || (e.reason.message && (e.reason.message.includes('WebSocket') || e.reason.message.includes('[vite]'))))) {
+        if (e.reason && (
+          String(e.reason).includes('WebSocket') || 
+          String(e.reason).includes('removeChild') ||
+          String(e.reason).includes('insertBefore') ||
+          (e.reason.message && (
+            e.reason.message.includes('WebSocket') || 
+            e.reason.message.includes('[vite]') ||
+            e.reason.message.includes('removeChild') ||
+            e.reason.message.includes('insertBefore')
+          ))
+        )) {
           e.preventDefault();
           e.stopImmediatePropagation();
         }
@@ -18,7 +70,12 @@
       {
         const originalConsoleError = console.error;
         console.error = function(...args) {
-          if (typeof args[0] === 'string' && (args[0].includes('WebSocket') || args[0].includes('[vite]'))) return;
+          if (typeof args[0] === 'string' && (
+            args[0].includes('WebSocket') || 
+            args[0].includes('[vite]') ||
+            args[0].includes('removeChild') ||
+            args[0].includes('insertBefore')
+          )) return;
           originalConsoleError.apply(console, args);
         };
       }
@@ -38,7 +95,11 @@
         set(val) {
           if (typeof val === 'function') {
             originalOnError = function(msg, src, ln, col, err) {
-              if (msg === 'Script error.' || msg === 'Script error') return true;
+              if (
+                msg === 'Script error.' || 
+                msg === 'Script error' || 
+                (typeof msg === 'string' && (msg.includes('removeChild') || msg.includes('insertBefore') || msg.includes('NotFoundError')))
+              ) return true;
               return val(msg, src, ln, col, err);
             };
           } else {
@@ -50,7 +111,7 @@
       {
         const originalConsoleError = console.error;
         console.error = function(...args) {
-          if (typeof args[0] === 'string' && args[0].includes('[vite]')) return;
+          if (typeof args[0] === 'string' && (args[0].includes('[vite]') || args[0].includes('removeChild') || args[0].includes('insertBefore'))) return;
           originalConsoleError.apply(console, args);
         };
       }
@@ -64,7 +125,12 @@
       }
 
       window.addEventListener('error', function(e) {
-        if (e.message === 'Script error.' || e.message === 'Script error' || !e.filename) {
+        if (
+          e.message === 'Script error.' || 
+          e.message === 'Script error' || 
+          !e.filename ||
+          (e.message && (e.message.includes('removeChild') || e.message.includes('insertBefore') || e.message.includes('NotFoundError')))
+        ) {
           e.preventDefault();
           e.stopImmediatePropagation();
         }
@@ -72,7 +138,7 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root" translate="no" class="notranslate"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

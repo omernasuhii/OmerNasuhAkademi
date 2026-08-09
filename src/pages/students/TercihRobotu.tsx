@@ -705,6 +705,7 @@ export default function TercihRobotu() {
   const [excludedFaculties, setExcludedFaculties] = useState<string[]>([]);
   const [excludedCities, setExcludedCities] = useState<string[]>([]);
   const [excludedDepartments, setExcludedDepartments] = useState<string[]>([]);
+  const [excludedIds, setExcludedIds] = useState<string[]>([]);
   const [excludedTeachingTypes, setExcludedTeachingTypes] = useState<string[]>([]);
   const [activeMenuDeptId, setActiveMenuDeptId] = useState<string | null>(null);
 
@@ -713,6 +714,7 @@ export default function TercihRobotu() {
     excludedFaculties,
     excludedCities,
     excludedDepartments,
+    excludedIds,
     excludedTeachingTypes
   });
 
@@ -910,6 +912,14 @@ export default function TercihRobotu() {
   const [maxRank, setMaxRank] = useState<string>("");
   const [minPoint, setMinPoint] = useState<string>("");
   const [maxPoint, setMaxPoint] = useState<string>("");
+  const [includeNewDepts, setIncludeNewDepts] = useState<boolean>(true);
+
+  // Auto Rank Filter States
+  const [studentRanks, setStudentRanks] = useState<Record<string, string>>({});
+  const [minTolerancePercent, setMinTolerancePercent] = useState<number>(10);
+  const [maxTolerancePercent, setMaxTolerancePercent] = useState<number>(20);
+  const [showAutoRank, setShowAutoRank] = useState<boolean>(true);
+  const [show2026Estimate, setShow2026Estimate] = useState<boolean>(false);
 
   const [pointTypeConstraints, setPointTypeConstraints] = useState<Record<string, { minRank: string; maxRank: string; minPoint: string; maxPoint: string }>>({});
   const [showConstraintsDropdown, setShowConstraintsDropdown] = useState(false);
@@ -974,6 +984,7 @@ export default function TercihRobotu() {
   const [debouncedMaxRank, setDebouncedMaxRank] = useState("");
   const [debouncedMinPoint, setDebouncedMinPoint] = useState("");
   const [debouncedMaxPoint, setDebouncedMaxPoint] = useState("");
+  const [debouncedIncludeNewDepts, setDebouncedIncludeNewDepts] = useState<boolean>(true);
 
   const [showTeachingDropdown, setShowTeachingDropdown] = useState(false);
   const [showFeeDropdown, setShowFeeDropdown] = useState(false);
@@ -1208,7 +1219,7 @@ export default function TercihRobotu() {
   // ============================================================================
   // ANA FİLTRELEME MOTORU (TÜM KURALLAR)
   // ============================================================================
-  const applyClientSideFilters = (dataToFilter: Department[], options?: { ignoreExcludedDepartments?: boolean }) => {
+  const applyClientSideFilters = (dataToFilter: Department[], options?: { ignoreExcludedDepartments?: boolean; ignoreExcludedCities?: boolean }) => {
     let processed = [...dataToFilter];
 
     // 1. Puan Türü (SAY, EA vs.)
@@ -1223,7 +1234,7 @@ export default function TercihRobotu() {
         return !uName || !excludedUniversities.includes(uName);
       });
     }
-    if (excludedCities.length > 0) {
+    if (!options?.ignoreExcludedCities && excludedCities.length > 0) {
       processed = processed.filter(dept => {
         const cityName = dept.city?.name || dept.university?.city?.name;
         return !cityName || !excludedCities.includes(cityName);
@@ -1242,6 +1253,9 @@ export default function TercihRobotu() {
     }
     if (!options?.ignoreExcludedDepartments && excludedDepartments.length > 0) {
       processed = processed.filter(dept => !dept.name || !excludedDepartments.includes(dept.name));
+    }
+    if (excludedIds.length > 0) {
+      processed = processed.filter(dept => !excludedIds.includes(dept.id));
     }
 
     // 2. Üniversite Türü (DEVLET, VAKIF)
@@ -1379,6 +1393,43 @@ export default function TercihRobotu() {
 
       const deptRank = getDeptRank(dept);
       const deptPoint = getDeptPoint(dept);
+      
+      const isNew = (() => {
+        if (!dept.departmentPoints || !Array.isArray(dept.departmentPoints)) return true;
+        // Geçmiş yıllarda kontenjanı > 0 olan bir kayıt varsa (yani eskiden açılmışsa)
+        // O zaman bu yeni bir bölüm DEĞİLDİR (muhtemelen "boş kalmış" bir bölümdür).
+        // Eğer tüm geçmiş kayıtlarda kontenjan 0 veya null ise, bu bölüm yenidir.
+        // (Sadece en güncel yıl 2025/2026 olarak düşünülebilir, burada geçmişte kontenjan 0 olanlar kastediliyor)
+        const hasPastQuota = dept.departmentPoints.some(p => {
+          // Güncel yılı hariç tutmak isterseniz (örneğin 2025 veya 2026 yeni açılmış olabilir)
+          // Ancak "boş kalmış" bölümlerin önceki yıllarda mutlaka kontenjanı > 0'dır.
+          return (p.quota !== null && p.quota > 0);
+        });
+        
+        // Eğer geçmişte kontenjanı > 0 olan bir kayıt var ama rank/point null ise bu "boş kalmış"tır.
+        // Yeni açılan bölüm olması için geçmiş kontenjanların 0 olması (veya hiç olmaması) gerekir.
+        // Ancak bu fonksiyon güncel yılın verisini de departmentPoints içinde tutuyorsa, 
+        // güncel yıl kontenjanına bakmamamız lazım.
+        // deptRank === null kontrolü ile birlikte değerlendirirsek:
+        if (deptRank !== null || deptPoint !== null) return false; // Puanı/sırası varsa zaten yeni veya boş değil
+        
+        // rank ve point null ise, geçmişte kontenjanı > 0 olan bir kayıt var mı bakalım
+        // Sistemde 2024 ve öncesi "geçmiş" sayılıyor olabilir. (veya en yüksek yıl hariç)
+        const maxYear = Math.max(...dept.departmentPoints.map(p => Number(p.year)));
+        const pastPoints = dept.departmentPoints.filter(p => Number(p.year) < maxYear);
+        
+        if (pastPoints.length > 0) {
+          const pastHasQuota = pastPoints.some(p => p.quota !== null && p.quota > 0);
+          return !pastHasQuota; // Geçmişte kontenjanı 0 olanlar yenidir
+        }
+        
+        return true; // Hiç geçmiş verisi yoksa yenidir
+      })();
+
+      if (isNew && debouncedIncludeNewDepts) {
+        // Yeni açılan bölümse ve filtrede "dahil et" seçiliyse, sıralama/puan kontrolünü atla
+        return true;
+      }
 
       if (effectiveMinRank) {
         const minVal = Number(effectiveMinRank);
@@ -1465,8 +1516,21 @@ export default function TercihRobotu() {
     selectedTeachingTypes, selectedFees, selectedRegions, selectedCities, selectedUniTypes,
     selectedUniversities, selectedDepartments, debouncedSearchTerm,
     debouncedYopFilter, debouncedUniFilter, debouncedDeptFilter, debouncedMinRank,
-    debouncedMaxRank, debouncedMinPoint, debouncedMaxPoint, excludedUniversities,
-    excludedFaculties, excludedCities, excludedTeachingTypes, pointTypeConstraints
+    debouncedMaxRank, debouncedMinPoint, debouncedMaxPoint, debouncedIncludeNewDepts, excludedUniversities,
+    excludedFaculties, excludedCities, excludedIds, excludedTeachingTypes, pointTypeConstraints
+  ]);
+
+  // ExcludedCities hariç tutularak filtrelenmiş veri (Şehirler Modalı için - tüm aktif filtrelere ve çıkarılan bölümlere uyar)
+  const unfilteredDataForCities = useMemo(() => {
+    if (allRawDepartments.length === 0) return [];
+    return applyClientSideFilters(allRawDepartments, { ignoreExcludedCities: true });
+  }, [
+    allRawDepartments, sortType, sortField, sortDirection, selectedPointTypes, selectedDegree,
+    selectedTeachingTypes, selectedFees, selectedRegions, selectedCities, selectedUniTypes,
+    selectedUniversities, selectedDepartments, debouncedSearchTerm,
+    debouncedYopFilter, debouncedUniFilter, debouncedDeptFilter, debouncedMinRank,
+    debouncedMaxRank, debouncedMinPoint, debouncedMaxPoint, debouncedIncludeNewDepts, excludedUniversities,
+    excludedFaculties, excludedDepartments, excludedIds, excludedTeachingTypes, pointTypeConstraints
   ]);
 
   const handleFetchResults = () => {
@@ -1498,9 +1562,10 @@ export default function TercihRobotu() {
       setDebouncedMaxRank(maxRank);
       setDebouncedMinPoint(minPoint);
       setDebouncedMaxPoint(maxPoint);
+      setDebouncedIncludeNewDepts(includeNewDepts);
     }, 400);
     return () => clearTimeout(handler);
-  }, [searchTerm, yopFilter, uniFilter, deptFilter, cityFilter, minRank, maxRank, minPoint, maxPoint]);
+  }, [searchTerm, yopFilter, uniFilter, deptFilter, cityFilter, minRank, maxRank, minPoint, maxPoint, includeNewDepts]);
 
   // ============================================================================
   // VERİ ÇEKME (SUPABASE ÜZERİNDEN HIZLI CACHE VEYA ORDER BY KULLANARAK KUSURSUZ İNDİRME)
@@ -1635,13 +1700,15 @@ export default function TercihRobotu() {
         JSON.stringify(prevExclusionsRef.current.excludedFaculties) !== JSON.stringify(excludedFaculties) ||
         JSON.stringify(prevExclusionsRef.current.excludedCities) !== JSON.stringify(excludedCities) ||
         JSON.stringify(prevExclusionsRef.current.excludedTeachingTypes) !== JSON.stringify(excludedTeachingTypes) ||
-        JSON.stringify(prevExclusionsRef.current.excludedDepartments) !== JSON.stringify(excludedDepartments);
+        JSON.stringify(prevExclusionsRef.current.excludedDepartments) !== JSON.stringify(excludedDepartments) ||
+        JSON.stringify(prevExclusionsRef.current.excludedIds) !== JSON.stringify(excludedIds);
 
       prevExclusionsRef.current = {
         excludedUniversities,
         excludedFaculties,
         excludedCities,
         excludedDepartments,
+        excludedIds,
         excludedTeachingTypes
       };
 
@@ -1660,8 +1727,8 @@ export default function TercihRobotu() {
     selectedTeachingTypes, selectedFees, selectedRegions, selectedCities, selectedUniTypes,
     selectedUniversities, selectedDepartments, selectedTeachingLanguages, debouncedSearchTerm,
     debouncedYopFilter, debouncedUniFilter, debouncedDeptFilter, debouncedCityFilter, debouncedMinRank,
-    debouncedMaxRank, debouncedMinPoint, debouncedMaxPoint, excludedUniversities,
-    excludedFaculties, excludedCities, excludedDepartments, excludedTeachingTypes, pointTypeConstraints, itemsPerPage
+    debouncedMaxRank, debouncedMinPoint, debouncedMaxPoint, debouncedIncludeNewDepts, excludedUniversities,
+    excludedFaculties, excludedCities, excludedDepartments, excludedIds, excludedTeachingTypes, pointTypeConstraints, itemsPerPage
   ]);
 
   useEffect(() => {
@@ -1678,7 +1745,7 @@ export default function TercihRobotu() {
     setSelectedCities([]); setSelectedUniTypes([]); setSelectedUniversities([]);
     setSelectedDepartments([]); setSelectedTeachingLanguages([]); setSearchTerm(""); setCityQuery(""); setUniQuery("");
     setDeptQuery(""); setTeachingLangQuery(""); setYopFilter(""); setUniFilter(""); setDeptFilter(""); setCityFilter(""); setDebouncedCityFilter("");
-    setExcludedUniversities([]); setExcludedFaculties([]); setExcludedCities([]); setExcludedDepartments([]); setExcludedTeachingTypes([]);
+    setExcludedUniversities([]); setExcludedFaculties([]); setExcludedCities([]); setExcludedDepartments([]); setExcludedIds([]); setExcludedTeachingTypes([]);
   };
 
   const toggleSort = (field: string) => {
@@ -1809,6 +1876,7 @@ export default function TercihRobotu() {
           if (field === "rank") {
             val = found.basePointOrder ?? found.lastBasePointOrder;
             if ((val === undefined || val === null) && yearStr === "2026") {
+              if (!show2026Estimate) return undefined;
               const est = calculateEstimatedRank2026(dept);
               if (est.estimatedRank !== null) {
                 return { val: est.estimatedRank, isEstimated: true, details: est };
@@ -1822,6 +1890,7 @@ export default function TercihRobotu() {
         } else if (yearStr === "2026") {
           if (field === "quota" && dept.quota) return dept.quota;
           if (field === "rank") {
+            if (!show2026Estimate) return undefined;
             const est = calculateEstimatedRank2026(dept);
             if (est.estimatedRank !== null) {
               return { val: est.estimatedRank, isEstimated: true, details: est };
@@ -1911,6 +1980,78 @@ export default function TercihRobotu() {
         </div>
       </AnimatePresence>
     );
+  };
+
+  const applyAutoRankFilter = (pType: string, rankStr: string, minPercent: number, maxPercent: number, totalSelected: number) => {
+    const rawRank = rankStr.replace(/\D/g, "");
+    const rank = Number(rawRank);
+    if (!rank || rank <= 0) {
+      if (totalSelected <= 1) {
+        setMinRank("");
+        setMaxRank("");
+      } else {
+        setPointTypeConstraints(prev => ({
+          ...prev,
+          [pType]: {
+            ...prev[pType] || { minRank: "", maxRank: "", minPoint: "", maxPoint: "" },
+            minRank: "",
+            maxRank: ""
+          }
+        }));
+      }
+      return;
+    }
+
+    const minR = Math.max(1, Math.floor(rank * (1 - minPercent / 100)));
+    const maxR = Math.floor(rank * (1 + maxPercent / 100));
+
+    if (totalSelected <= 1) {
+      setMinRank(minR.toString());
+      setMaxRank(maxR.toString());
+    } else {
+      setPointTypeConstraints(prev => ({
+        ...prev,
+        [pType]: {
+          ...prev[pType] || { minRank: "", maxRank: "", minPoint: "", maxPoint: "" },
+          minRank: minR.toString(),
+          maxRank: maxR.toString()
+        }
+      }));
+    }
+  };
+
+  const handleStudentRankChange = (pType: string, val: string) => {
+    const rawValue = val.replace(/\D/g, "");
+    if (rawValue === "") {
+      setStudentRanks(prev => {
+        const newRanks = { ...prev };
+        delete newRanks[pType];
+        return newRanks;
+      });
+      applyAutoRankFilter(pType, "", minTolerancePercent, maxTolerancePercent, selectedPointTypes.length);
+      return;
+    }
+    const formattedVal = Number(rawValue).toLocaleString('tr-TR');
+    setStudentRanks(prev => ({ ...prev, [pType]: formattedVal }));
+    applyAutoRankFilter(pType, rawValue, minTolerancePercent, maxTolerancePercent, selectedPointTypes.length);
+  };
+
+  const handleMinToleranceChange = (percent: number) => {
+    setMinTolerancePercent(percent);
+    selectedPointTypes.forEach(pType => {
+      if (studentRanks[pType]) {
+        applyAutoRankFilter(pType, studentRanks[pType], percent, maxTolerancePercent, selectedPointTypes.length);
+      }
+    });
+  };
+
+  const handleMaxToleranceChange = (percent: number) => {
+    setMaxTolerancePercent(percent);
+    selectedPointTypes.forEach(pType => {
+      if (studentRanks[pType]) {
+        applyAutoRankFilter(pType, studentRanks[pType], minTolerancePercent, percent, selectedPointTypes.length);
+      }
+    });
   };
 
   const togglePointType = (pType: string) => {
@@ -2201,20 +2342,37 @@ export default function TercihRobotu() {
             </div>
           </div>
 
-          {/* 2. Puan Türü */}
-          <div className="space-y-1.5">
-            <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider">2. Puan Türü</label>
-            <div className="grid grid-cols-5 gap-1">
+          {/* 2. Puan Türü & Sıralama */}
+          <div className="space-y-2">
+            <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider flex items-center justify-between">
+              <span>2. Puan Türü</span>
+              {selectedPointTypes.length > 0 && (
+                <button 
+                  onClick={() => setShowAutoRank(!showAutoRank)}
+                  className="text-[10px] bg-slate-900/50 hover:bg-slate-800 text-slate-300 px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
+                >
+                  {showAutoRank ? "Akıllı Süzgeci Gizle" : "Sıralama Gir"}
+                </button>
+              )}
+            </label>
+            
+            <div className="grid grid-cols-5 gap-1.5">
               {["TYT", "SAY", "EA", "SÖZ", "DİL"].map(pType => (
                 <button
                   key={pType}
                   onClick={() => togglePointType(pType)}
-                  className={`py-2 rounded-xl text-xs font-extrabold border transition-all text-center cursor-pointer ${selectedPointTypes.includes(pType) ? "bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/20" : "bg-slate-950/40 text-slate-400 border-white/5 hover:border-white/10 hover:text-white"}`}
+                  className={`py-2 rounded-xl text-xs font-extrabold border transition-all text-center cursor-pointer flex flex-col items-center justify-center gap-1 ${
+                    selectedPointTypes.includes(pType) 
+                    ? "bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/20" 
+                    : "bg-slate-950/40 text-slate-400 border-white/5 hover:border-white/10 hover:text-white"
+                  }`}
                 >
-                  {pType}
+                  <span className={selectedPointTypes.includes(pType) ? "text-[10px]" : "text-xs"}>{pType}</span>
                 </button>
               ))}
             </div>
+
+            
           </div>
 
           {/* 3. Ön/Lisans Seviyesi */}
@@ -2241,6 +2399,77 @@ export default function TercihRobotu() {
               ))}
             </div>
           </div>
+
+<AnimatePresence>
+              {selectedPointTypes.length > 0 && showAutoRank && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden col-span-1 md:col-span-2 lg:col-span-3"
+                >
+                  <div className="bg-blue-950/20 border border-blue-500/30 rounded-xl p-3 mt-2 shadow-inner">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-[11px] text-blue-300 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                        <Sparkles size={14} className="text-blue-400" />
+                        Akıllı Sıralama Süzgeci
+                      </span>
+                      <span className="text-[9px] text-blue-400/70 bg-blue-500/10 px-2 py-1 rounded hidden sm:inline-block">Sıralamanızı girin, robot sizin için süzsün</span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 items-center">
+                      {selectedPointTypes.map(pType => (
+                        <div key={`rank-input-${pType}`} className="flex-1 min-w-[130px] flex items-center bg-slate-900/80 rounded-lg p-1.5 border border-white/5 focus-within:border-blue-500/50 focus-within:ring-1 focus-within:ring-blue-500/50 transition-all">
+                          <div className="bg-blue-600 text-white font-black text-[10px] uppercase px-2 py-1.5 rounded-md text-center shadow-sm">
+                            {pType}
+                          </div>
+                          <div className="relative flex-1">
+                            <input
+                              type="text"
+                              placeholder="Sıralama..."
+                              value={studentRanks[pType] || ""}
+                              onChange={(e) => handleStudentRankChange(pType, e.target.value)}
+                              className="w-full bg-transparent border-none py-1 pl-2 pr-6 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-0 font-mono font-medium"
+                            />
+                            {studentRanks[pType] && (
+                              <Check size={14} className="absolute right-1 top-1/2 -translate-y-1/2 text-emerald-500" />
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      
+                      {/* Esneklik Ayarı (Aynı Satırda) */}
+                      <div className="flex items-center gap-2 bg-slate-900/80 rounded-lg p-1.5 border border-white/5 ml-auto shrink-0 mt-2 sm:mt-0">
+                        <div className="flex items-center gap-1.5" title="Sıralamanızın % kaç üstüne çıkılabileceğini belirler">
+                          <span className="text-[9px] text-emerald-400 font-bold uppercase whitespace-nowrap">Üst (İyi) %</span>
+                          <input 
+                            type="number" 
+                            min="0"
+                            max="100"
+                            value={minTolerancePercent}
+                            onChange={(e) => handleMinToleranceChange(Number(e.target.value))}
+                            className="w-12 bg-slate-950/50 border border-white/10 rounded py-1 px-1 text-xs text-center text-white focus:outline-none focus:border-emerald-500/50 font-mono"
+                          />
+                        </div>
+                        <div className="w-px h-4 bg-white/10"></div>
+                        <div className="flex items-center gap-1.5" title="Sıralamanızın % kaç altına inilebileceğini belirler">
+                          <span className="text-[9px] text-rose-400 font-bold uppercase whitespace-nowrap">Alt (Kötü) %</span>
+                          <input 
+                            type="number" 
+                            min="0"
+                            max="100"
+                            value={maxTolerancePercent}
+                            onChange={(e) => handleMaxToleranceChange(Number(e.target.value))}
+                            className="w-12 bg-slate-950/50 border border-white/10 rounded py-1 px-1 text-xs text-center text-white focus:outline-none focus:border-rose-500/50 font-mono"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
           {/* 4. Öğretim Türü */}
           <div className="space-y-1.5">
@@ -2453,6 +2682,19 @@ export default function TercihRobotu() {
                   )}
                 </div>
               )}
+              
+              <label className="flex items-center gap-2 mt-2 cursor-pointer hover:bg-white/5 py-1 px-1 rounded-lg transition-colors">
+                <input
+                  type="checkbox"
+                  checked={includeNewDepts}
+                  onChange={(e) => setIncludeNewDepts(e.target.checked)}
+                  className="sr-only"
+                />
+                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${includeNewDepts ? "bg-blue-500 border-blue-500" : "border-white/20 bg-slate-950/40"}`}>
+                  {includeNewDepts && <Check size={10} className="text-white stroke-[3]" />}
+                </div>
+                <span className="text-[11px] text-slate-300">Yeni Açılan Bölümleri Dahil Et</span>
+              </label>
             </div>
           </div>
 
@@ -2780,7 +3022,7 @@ export default function TercihRobotu() {
         </div>
 
         {/* Selected Filter Badges Container */}
-        {(selectedRegions.length > 0 || selectedCities.length > 0 || selectedUniversities.length > 0 || selectedDepartments.length > 0 || selectedTeachingLanguages.length > 0 || excludedUniversities.length > 0 || excludedFaculties.length > 0 || excludedTeachingTypes.length > 0) && (
+        {(selectedRegions.length > 0 || selectedCities.length > 0 || selectedUniversities.length > 0 || selectedDepartments.length > 0 || selectedTeachingLanguages.length > 0 || excludedUniversities.length > 0 || excludedFaculties.length > 0 || excludedCities.length > 0 || excludedDepartments.length > 0 || excludedIds.length > 0 || excludedTeachingTypes.length > 0) && (
           <div className="flex flex-wrap gap-2 pt-4 border-t border-white/5">
             {selectedTeachingLanguages.map(lang => (
               <span 
@@ -2839,6 +3081,36 @@ export default function TercihRobotu() {
             ))}
 
             {/* Excluded items Group Buttons */}
+            {excludedIds.length > 0 && (
+              <button
+                onClick={() => setExcludedIds([])}
+                className="inline-flex items-center gap-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95"
+                title="Çıkarılan tüm kayıtları geri eklemek için tıklayın"
+              >
+                Çıkarılan Kayıtlar ({excludedIds.length})
+                <X size={13} className="text-rose-400" />
+              </button>
+            )}
+            {excludedCities.length > 0 && (
+              <button
+                onClick={() => setExcludedCities([])}
+                className="inline-flex items-center gap-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95"
+                title="Çıkarılan tüm şehirleri geri eklemek için tıklayın"
+              >
+                Çıkarılan Şehirler ({excludedCities.length})
+                <X size={13} className="text-rose-400" />
+              </button>
+            )}
+            {excludedDepartments.length > 0 && (
+              <button
+                onClick={() => setExcludedDepartments([])}
+                className="inline-flex items-center gap-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95"
+                title="Çıkarılan tüm bölümleri geri eklemek için tıklayın"
+              >
+                Çıkarılan Bölümler ({excludedDepartments.length})
+                <X size={13} className="text-rose-400" />
+              </button>
+            )}
             {excludedUniversities.length > 0 && (
               <button
                 onClick={() => setExcludedUniversities([])}
@@ -2871,13 +3143,45 @@ export default function TercihRobotu() {
             )}
 
             {/* Individual Excluded Item Chips */}
+            {excludedCities.map(c => (
+              <span 
+                key={`ex-city-${c}`} 
+                className="inline-flex items-center gap-1.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2.5 py-1 rounded-xl text-xs font-semibold truncate max-w-xs"
+                title="Yeniden dahil etmek için tıklayın"
+              >
+                Çıkarılan Şehir: {c}
+                <button 
+                  onClick={() => setExcludedCities(prev => prev.filter(x => x !== c))} 
+                  className="hover:text-white cursor-pointer shrink-0"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+            {excludedDepartments.map(dept => (
+              <span 
+                key={`ex-dept-${dept}`} 
+                className="inline-flex items-center gap-1.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2.5 py-1 rounded-xl text-xs font-semibold truncate max-w-xs"
+                title="Yeniden dahil etmek için tıklayın"
+              >
+                Çıkarılan Bölüm: {dept}
+                <button 
+                  onClick={() => setExcludedDepartments(prev => prev.filter(x => x !== dept))} 
+                  className="hover:text-white cursor-pointer shrink-0"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+
+            {/* Individual Excluded Item Chips */}
             {excludedUniversities.map(uni => (
               <span 
                 key={`ex-uni-${uni}`} 
                 className="inline-flex items-center gap-1.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2.5 py-1 rounded-xl text-xs font-semibold truncate max-w-xs"
                 title="Yeniden dahil etmek için tıklayın"
               >
-                Çıkarıldı (Üni): {uni}
+                Çıkarılan Üniversite: {uni}
                 <button 
                   onClick={() => setExcludedUniversities(prev => prev.filter(u => u !== uni))} 
                   className="hover:text-white cursor-pointer shrink-0"
@@ -2892,7 +3196,7 @@ export default function TercihRobotu() {
                 className="inline-flex items-center gap-1.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2.5 py-1 rounded-xl text-xs font-semibold truncate max-w-xs"
                 title="Yeniden dahil etmek için tıklayın"
               >
-                Çıkarıldı (Fakülte): {fac}
+                Çıkarılan Fakülte: {fac}
                 <button 
                   onClick={() => setExcludedFaculties(prev => prev.filter(f => f !== fac))} 
                   className="hover:text-white cursor-pointer shrink-0"
@@ -2907,7 +3211,7 @@ export default function TercihRobotu() {
                 className="inline-flex items-center gap-1.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2.5 py-1 rounded-xl text-xs font-semibold truncate max-w-xs"
                 title="Yeniden dahil etmek için tıklayın"
               >
-                Çıkarıldı (Özel Durum): {type}
+                Çıkarılan Özel Durum: {type}
                 <button 
                   onClick={() => setExcludedTeachingTypes(prev => prev.filter(t => t !== type))} 
                   className="hover:text-white cursor-pointer shrink-0"
@@ -2957,20 +3261,40 @@ export default function TercihRobotu() {
       <div className="w-full space-y-4">
         
         {/* 2026 TAHMİNİ VERİ & SORUMLULUK REDDİ BİLDİRİMİ */}
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3.5 sm:p-4 flex items-start gap-3 text-amber-300 shadow-lg">
-          <div className="p-2 bg-amber-500/20 rounded-xl text-amber-300 border border-amber-500/30 shrink-0 mt-0.5">
-            <AlertTriangle className="w-5 h-5 text-amber-300" />
-          </div>
-          <div className="space-y-1 text-xs sm:text-sm">
-            <div className="flex items-center gap-2 font-bold text-amber-300 tracking-wide">
-              <span>2026 Tahmini Sıralama & Sorumluluk Reddi Bildirimi</span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                2026*
-              </span>
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3.5 sm:p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-amber-300 shadow-lg">
+          <div className="flex items-start gap-3 flex-1">
+            <div className="p-2 bg-amber-500/20 rounded-xl text-amber-300 border border-amber-500/30 shrink-0 mt-0.5">
+              <AlertTriangle className="w-5 h-5 text-amber-300" />
             </div>
-            <p className="text-amber-300/90 leading-relaxed text-[11px] sm:text-xs">
-              Sistemde gösterilen <strong>2026 yılı kontenjanları gerçek ve güncel verilerdir</strong>. 2026 yılına ait <strong>başarı sıralaması verileri</strong> ise geçmiş yılların yerleşme eğilimleri ve kontenjan değişimleri dikkate alınarak matematiksel algoritmalarla hesaplanmış <strong>tahmini (*)</strong> değerlerdir. Tercih sürecinde verilecek nihai kararlar ve doğabilecek tüm sonuçlara ilişkin <strong>sorumluluk aday ve kullanıcıya aittir</strong>. FocusON Akademi bu tahminlerden doğabilecek herhangi bir hak kaybı veya sorumluluk kabul etmez.
-            </p>
+            <div className="space-y-1 text-xs sm:text-sm">
+              <div className="flex items-center gap-2 font-bold text-amber-300 tracking-wide">
+                <span>2026 Tahmini Sıralama & Sorumluluk Reddi Bildirimi</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  2026*
+                </span>
+              </div>
+              <p className="text-amber-300/90 leading-relaxed text-[11px] sm:text-xs">
+                Sistemde gösterilen <strong>2026 yılı kontenjanları gerçek ve güncel verilerdir</strong>. 2026 yılına ait <strong>başarı sıralaması verileri</strong> ise geçmiş yılların yerleşme eğilimleri ve kontenjan değişimleri dikkate alınarak matematiksel algoritmalarla hesaplanmış <strong>tahmini (*)</strong> değerlerdir. Tercih sürecinde verilecek nihai kararlar ve doğabilecek tüm sonuçlara ilişkin <strong>sorumluluk aday ve kullanıcıya aittir</strong>. FocusON Akademi bu tahminlerden doğabilecek herhangi bir hak kaybı veya sorumluluk kabul etmez.
+              </p>
+            </div>
+          </div>
+
+          {/* 2026 Tahminlerini Aç Switch */}
+          <div className="flex items-center gap-2.5 shrink-0 bg-amber-500/20 border border-amber-500/30 px-3.5 py-2 rounded-xl text-xs font-bold text-amber-200 self-end md:self-center">
+            <span>2026 Tahminlerini Aç</span>
+            <button
+              type="button"
+              onClick={() => setShow2026Estimate(!show2026Estimate)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none cursor-pointer ${
+                show2026Estimate ? "bg-amber-500" : "bg-slate-800 border border-amber-500/30"
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  show2026Estimate ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
           </div>
         </div>
 
@@ -3016,6 +3340,20 @@ export default function TercihRobotu() {
                 </span>
               )}
             </button>
+            {/* SEÇİLENLERİ LİSTEDEN ÇIKAR */}
+            {selectedDeptIds.length > 0 && (
+              <button
+                onClick={() => {
+                  setExcludedIds(prev => Array.from(new Set([...prev, ...selectedDeptIds])));
+                  setSelectedDeptIds([]);
+                }}
+                className="px-3.5 py-2 bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 hover:text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-sm"
+              >
+                <X className="w-4 h-4" />
+                Seçilenleri Çıkar ({selectedDeptIds.length})
+              </button>
+            )}
+            
             {/* SEÇİLENLERİ SEPETE EKLE */}
             {selectedDeptIds.length > 0 && (
               <button
@@ -3952,8 +4290,8 @@ export default function TercihRobotu() {
       <CityStatsModal
         isOpen={showCityStatsModal}
         onClose={() => setShowCityStatsModal(false)}
-        unfilteredData={unfilteredDataForDepts}
-        allFilteredData={unfilteredDataForDepts}
+        unfilteredData={unfilteredDataForCities}
+        allFilteredData={unfilteredDataForCities}
         excludedCities={excludedCities}
         onToggleExcludeCity={(cityName) => {
           setExcludedCities((prev) =>

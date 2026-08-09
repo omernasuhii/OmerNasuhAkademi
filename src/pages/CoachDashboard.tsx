@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { NotificationPrompt } from '../components/NotificationPrompt';
+import { OnboardingTour, TourStep } from '../components/OnboardingTour';
+import { tourService } from '../services/tourService';
 import { 
   Users, 
   Calendar, 
@@ -9,7 +11,8 @@ import {
   TrendingUp,
   Award,
   Video,
-  User
+  User,
+  Compass
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { useStudent } from '../lib/StudentContext';
@@ -24,6 +27,7 @@ export default function CoachDashboard() {
   const [students, setStudents] = useState<any[]>([]);
   const [appointments, setAppointments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isTourOpen, setIsTourOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -31,6 +35,49 @@ export default function CoachDashboard() {
       loadDashboardData();
     }
   }, [user]);
+
+  // Auto start tour for first time coaches once loading finishes
+  useEffect(() => {
+    if (!loading) {
+      if (tourService.shouldAutoStartTour('coach_dashboard', userData)) {
+        const timer = setTimeout(() => {
+          setIsTourOpen(true);
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [loading, userData]);
+
+  const coachDashboardTourSteps: TourStep[] = [
+    {
+      targetId: 'tour-coach-header',
+      title: 'Koçluk Paneliniz ve Genel Özet',
+      description: 'Hoş geldiniz! Burası koçluk yönetim merkezinizdir. Öğrencilerinizin genel gidişatını, aktif oturumlarınızı ve günlük programınızı tek bakışta görebilirsiniz.',
+      position: 'bottom',
+      badge: 'Genel Bakış'
+    },
+    {
+      targetId: 'tour-coach-stats',
+      title: 'Hızlı İstatistik Metrikleri',
+      description: 'Aktif öğrenci sayınızı, yeni randevu taleplerinizi, yaklaşan canlı seanslarınızı ve tamamlanan koçluk görüşmelerinizi buradan anlık olarak takip edebilirsiniz.',
+      position: 'bottom',
+      badge: 'İstatistikler'
+    },
+    {
+      targetId: 'tour-coach-students',
+      title: 'Öğrencilerim Paneli',
+      description: 'Size atanan tüm öğrencilerin listesidir. Bir öğrenciye tıklayarak onun haftalık ders programını, deneme sonuçlarını, soru çözümlerini ve detaylı gelişim analizini inceleyebilirsiniz.',
+      position: 'top',
+      badge: 'Öğrenci Takibi'
+    },
+    {
+      targetId: 'tour-coach-appointments',
+      title: 'Yaklaşan Görüşmeler & Talepler',
+      description: 'Planlanmış birebir görüşmeleriniz, ders seanslarınız ve onay bekleyen randevu istekleriniz burada kronolojik olarak listelenir. Tur tamamlandığında doğrudan "Öğrencilerim" sayfasına geçilecektir.',
+      position: 'left',
+      badge: 'Görüşmeler'
+    }
+  ];
 
   const loadDashboardData = async () => {
     setLoading(true);
@@ -107,8 +154,26 @@ export default function CoachDashboard() {
   return (
     <div className="space-y-8 animate-in fade-in duration-500 max-w-7xl mx-auto">
       <NotificationPrompt />
+
+      <OnboardingTour
+        steps={coachDashboardTourSteps}
+        isOpen={isTourOpen}
+        onClose={() => setIsTourOpen(false)}
+        onComplete={() => {
+          setIsTourOpen(false);
+          tourService.markTourCompleted('coach_dashboard', user?.uid);
+        }}
+        onNextTour={() => {
+          setIsTourOpen(false);
+          tourService.markTourCompleted('coach_dashboard', user?.uid);
+          navigate('/panel/koc/ogrenciler', { state: { startTour: true } });
+        }}
+        nextTourLabel="Öğrencilerim Turu"
+        tourKey="coach_dashboard"
+      />
+
       {/* HEADER SECTION */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-white/5">
+      <div id="tour-coach-header" className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-white/5">
         <motion.div 
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -132,18 +197,22 @@ export default function CoachDashboard() {
           animate={{ opacity: 1, scale: 1 }}
           className="flex items-center gap-3"
         >
-          <button 
-            onClick={() => navigate('/panel/koc/musaitlik')}
-            className="flex items-center gap-2 px-6 py-3.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-2xl transition-all shadow-lg hover:shadow-xl"
+          <button
+            onClick={async () => {
+              await tourService.resetAllTours(user?.uid);
+              setIsTourOpen(true);
+            }}
+            className="flex items-center gap-2 px-4 py-3.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 font-bold rounded-2xl transition-all shadow-lg hover:shadow-xl cursor-pointer"
+            title="Koç Paneli Sayfa Tanıtım Turunu Başlat"
           >
-            <Clock size={18} className="text-emerald-400" /> 
-            <span>Müsaitlik</span>
+            <Compass size={18} />
+            <span className="hidden sm:inline">Sistem Turu</span>
           </button>
         </motion.div>
       </div>
 
       {/* QUICK STATS */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div id="tour-coach-stats" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Aktif Öğrenci', value: students.length, icon: Users, color: 'text-blue-400', bg: 'bg-blue-500/10' },
           { label: 'Yeni Randevu Talebi', value: pendingAppointments.length, icon: Calendar, color: 'text-amber-400', bg: 'bg-amber-500/10' },
@@ -170,7 +239,7 @@ export default function CoachDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* STUDENTS LIST */}
-        <div className="lg:col-span-2 flex flex-col bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-[32px] overflow-hidden relative">
+        <div id="tour-coach-students" className="lg:col-span-2 flex flex-col bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-[32px] overflow-hidden relative">
            <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-blue-500/50 via-emerald-500/50 to-purple-500/50" />
            
            <div className="p-8 flex items-center justify-between border-b border-white/5">
@@ -236,7 +305,7 @@ export default function CoachDashboard() {
         </div>
 
         {/* APPOINTMENTS SIDEBAR */}
-        <div className="flex flex-col bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-[32px] overflow-hidden">
+        <div id="tour-coach-appointments" className="flex flex-col bg-slate-900/50 backdrop-blur-md border border-white/5 rounded-[32px] overflow-hidden">
            <div className="p-8 border-b border-white/5">
              <h2 className="text-xl font-bold text-white flex items-center gap-3 mb-2">
                <Calendar className="text-amber-400" size={24} /> 

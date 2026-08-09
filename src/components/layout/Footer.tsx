@@ -29,6 +29,17 @@ export default function Footer() {
           <ul className="space-y-4 text-sm text-slate-400">
             <li><Link to="/kullanim-kosullari" className="hover:text-blue-400 transition-colors">Kullanım Koşulları</Link></li>
             <li><Link to="/gizlilik-politikasi" className="hover:text-blue-400 transition-colors">Gizlilik Sözleşmesi</Link></li>
+            <li>
+              <button
+                onClick={() => {
+                  localStorage.removeItem('focuson_cookie_consent');
+                  window.location.reload();
+                }}
+                className="hover:text-blue-400 transition-colors text-left"
+              >
+                Çerez Tercihleri
+              </button>
+            </li>
             <li><a href="#" className="hover:text-blue-400 transition-colors">Üyelik Sözleşmesi</a></li>
             <li><a href="#" className="hover:text-blue-400 transition-colors">Mesafeli Satış Sözleşmesi</a></li>
             <li><a href="#" className="hover:text-blue-400 transition-colors">Teslimat ve İade Koşulları</a></li>

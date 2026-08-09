@@ -66,10 +66,6 @@ export default function TermsOfService() {
               <p className="leading-relaxed">
                 Satın alınan abonelik ve paketlerin iadesi, servis sağlayıcıları (entegre ödeme kuruluşları) politikaları çerçevesinde değerlendirilmektedir. İhtilaf durumlarında FocusON Akademi kuralları ve Tüketici Hakları göz önünde bulundurulur.
               </p>
-              <h3 className="text-xl font-bold text-white mt-4 mb-2">Cüzdan ve Sistem Bakiyesi</h3>
-              <p className="leading-relaxed">
-                Platforma yüklenen tüm TL bakiyeleri ve referans sistemi aracılığıyla kazanılan ödüller (öğrenci indirimleri, koç katılım ve prim hediyeleri) <strong>yalnızca sistem içi harcamalarda (abonelik ödemeleri, komisyonlar ve diğer hizmet alımları)</strong> kullanılabilir. Bu bakiyeler hiçbir koşulda banka hesabına aktarılamaz, nakit olarak çekilemez veya nakden iade edilemez. Sistem içerisinde dağıtılan referans ödülleri "sanal hediye çeki" niteliği taşımaktadır.
-              </p>
             </section>
 
             <section className="space-y-4">
