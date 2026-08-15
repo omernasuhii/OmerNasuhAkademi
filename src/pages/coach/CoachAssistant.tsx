@@ -86,7 +86,13 @@ export default function CoachAssistant() {
       const docRef = doc(db, 'coach_chats', user.uid);
       const snap = await getDoc(docRef);
       if (snap.exists()) {
-        setMessages(snap.data().messages || []);
+        const rawMsgs = snap.data().messages || [];
+        const cleanMsgs = rawMsgs.filter((m: Message) => 
+          m.role !== 'function' && !m.functionCalls && m.content && m.content.trim() !== ''
+        );
+        if (cleanMsgs.length > 0) {
+          setMessages(cleanMsgs);
+        }
       }
     } catch (error) {
       console.error("Sohbet geçmişi yüklenirken hata:", error);
@@ -96,8 +102,16 @@ export default function CoachAssistant() {
   const saveChatHistory = async (newMessages: Message[]) => {
     if (!user) return;
     try {
-      const cleanMessages = JSON.parse(JSON.stringify(newMessages));
-      await setDoc(doc(db, 'coach_chats', user.uid), { messages: cleanMessages }, { merge: true });
+      const cleanMessages = newMessages
+        .filter(m => m.role !== 'function' && !m.functionCalls && m.content && m.content.trim() !== '')
+        .map(m => ({
+          id: m.id || Date.now().toString(),
+          role: m.role,
+          content: m.content
+        }));
+      if (cleanMessages.length > 0) {
+        await setDoc(doc(db, 'coach_chats', user.uid), { messages: cleanMessages, updatedAt: new Date().toISOString() }, { merge: true });
+      }
     } catch (error) {
       console.error("Sohbet kaydedilirken hata:", error);
     }
@@ -163,9 +177,10 @@ export default function CoachAssistant() {
       }));
       
       setStudents(studentDocs);
-      setStudentsLoaded(true);
     } catch (err) {
       console.error("Öğrenciler ve verileri yüklenirken hata:", err);
+    } finally {
+      setStudentsLoaded(true);
     }
   };
 
@@ -382,15 +397,18 @@ export default function CoachAssistant() {
             currentHistory = [...currentHistory, funcResMsg];
             setMessages(prev => [...prev, funcResMsg]);
           }
-        } else if (resJson.text) {
+        } else if (resJson.text && resJson.text.trim() !== '') {
           const modelMessage: any = {
             id: Date.now().toString() + "-model",
             role: 'model',
             content: resJson.text
           };
           currentHistory = [...currentHistory, modelMessage];
-          setMessages(prev => [...prev, modelMessage]);
-          saveChatHistory(currentHistory as any);
+          setMessages(prev => {
+            const next = [...prev, modelMessage];
+            saveChatHistory(next as any);
+            return next;
+          });
           done = true;
         } else {
           done = true;
@@ -399,10 +417,16 @@ export default function CoachAssistant() {
 
     } catch (error) {
       console.error("AI Error:", error);
-      setMessages(prev => [
-        ...prev, 
-        { role: 'model', content: "Üzgünüm, şu anda yanıt veremiyorum. Lütfen teknik ekiple iletişime geçin veya API anahtarınızı kontrol edin." }
-      ]);
+      const errorMsg: Message = { 
+        id: Date.now().toString() + "-err", 
+        role: 'model', 
+        content: "Üzgünüm, şu anda yanıt veremiyorum. Lütfen tekrar deneyin veya API bağlantısını kontrol edin." 
+      };
+      setMessages(prev => {
+        const next = [...prev, errorMsg];
+        saveChatHistory(next);
+        return next;
+      });
     } finally {
       setLoading(false);
     }
@@ -465,7 +489,9 @@ export default function CoachAssistant() {
           data-no-auto-scroll-top="true"
           className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar"
         >
-          {messages.map((message, index) => (
+          {messages
+            .filter(message => message.role !== 'function' && !message.functionCalls && message.content && message.content.trim() !== '')
+            .map((message, index) => (
             <div 
               key={index} 
               className={`flex gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}

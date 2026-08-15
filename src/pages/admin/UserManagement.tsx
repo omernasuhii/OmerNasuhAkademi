@@ -20,9 +20,10 @@ import {
   LogIn
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, getDocs, doc, updateDoc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc, query, orderBy, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
+import { presenceService } from '../../services/presenceService';
 
 export default function UserManagement() {
   const { user: currentUser } = useAuth();
@@ -56,20 +57,18 @@ export default function UserManagement() {
   }, [isActivityModalOpen, selectedActivityUser]);
 
   useEffect(() => {
-    async function fetchData() {
-      try {
-        const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
-        const snap = await getDocs(q);
-        const allUsers = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setUsers(allUsers);
-        setCoaches(allUsers.filter((u: any) => u.role === 'coach'));
-      } catch (err) {
-        console.error("Fetch data error:", err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchData();
+    const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const allUsers = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setUsers(allUsers);
+      setCoaches(allUsers.filter((u: any) => u.role === 'coach'));
+      setLoading(false);
+    }, (err) => {
+      console.error("Users onSnapshot error:", err);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const handleAssignCoach = async (studentId: string, coachId: string) => {
@@ -250,8 +249,8 @@ export default function UserManagement() {
                               user.firstName?.[0] || 'U'
                             )}
                           </div>
-                          {user.isOnline && (
-                             <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-slate-900 rounded-full"></div>
+                          {presenceService.isOnline(user) && (
+                             <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-slate-900 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
                           )}
                         </div>
                         <div>
@@ -311,11 +310,15 @@ export default function UserManagement() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-[11px] text-slate-500 font-bold tabular-nums">
-                       {user.isOnline ? (
-                          <span className="text-emerald-400 flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div> Çevrimiçi</span>
-                       ) : user.lastLoginAt?.seconds ? (
-                          new Date(user.lastLoginAt.seconds * 1000).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })
-                       ) : 'Bilinmiyor'}
+                       {presenceService.isOnline(user) ? (
+                          <span className="text-emerald-400 flex items-center gap-1.5 font-bold">
+                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div> Çevrimiçi
+                          </span>
+                       ) : (
+                          <span className="text-slate-400 font-medium">
+                            {presenceService.formatLastSeen(user)}
+                          </span>
+                       )}
                     </td>
                     <td className="px-6 py-4 text-[11px] text-slate-500 font-bold tabular-nums">
                       {user.createdAt?.seconds ? new Date(user.createdAt.seconds * 1000).toLocaleDateString('tr-TR') : 'Bilinmiyor'}
@@ -403,8 +406,8 @@ export default function UserManagement() {
                           user.firstName?.[0] || 'U'
                         )}
                       </div>
-                      {user.isOnline && (
-                         <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-slate-900 rounded-full"></div>
+                      {presenceService.isOnline(user) && (
+                         <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-slate-900 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
                       )}
                     </div>
                     <div>
@@ -467,13 +470,15 @@ export default function UserManagement() {
                   </div>
                   <div className="space-y-1">
                     <div>
-                      <span className="text-slate-500 block text-[9px] uppercase tracking-wider font-bold">Son Giriş</span>
+                      <span className="text-slate-500 block text-[9px] uppercase tracking-wider font-bold">Son Görülme / Durum</span>
                       <span className="text-slate-300 font-bold tabular-nums">
-                        {user.isOnline ? (
-                          <span className="text-emerald-400 flex items-center gap-1"><div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse"></div> Çevrimiçi</span>
-                        ) : user.lastLoginAt?.seconds ? (
-                          new Date(user.lastLoginAt.seconds * 1000).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })
-                        ) : 'Bilinmiyor'}
+                        {presenceService.isOnline(user) ? (
+                          <span className="text-emerald-400 flex items-center gap-1.5 font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div> Çevrimiçi</span>
+                        ) : (
+                          <span className="text-slate-400 font-medium">
+                            {presenceService.formatLastSeen(user)}
+                          </span>
+                        )}
                       </span>
                     </div>
                     <div>

@@ -266,9 +266,30 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "category", "language", "status", "headerType", "body"]
+    },
+    "announcement": {
+      "title": "Announcement",
+      "description": "System-wide or targeted announcements for students, coaches, parents",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "summary": { "type": "string" },
+        "content": { "type": "string" },
+        "category": { "type": "string" },
+        "priority": { "type": "string" },
+        "targetAudience": { "type": "string" },
+        "status": { "type": "string" },
+        "isPinned": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "content"]
     }
   },
   "firestore": {
+    "/announcements/{announcementId}": {
+      "schema": "announcement",
+      "description": "Announcements and notifications portal"
+    },
     "/bolumler/{bolumId}": {
       "schema": "bolumler",
       "description": "College and university departments for YKS"
@@ -332,6 +353,14 @@
     "/whatsapp_templates/{templateId}": {
       "schema": "whatsapp_template",
       "description": "WhatsApp message templates"
+    },
+    "/users/{userId}/solved_questions/{qId}": {
+      "schema": "solved_question",
+      "description": "Solved question history for AI assistant"
+    },
+    "/ai_solver_state/{userId}": {
+      "schema": "ai_solver_state",
+      "description": "AI Assistant solver state for student"
     }
   }
 }

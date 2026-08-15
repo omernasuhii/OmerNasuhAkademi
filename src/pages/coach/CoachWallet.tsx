@@ -249,7 +249,7 @@ export default function CoachWallet() {
 
   const displayTransactions = (recentTransactions.length > 0) 
     ? recentTransactions 
-    : ((isTourOpen || location.state?.isDemo) ? DEMO_COACH_TXS.map(tx => ({
+    : (isTourOpen ? DEMO_COACH_TXS.map(tx => ({
         id: tx.id,
         category: tx.coachId === 'SYSTEM' ? 'system' : 'student',
         direction: tx.direction,

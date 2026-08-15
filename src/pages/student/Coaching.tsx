@@ -5,7 +5,7 @@ import { studentDataService } from '../../services/studentDataService';
 import { useCurriculum } from '../../lib/CurriculumContext';
 import { notificationService } from '../../services/notificationService';
 import BookTrackingDetail from './BookTrackingDetail';
-import { CheckCircle2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Target, Flame, Sparkles, Plus, X, StickyNote, Info } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Target, Flame, Sparkles, Plus, X, StickyNote, Info, Youtube, Play } from 'lucide-react';
 
 export default function Coaching() {
   const { userData } = useAuth();
@@ -716,8 +716,16 @@ export default function Coaching() {
                                           <div key={task.id} className={`p-4 rounded-xl border transition-all ${task.isWaitingResult ? (isWaitingExpired ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-amber-500/10 border-amber-500/30 text-amber-400') : (task.isDone ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : bgClasses)}`}>
                                              <div className="flex items-start justify-between gap-2">
                                                 <div>
-                                                    <div className="flex items-center gap-2 mb-2">
-                                                       <p className={`text-xs font-black uppercase opacity-80 ${task.isDone && !isWaitingExpired ? 'text-emerald-400' : isWaitingExpired ? 'text-red-400' : ''}`}>{task.type || 'Soru Çözümü'}</p>
+                                                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                                       <span className={`text-xs font-black uppercase opacity-80 flex items-center gap-1 ${task.type === 'YouTube Video' ? 'text-red-400' : task.isDone && !isWaitingExpired ? 'text-emerald-400' : isWaitingExpired ? 'text-red-400' : ''}`}>
+                                                          {task.type === 'YouTube Video' && <Youtube size={12} className="text-red-400" />}
+                                                          {task.type || 'Soru Çözümü'}
+                                                       </span>
+                                                       {task.type === 'YouTube Video' && (task.durationFormatted || (task.durationMinutes && task.durationMinutes > 0)) && (
+                                                          <span className="text-[9px] font-black text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/20 lowercase tracking-normal">
+                                                             {task.durationFormatted || `${task.durationMinutes} dk`}
+                                                          </span>
+                                                       )}
                                                         {task.isWaitingResult && (
                                                            <span className={`text-[8px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase ${isWaitingExpired ? 'bg-red-500/20 border border-red-500/40 text-red-400' : 'bg-amber-500/20 text-amber-500'}`}>
                                                               {isWaitingExpired ? 'Yapılmadı (5+ Gün Geçti)' : 'Sonuç Bekleniyor'}
@@ -737,7 +745,20 @@ export default function Coaching() {
                                                        </button>
                                                     </div>
                                                     <p className="text-sm font-black leading-tight mb-1">{task.subject}</p>
-                                                    {task.topic && <p className="text-xs font-medium opacity-80 mt-1 max-w-[200px] truncate">{task.topic}</p>}
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                       {task.topic && <p className="text-xs font-medium opacity-80 max-w-[200px] truncate" title={task.topic}>{task.topic}</p>}
+                                                       {task.videoUrl && (
+                                                          <a 
+                                                             href={task.videoUrl} 
+                                                             target="_blank" 
+                                                             rel="noreferrer" 
+                                                             className="text-[10px] text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0 font-bold transition-colors"
+                                                             title="YouTube'da İzle"
+                                                          >
+                                                             <Play size={8} fill="currentColor" /> İzle
+                                                          </a>
+                                                       )}
+                                                    </div>
                                                 </div>
                                                 {(() => {
                                                     const isDeneme = task.topic?.includes('Deneme') || task.subject?.includes('Genel') || task.subject?.includes('YDT') || task.branch === 'Denemeler' || task.type === 'Deneme';

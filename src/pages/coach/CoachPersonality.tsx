@@ -7,6 +7,7 @@ import { analysisService } from "../../services/analysisService";
 import { Brain, FileText, Loader2, RefreshCw } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { OnboardingTour, TourStep } from "../../components/OnboardingTour";
+import NoStudentSelected from "../../components/NoStudentSelected";
 import { SAMPLE_DEMO_STUDENT } from "./CoachStudents";
 
 const DEMO_ANALYSES = [
@@ -201,8 +202,12 @@ export default function CoachPersonality() {
     );
   }
 
+  if (!activeStudent) {
+    return <NoStudentSelected />;
+  }
+
   const fetchedValidAnalyses = analyses.filter(a => !['PARENT_REPORT', 'COACH_REPORT'].includes(a.analysisType));
-  const isDemoMode = Boolean(location.state?.startTour || location.state?.isDemo || !selectedStudent);
+  const isDemoMode = isTourOpen;
 
   const validAnalyses = fetchedValidAnalyses.length > 0 
     ? fetchedValidAnalyses 

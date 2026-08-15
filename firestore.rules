@@ -153,6 +153,10 @@ service cloud.firestore {
       match /ai_chat_views/{targetId} {
         allow read, write: if isOwner(userId) || isAdmin();
       }
+
+      match /solved_questions/{qId} {
+        allow read, write: if isOwner(userId) || isAdmin() || isCoachOf(userId) || isParentOf(userId);
+      }
     }
 
     // 1.5 Bolumler Collection
@@ -239,6 +243,9 @@ service cloud.firestore {
 
     // 5.5 AI Chat History
     match /ai_chat_history/{userId} {
+      allow read, write: if isSignedIn() && (isOwner(userId) || isAdmin() || isCoachOf(userId));
+    }
+    match /ai_solver_state/{userId} {
       allow read, write: if isSignedIn() && (isOwner(userId) || isAdmin() || isCoachOf(userId));
     }
     match /parent_ai_chat_history/{userId} {
@@ -593,6 +600,12 @@ service cloud.firestore {
     // 30. Academic Calendar
     match /academic_calendar/{calendarId} {
       allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // 31. Announcements
+    match /announcements/{announcementId} {
+      allow read: if true;
       allow write: if isSignedIn();
     }
   }

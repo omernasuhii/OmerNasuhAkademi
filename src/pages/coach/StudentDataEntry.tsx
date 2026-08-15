@@ -29,6 +29,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { BRANCH_CONFIG } from '../../constants/branchConfig';
 import { formatSubjectName } from './StudentProgram';
 import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
+import NoStudentSelected from '../../components/NoStudentSelected';
 
 export default function StudentDataEntry() {
   const { user, userData } = useAuth();
@@ -263,6 +264,25 @@ export default function StudentDataEntry() {
         });
     }
 
+    // Check if student already has this book
+    const alreadyTracked = books.find(b => 
+       b.globalBookId === globalId || 
+       (b.isbn && b.isbn === finalIsbn) || 
+       (b.bookName === finalBookName && b.subject === finalSubject)
+    );
+
+    if (alreadyTracked) {
+        alert("Bu kaynak zaten öğrencinin listesinde bulunuyor.");
+        setNewBook({ resourceType: newBook.resourceType, type: newBook.type, subject: newBook.subject, name: '', globalBookId: '', isbn: '' });
+        setIsManualEntry(false);
+        return;
+    }
+
+    // Determine order
+    const existingBooksInTab = books.filter(b => (b.resourceType || 'soru') === finalResourceType);
+    const maxOrder = existingBooksInTab.reduce((max, b) => Math.max(max, b.order || 0), -1);
+    const newOrder = maxOrder + 1;
+
     await studentDataService.updateBookProgress(null, {
       studentId: selectedStudent!.uid,
       subject: finalSubject,
@@ -271,7 +291,8 @@ export default function StudentDataEntry() {
       resourceType: finalResourceType,
       isbn: finalIsbn,
       completedTopics: [],
-      completionPercentage: 0
+      completionPercentage: 0,
+      order: newOrder
     });
     setNewBook({ resourceType: newBook.resourceType, type: newBook.type, subject: newBook.subject, name: '', globalBookId: '', isbn: '' });
     setIsManualEntry(false);
@@ -348,33 +369,7 @@ export default function StudentDataEntry() {
   };
 
   if (!selectedStudent) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 bg-slate-900/40 border border-white/5 rounded-[40px] text-center p-8 space-y-6 animate-in fade-in duration-300">
-        <div className="w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-          <BookOpen size={32} />
-        </div>
-        <div className="max-w-md space-y-2">
-          <h2 className="text-2xl font-bold text-white">Seçili Öğrenci Bulunamadı</h2>
-          <p className="text-slate-400 text-sm">
-            Örnek öğrenci profili sistem turu tamamlandığı için kapatılmıştır. Kaynak takibi görüntülemek için lütfen listenizden seçim yapın.
-          </p>
-        </div>
-        <div className="flex flex-wrap justify-center gap-4">
-          <button
-            onClick={() => navigate('/panel/koc/ogrenciler')}
-            className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-2xl transition-all shadow-lg"
-          >
-            Öğrencilerim Sayfasına Git
-          </button>
-          <button
-            onClick={() => navigate('/panel/koc')}
-            className="px-6 py-3 bg-white/5 hover:bg-white/10 text-white font-bold rounded-2xl border border-white/10 transition-all"
-          >
-            Koç Paneline Dön
-          </button>
-        </div>
-      </div>
-    );
+    return <NoStudentSelected />;
   }
 
   return (
@@ -406,118 +401,174 @@ export default function StudentDataEntry() {
            
            <div className="mb-6 flex gap-4">
               <label className="flex items-center gap-2 cursor-pointer">
-                 <input type="radio" name="rType" value="soru" checked={newBook.resourceType === 'soru'} onChange={() => setNewBook({...newBook, resourceType: 'soru', globalBookId: '', name: ''})} className="text-indigo-500" />
+                 <input type="radio" name="rType" value="soru" checked={newBook.resourceType === 'soru'} onChange={() => { setNewBook({...newBook, resourceType: 'soru', globalBookId: '', name: ''}); setIsManualEntry(false); }} className="text-indigo-500" />
                  <span className="text-sm text-slate-300">Soru Bankası</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
-                 <input type="radio" name="rType" value="konu" checked={newBook.resourceType === 'konu'} onChange={() => setNewBook({...newBook, resourceType: 'konu', globalBookId: '', name: ''})} className="text-indigo-500" />
+                 <input type="radio" name="rType" value="konu" checked={newBook.resourceType === 'konu'} onChange={() => { setNewBook({...newBook, resourceType: 'konu', globalBookId: '', name: ''}); setIsManualEntry(false); }} className="text-indigo-500" />
                  <span className="text-sm text-slate-300">Konu Çalışması / Fasikül</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
-                 <input type="radio" name="rType" value="youtube" checked={newBook.resourceType === 'youtube'} onChange={() => setNewBook({...newBook, resourceType: 'youtube', globalBookId: '', name: ''})} className="text-indigo-500" />
+                 <input type="radio" name="rType" value="youtube" checked={newBook.resourceType === 'youtube'} onChange={() => { setNewBook({...newBook, resourceType: 'youtube', globalBookId: '', name: ''}); setIsManualEntry(false); }} className="text-indigo-500" />
                  <span className="text-sm text-slate-300">YouTube Kanalı / Video</span>
               </label>
            </div>
 
            <div className="grid grid-cols-1 md:grid-cols-5 gap-6 items-end">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Alan türü</label>
-                  <select 
-                    value={newBook.type}
-                    onChange={(e) => setNewBook({...newBook, type: e.target.value as any})}
-                    className="w-full bg-slate-900 border border-white/10 rounded-xl py-3 px-4 text-xs text-white outline-none"
-                  >
-                    <option value="TYT">TYT</option>
-                    {(!isAraSinif) && <option value="AYT">AYT</option>}
-                    <option value="9. Sınıf">9. Sınıf</option>
-                    <option value="10. Sınıf">10. Sınıf</option>
-                    <option value="11. Sınıf">11. Sınıf</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Ders</label>
-                  <select 
-                    value={newBook.subject}
-                    onChange={(e) => setNewBook({...newBook, subject: e.target.value})}
-                    className="w-full bg-slate-900 border border-white/10 rounded-xl py-3 px-4 text-xs text-white outline-none"
-                  >
-                    {subjectOptions.map((s: string) => (
-                      <option key={s} value={s}>{formatSubjectName(s, newBook.type)}</option>
-                    ))}
-                  </select>
-                </div>
+                {/* YouTube selects are always shown if youtube */}
                 {newBook.resourceType === 'youtube' ? (
-                  <div className="md:col-span-2 space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">
-                      YouTube Kanalı Seçin
-                    </label>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <select
-                        value={selectedYoutubeChannel}
-                        onChange={(e) => setSelectedYoutubeChannel(e.target.value)}
-                        className="flex-1 bg-slate-900 border border-white/10 rounded-xl py-3 px-4 text-xs text-white outline-none focus:border-indigo-500/50 cursor-pointer"
+                  <>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Alan türü</label>
+                      <select 
+                        value={newBook.type}
+                        onChange={(e) => setNewBook({...newBook, type: e.target.value as any})}
+                        className="w-full bg-slate-900 border border-white/10 rounded-xl py-3 px-4 text-xs text-white outline-none"
                       >
-                        {getYoutubeChannels(newBook.subject).map(channel => (
-                          <option key={channel} value={channel}>{channel}</option>
-                        ))}
-                        <option value="Diğer (Manuel Giriş)">Diğer (Manuel Giriş)</option>
+                        <option value="TYT">TYT</option>
+                        {(!isAraSinif) && <option value="AYT">AYT</option>}
+                        <option value="9. Sınıf">9. Sınıf</option>
+                        <option value="10. Sınıf">10. Sınıf</option>
+                        <option value="11. Sınıf">11. Sınıf</option>
                       </select>
-                      {selectedYoutubeChannel === 'Diğer (Manuel Giriş)' && (
-                        <input 
-                          type="text"
-                          placeholder="Kanal adını giriniz..."
-                          value={customYoutubeChannel}
-                          onChange={e => setCustomYoutubeChannel(e.target.value)}
-                          className="flex-1 bg-slate-900 border border-white/10 rounded-xl py-3 px-4 text-xs text-white outline-none focus:border-indigo-500/50"
-                          autoFocus
-                        />
-                      )}
                     </div>
-                  </div>
-                ) : (
-                  <div className="md:col-span-2 space-y-2">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">
-                       {isManualEntry ? 'Kaynak Adı (Sistemde Bulunamadı)' : 'ISBN Numarası'}
-                    </label>
-                    {!isManualEntry ? (
-                      <div className="flex gap-2">
-                         <input 
-                           type="text"
-                           placeholder="ISBN giriniz..."
-                           value={newBook.isbn}
-                           onChange={e => setNewBook({...newBook, isbn: e.target.value})}
-                           className="flex-1 bg-slate-900 border border-white/10 rounded-xl py-3 px-4 text-xs text-white outline-none focus:border-indigo-500/50"
-                         />
-                      </div>
-                    ) : (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Ders</label>
+                      <select 
+                        value={newBook.subject}
+                        onChange={(e) => setNewBook({...newBook, subject: e.target.value})}
+                        className="w-full bg-slate-900 border border-white/10 rounded-xl py-3 px-4 text-xs text-white outline-none"
+                      >
+                        {subjectOptions.map((s: string) => (
+                          <option key={s} value={s}>{formatSubjectName(s, newBook.type)}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="md:col-span-2 space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">
+                        YouTube Kanalı Seçin
+                      </label>
                       <div className="flex flex-col sm:flex-row gap-2">
-                        <input 
-                          type="text"
-                          placeholder="Örn: 3D Yayınları TYT Matematik"
-                          value={newBook.name}
-                          onChange={(e) => setNewBook({...newBook, name: e.target.value})}
-                          className="flex-1 bg-slate-900 border border-white/10 rounded-xl py-3 px-4 text-xs text-white outline-none focus:border-red-500/50 border-red-500/30"
-                          autoFocus
-                        />
-                        <button
-                          onClick={() => {
-                            setIsManualEntry(false);
-                            setNewBook({ ...newBook, name: '' });
-                          }}
-                          className="bg-white/5 hover:bg-white/10 text-white rounded-xl py-3 px-4 text-xs transition-colors whitespace-nowrap"
+                        <select
+                          value={selectedYoutubeChannel}
+                          onChange={(e) => setSelectedYoutubeChannel(e.target.value)}
+                          className="flex-1 bg-slate-900 border border-white/10 rounded-xl py-3 px-4 text-xs text-white outline-none focus:border-indigo-500/50 cursor-pointer"
                         >
-                          İptal
-                        </button>
+                          {getYoutubeChannels(newBook.subject).map(channel => (
+                            <option key={channel} value={channel}>{channel}</option>
+                          ))}
+                          <option value="Diğer (Manuel Giriş)">Diğer (Manuel Giriş)</option>
+                        </select>
+                        {selectedYoutubeChannel === 'Diğer (Manuel Giriş)' && (
+                          <input 
+                            type="text"
+                            placeholder="Kanal adını giriniz..."
+                            value={customYoutubeChannel}
+                            onChange={e => setCustomYoutubeChannel(e.target.value)}
+                            className="flex-1 bg-slate-900 border border-white/10 rounded-xl py-3 px-4 text-xs text-white outline-none focus:border-indigo-500/50"
+                            autoFocus
+                          />
+                        )}
                       </div>
+                    </div>
+                    <button 
+                      onClick={handleAddBook}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2"
+                    >
+                      <Plus size={16} /> Kanal Ekle
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {!isManualEntry ? (
+                      // Only show ISBN input
+                      <>
+                        <div className="md:col-span-4 space-y-2">
+                          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">
+                            ISBN Numarası (Barkod)
+                          </label>
+                          <input 
+                            type="text"
+                            placeholder="ISBN giriniz veya barkod okutunuz..."
+                            value={newBook.isbn}
+                            onChange={e => setNewBook({...newBook, isbn: e.target.value})}
+                            onKeyDown={e => {
+                               if (e.key === 'Enter') handleAddBook();
+                            }}
+                            className="w-full bg-slate-900 border border-white/10 rounded-xl py-3 px-4 text-xs text-white outline-none focus:border-indigo-500/50"
+                            autoFocus
+                          />
+                        </div>
+                        <button 
+                          onClick={handleAddBook}
+                          className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2"
+                        >
+                          Sorgula / Ekle
+                        </button>
+                      </>
+                    ) : (
+                      // Manual Entry Fields
+                      <>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Alan türü</label>
+                          <select 
+                            value={newBook.type}
+                            onChange={(e) => setNewBook({...newBook, type: e.target.value as any})}
+                            className="w-full bg-slate-900 border border-white/10 rounded-xl py-3 px-4 text-xs text-white outline-none"
+                          >
+                            <option value="TYT">TYT</option>
+                            {(!isAraSinif) && <option value="AYT">AYT</option>}
+                            <option value="9. Sınıf">9. Sınıf</option>
+                            <option value="10. Sınıf">10. Sınıf</option>
+                            <option value="11. Sınıf">11. Sınıf</option>
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Ders</label>
+                          <select 
+                            value={newBook.subject}
+                            onChange={(e) => setNewBook({...newBook, subject: e.target.value})}
+                            className="w-full bg-slate-900 border border-white/10 rounded-xl py-3 px-4 text-xs text-white outline-none"
+                          >
+                            {subjectOptions.map((s: string) => (
+                              <option key={s} value={s}>{formatSubjectName(s, newBook.type)}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="md:col-span-2 space-y-2">
+                          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">
+                            Kaynak Adı (Sistemde Bulunamadı - ISBN: {newBook.isbn})
+                          </label>
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input 
+                              type="text"
+                              placeholder="Örn: 3D Yayınları TYT Matematik"
+                              value={newBook.name}
+                              onChange={(e) => setNewBook({...newBook, name: e.target.value})}
+                              className="flex-1 bg-slate-900 border border-white/10 rounded-xl py-3 px-4 text-xs text-white outline-none focus:border-red-500/50 border-red-500/30"
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => {
+                                setIsManualEntry(false);
+                                setNewBook({ ...newBook, name: '' });
+                              }}
+                              className="bg-white/5 hover:bg-white/10 text-white rounded-xl py-3 px-4 text-xs transition-colors whitespace-nowrap"
+                            >
+                              Geri
+                            </button>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={handleAddBook}
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2"
+                        >
+                          <Save size={16} /> Kaydet
+                        </button>
+                      </>
                     )}
-                  </div>
+                  </>
                 )}
-                <button 
-                  onClick={handleAddBook}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2"
-                >
-                  <Plus size={16} /> Kaynak Ekle
-                </button>
               </div>
             </div>
 

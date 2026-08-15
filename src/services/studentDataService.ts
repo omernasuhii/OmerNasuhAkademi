@@ -17,6 +17,30 @@ import { db, auth } from '../lib/firebase';
 import { OperationType, handleFirestoreError } from './appointmentService';
 import { notificationService } from './notificationService';
 
+function sanitizeFirestorePayload(data: any): any {
+  if (!data) return data;
+  if (typeof data === 'string') {
+    if (data.length > 950000) {
+      if (data.startsWith('data:image/') || data.startsWith('data:audio/')) {
+        return null;
+      }
+      return data.slice(0, 100000);
+    }
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeFirestorePayload(item));
+  }
+  if (typeof data === 'object' && data !== null) {
+    const cleaned: any = {};
+    for (const key of Object.keys(data)) {
+      cleaned[key] = sanitizeFirestorePayload(data[key]);
+    }
+    return cleaned;
+  }
+  return data;
+}
+
 export function cleanUndefined<T>(obj: T): T {
   if (obj === null || obj === undefined) {
     return obj;
@@ -475,7 +499,11 @@ export const studentDataService = {
     try {
       const snap = await getDoc(doc(db, path, 'curriculum'));
       if (!snap.exists()) return null;
-      return (snap.data().subjects as Record<string, string[]>) || null;
+      const data = snap.data();
+      return {
+        subjects: (data.subjects as Record<string, string[]>) || null,
+        subtopics: (data.subtopics as Record<string, string[]>) || null
+      };
     } catch (error) {
       handleFirestoreError(error, OperationType.GET, path);
       return null;
@@ -490,6 +518,43 @@ export const studentDataService = {
       let subjects = snap.exists() ? snap.data().subjects || {} : {};
       subjects[subject] = topics;
       await setDoc(ref, { subjects, updatedAt: serverTimestamp() }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async saveCurriculumSubtopics(topic: string, subtopicsList: string[]) {
+    const path = 'settings';
+    try {
+      const ref = doc(db, path, 'curriculum');
+      const snap = await getDoc(ref);
+      let subtopics = snap.exists() ? snap.data().subtopics || {} : {};
+      subtopics[topic] = subtopicsList;
+      await setDoc(ref, { subtopics, updatedAt: serverTimestamp() }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async saveAllSubtopics(newSubtopics: Record<string, string[]>) {
+    const path = 'settings';
+    try {
+      const ref = doc(db, path, 'curriculum');
+      await setDoc(ref, { subtopics: newSubtopics, updatedAt: serverTimestamp() }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async resetCurriculumToDefaults(defaultCurriculum: Record<string, string[]>, defaultSubtopics: Record<string, string[]>) {
+    const path = 'settings';
+    try {
+      const ref = doc(db, path, 'curriculum');
+      await setDoc(ref, { 
+        subjects: defaultCurriculum, 
+        subtopics: defaultSubtopics, 
+        updatedAt: serverTimestamp() 
+      }, { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
     }
@@ -1220,6 +1285,125 @@ export const studentDataService = {
       }, { merge: true });
     } catch (error) {
       console.error(error);
+    }
+  },
+
+  async getAIAssistantSolverState(studentId: string) {
+    const path = 'ai_solver_state';
+    try {
+      const snap = await getDoc(doc(db, path, studentId));
+      if (snap.exists()) {
+        return snap.data() || null;
+      }
+      return null;
+    } catch (error) {
+      console.error("Error fetching solver state:", error);
+      handleFirestoreError(error, OperationType.GET, path);
+      return null;
+    }
+  },
+
+  async saveAIAssistantSolverState(studentId: string, state: any) {
+    const cleanedState = sanitizeFirestorePayload(JSON.parse(JSON.stringify(state)));
+    const path = 'ai_solver_state';
+    try {
+      await setDoc(doc(db, path, studentId), {
+        ...cleanedState,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    } catch (error) {
+      console.error("Error saving solver state:", error);
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async saveSolvedQuestionHistory(studentId: string, item: {
+    id?: string;
+    subject: string;
+    qText: string;
+    qImagePreview?: string | null;
+    solverResult: any;
+    followUpMessages?: any[];
+  }) {
+    const path = `users/${studentId}/solved_questions`;
+    try {
+      const qId = item.id || Date.now().toString() + Math.random().toString(36).substring(2, 7);
+      const rawData = {
+        id: qId,
+        subject: item.subject || 'Genel',
+        qText: item.qText || '',
+        qImagePreview: item.qImagePreview || null,
+        solverResult: item.solverResult || null,
+        followUpMessages: item.followUpMessages || [],
+        createdAt: new Date().toISOString()
+      };
+      const cleanData = sanitizeFirestorePayload(JSON.parse(JSON.stringify(rawData)));
+
+      await setDoc(doc(db, 'users', studentId, 'solved_questions', qId), {
+        ...cleanData,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      return qId;
+    } catch (error) {
+      console.error("Error saving solved question history:", error);
+      handleFirestoreError(error, OperationType.WRITE, path);
+      return null;
+    }
+  },
+
+  async getSolvedQuestionHistory(studentId: string) {
+    const path = `users/${studentId}/solved_questions`;
+    try {
+      const ref = collection(db, 'users', studentId, 'solved_questions');
+      const q = query(ref, orderBy('createdAt', 'desc'));
+      const snap = await getDocs(q);
+      const rawItems: any[] = [];
+      snap.forEach(d => {
+        rawItems.push({ id: d.id, ...d.data() });
+      });
+
+      // Deduplicate by ID and content signature
+      const seenIds = new Set<string>();
+      const deduplicatedMap = new Map<string, any>();
+
+      for (const item of rawItems) {
+        if (!item || !item.id || seenIds.has(item.id)) continue;
+        seenIds.add(item.id);
+
+        const textSig = `${(item.qText || '').trim()}|||${(item.solverResult?.text || '').trim()}`;
+        if (textSig.length > 5) {
+          if (deduplicatedMap.has(textSig)) {
+            const existing = deduplicatedMap.get(textSig);
+            // If current item has audio while existing doesn't, upgrade to current item
+            if (!existing.solverResult?.audioDataUrl && item.solverResult?.audioDataUrl) {
+              deduplicatedMap.set(textSig, item);
+            }
+          } else {
+            deduplicatedMap.set(textSig, item);
+          }
+        } else {
+          deduplicatedMap.set(item.id, item);
+        }
+      }
+
+      return Array.from(deduplicatedMap.values());
+    } catch (error) {
+      console.error("Error getting solved question history:", error);
+      handleFirestoreError(error, OperationType.LIST, path);
+      return [];
+    }
+  },
+
+  async deleteSolvedQuestionHistory(studentId: string, questionId: string) {
+    const path = `users/${studentId}/solved_questions/${questionId}`;
+    try {
+      await deleteDoc(doc(db, 'users', studentId, 'solved_questions', questionId));
+      return true;
+    } catch (error) {
+      console.error("Error deleting solved question history:", error);
+      handleFirestoreError(error, OperationType.DELETE, path);
+      return false;
     }
   }
 };

@@ -19,6 +19,7 @@ import { useStudent } from '../lib/StudentContext';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { appointmentService } from '../services/appointmentService';
+import { presenceService } from '../services/presenceService';
 import { useNavigate } from 'react-router-dom';
 
 export default function CoachDashboard() {
@@ -258,7 +259,7 @@ export default function CoachDashboard() {
              </button>
            </div>
 
-           <div className="p-4 space-y-2 flex-1 max-h-[500px] overflow-y-auto no-scrollbar">
+           <div className="p-4 space-y-2 flex-1">
              {students.length > 0 ? (
                students.map((student) => (
                  <div
@@ -267,11 +268,14 @@ export default function CoachDashboard() {
                    className="group flex items-center justify-between p-4 bg-white/[0.02] hover:bg-white/[0.06] border border-transparent hover:border-white/10 rounded-2xl cursor-pointer transition-all"
                  >
                    <div className="flex items-center gap-4">
-                     <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center text-lg font-bold text-slate-400 overflow-hidden group-hover:scale-105 transition-transform">
+                     <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center text-lg font-bold text-slate-400 overflow-hidden group-hover:scale-105 transition-transform relative shrink-0">
                        {student.photoURL ? (
                          <img src={student.photoURL} alt={student.displayName} className="w-full h-full object-cover" />
                        ) : (
                          student.displayName.charAt(0)
+                       )}
+                       {presenceService.isOnline(student) && (
+                         <div className="absolute bottom-0.5 right-0.5 w-3 h-3 bg-emerald-500 border-2 border-slate-900 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
                        )}
                      </div>
                      <div>

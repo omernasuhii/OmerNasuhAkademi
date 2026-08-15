@@ -3,6 +3,7 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { sessionTracker } from '../services/sessionTracker';
+import { presenceService } from '../services/presenceService';
 import { safeStorage } from './localStorage';
 import { checkAndRenewSubscription } from '../services/subscriptionService';
 
@@ -31,14 +32,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     let unsubscribeDoc: (() => void) | undefined;
+    let stopPresence: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       
       if (unsubscribeDoc) unsubscribeDoc();
+      if (stopPresence) {
+        stopPresence();
+        stopPresence = undefined;
+      }
 
       if (firebaseUser) {
         setLoading(true);
+        // Start presence tracker for real-time heartbeat
+        stopPresence = presenceService.startTracker(firebaseUser.uid);
+
         // Log login only if we haven't done it this session
         if (!safeStorage.getSessionItem(`session_logged_${firebaseUser.uid}`)) {
           sessionTracker.logLogin(firebaseUser.uid, firebaseUser.email || '');
@@ -48,7 +57,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const loadUserData = async (snapshot: any) => {
           if (snapshot.exists() && snapshot.data()?.role) {
             const data: any = { uid: firebaseUser.uid, ...snapshot.data() };
-            setUserData(data);
+            
+            setUserData((prevData: any) => {
+              if (!prevData) return data;
+              
+              const prevClone = { ...prevData };
+              const newClone = { ...data };
+              
+              delete prevClone.isOnline;
+              delete prevClone.lastSeenAt;
+              delete prevClone.lastLoginAt;
+              
+              delete newClone.isOnline;
+              delete newClone.lastSeenAt;
+              delete newClone.lastLoginAt;
+              
+              if (JSON.stringify(prevClone) === JSON.stringify(newClone)) {
+                return prevData;
+              }
+              return data;
+            });
+            
             if (data.role === 'student' && data.subscriptionPlan) {
               checkAndRenewSubscription(data, firebaseUser.uid).catch(console.error);
             }
@@ -107,6 +136,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unsubscribeAuth();
       unsubscribeSystem();
       if (unsubscribeDoc) unsubscribeDoc();
+      if (stopPresence) stopPresence();
     };
   }, []);
 

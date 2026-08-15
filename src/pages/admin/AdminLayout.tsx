@@ -36,6 +36,7 @@ import {
   ChevronLeft,
   PanelLeftOpen,
   Target,
+  Megaphone,
   X
 } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
@@ -114,6 +115,7 @@ export default function AdminLayout() {
       group: 'Genel Bakış',
       items: [
         { title: 'Ana Sayfa', path: '', icon: BarChart3 },
+        { title: 'Duyurular', path: 'duyurular', icon: Megaphone },
         { 
           title: 'Gelen Kutusu', 
           icon: Inbox, 

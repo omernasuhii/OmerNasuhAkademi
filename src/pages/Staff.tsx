@@ -14,7 +14,7 @@ const staffMembers = [
     social: { linkedin: "#", twitter: "#", mail: "mailto:destek@omernasuhakademi.com" }
   },
   {
-    name: "Esma Nur ÖZDAĞ",
+    name: "Esma Nur DAĞ",
     role: "Psikolog & Koç",
     specialty: "Sınav Kaygısı & Stres Yönetimi",
     bio: "Öğrencilerin bilişsel süreçlerini ve stres faktörlerini analiz eder. Sınav kaygısını yönetme ve motivasyon artırma konularında kişiye özgü gelişim stratejileri tasarlar.",

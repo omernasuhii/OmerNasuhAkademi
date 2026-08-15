@@ -27,6 +27,7 @@ import { useAuth } from '../../lib/AuthContext';
 import { tourService } from '../../services/tourService';
 import { studentDataService } from '../../services/studentDataService';
 import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
+import NoStudentSelected from '../../components/NoStudentSelected';
 import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
 import { calculateSubjectMultipliers, calculateDailyCompletionWithMultipliers } from '../../lib/programCalculations';
 
@@ -262,21 +263,24 @@ const DEMO_DAILY_PROGRAMS = [
       studentDataService.getExamResults(activeUid),
       studentDataService.getMonthlyGoal(activeUid, currentMonthStr)
     ]).then(([booksData, programData, reportsData, dailyProgramsData, examsData, monthlyGoalData]) => {
-      setBooks(booksData && booksData.length > 0 ? booksData : DEMO_BOOKS);
+      const isDemoMode = isTourOpen;
+      
+      setBooks((booksData && booksData.length > 0) ? booksData : (isDemoMode ? DEMO_BOOKS : []));
       setProgram(programData[0] || null);
       setReports(reportsData);
-      setDailyPrograms(dailyProgramsData && dailyProgramsData.length > 0 ? dailyProgramsData : DEMO_DAILY_PROGRAMS);
-      setExams(examsData && examsData.length > 0 ? examsData : DEMO_EXAMS);
-      setMonthlyGoal(monthlyGoalData || DEMO_MONTHLY_GOAL);
+      setDailyPrograms((dailyProgramsData && dailyProgramsData.length > 0) ? dailyProgramsData : (isDemoMode ? DEMO_DAILY_PROGRAMS : []));
+      setExams((examsData && examsData.length > 0) ? examsData : (isDemoMode ? DEMO_EXAMS : []));
+      setMonthlyGoal(monthlyGoalData || (isDemoMode ? DEMO_MONTHLY_GOAL : null));
       setLoading(false);
     }).catch(() => {
-      setBooks(DEMO_BOOKS);
-      setDailyPrograms(DEMO_DAILY_PROGRAMS);
-      setExams(DEMO_EXAMS);
-      setMonthlyGoal(DEMO_MONTHLY_GOAL);
+      const isDemoMode = isTourOpen;
+      setBooks(isDemoMode ? DEMO_BOOKS : []);
+      setDailyPrograms(isDemoMode ? DEMO_DAILY_PROGRAMS : []);
+      setExams(isDemoMode ? DEMO_EXAMS : []);
+      setMonthlyGoal(isDemoMode ? DEMO_MONTHLY_GOAL : null);
       setLoading(false);
     });
-  }, [activeStudent, currentMonthStr]);
+  }, [activeStudent, currentMonthStr, isTourOpen]);
 
   // Goal Progress Calculations
   const topicGoalsCount = monthlyGoal?.topicGoals?.length || 0;
@@ -736,33 +740,7 @@ const DEMO_DAILY_PROGRAMS = [
   if (loading) return <div className="text-center py-20 text-slate-500 font-bold italic animate-pulse">Veriler Yükleniyor...</div>;
 
   if (!activeStudent) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 bg-slate-900/40 border border-white/5 rounded-[40px] text-center p-8 space-y-6 animate-in fade-in duration-300">
-        <div className="w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-          <Compass size={32} />
-        </div>
-        <div className="max-w-md space-y-2">
-          <h2 className="text-2xl font-bold text-white">Seçili Öğrenci Bulunamadı</h2>
-          <p className="text-slate-400 text-sm">
-            Örnek öğrenci profili sistem turu tamamlandığı için kapatılmıştır. Bir öğrenci detayı görüntülemek için lütfen listenizden seçim yapın.
-          </p>
-        </div>
-        <div className="flex flex-wrap justify-center gap-4">
-          <Link
-            to="/panel/koc/ogrenciler"
-            className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-2xl transition-all shadow-lg"
-          >
-            Öğrencilerim Sayfasına Git
-          </Link>
-          <Link
-            to="/panel/koc"
-            className="px-6 py-3 bg-white/5 hover:bg-white/10 text-white font-bold rounded-2xl border border-white/10 transition-all"
-          >
-            Koç Paneline Dön
-          </Link>
-        </div>
-      </div>
-    );
+    return <NoStudentSelected />;
   }
 
   return (

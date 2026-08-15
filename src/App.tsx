@@ -13,6 +13,7 @@ import ForgotPassword from "./pages/ForgotPassword";
 import Register from "./pages/Register";
 import AdminLayout from "./pages/admin/AdminLayout";
 import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminAnnouncements from "./pages/admin/AdminAnnouncements";
 import AdminBursluluk from "./pages/admin/AdminBursluluk";
 import AdminInbox from "./pages/admin/AdminInbox";
 import UserManagement from "./pages/admin/UserManagement";
@@ -286,6 +287,7 @@ export default function App() {
                 }
               >
                 <Route index element={<AdminDashboard />} />
+                <Route path="duyurular" element={<AdminAnnouncements />} />
                 <Route path="kullanicilar" element={<UserManagement />} />
                 <Route path="hizmetler" element={<ServiceManagement />} />
                 <Route path="odalar" element={<RoomManagement />} />
@@ -354,6 +356,7 @@ export default function App() {
                 <Route path="analizler" element={<ComingSoonAdmin />} />
                 <Route path="otomasyonlar" element={<ComingSoonAdmin />} />
                 <Route path="ayarlar" element={<SystemSettings />} />
+                <Route path="sistem-ayarlari" element={<SystemSettings />} />
                 <Route path="cms" element={<CMSManagement />} />
 
                 {/* Akademik Araçlar */}

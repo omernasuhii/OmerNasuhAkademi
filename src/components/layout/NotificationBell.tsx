@@ -38,10 +38,12 @@ export default function NotificationBell({ notifications }: NotificationBellProp
     await notificationService.deleteNotification(id);
   };
 
-  const toggleRead = async (id: string, currentRead: boolean) => {
-    if (!currentRead) {
-      await notificationService.markAsRead(id);
+  const handleNotificationClick = (n: Notification) => {
+    if (!n.isRead) {
+      notificationService.markAsRead(n.id);
     }
+    setIsOpen(false);
+    window.dispatchEvent(new CustomEvent('open-notification-modal', { detail: n }));
   };
   
   const handleViewAll = () => {
@@ -107,7 +109,7 @@ export default function NotificationBell({ notifications }: NotificationBellProp
                   {displayNotifications.map((n) => (
                     <div 
                       key={n.id} 
-                      onClick={() => toggleRead(n.id, n.isRead)}
+                      onClick={() => handleNotificationClick(n)}
                       className={`p-5 hover:bg-white/[0.02] transition-colors cursor-pointer group relative ${!n.isRead ? 'bg-emerald-500/[0.02]' : ''}`}
                     >
                       {!n.isRead && (

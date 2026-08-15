@@ -135,10 +135,49 @@ function ExamMetronomeContent({ isFocusMode, setIsFocusMode }: any) {
   const envGainRef = useRef<GainNode | null>(null);
   const envSourceRef = useRef<AudioBufferSourceNode | null>(null);
   
-  const animationFrameRef = useRef<number | null>(null);
+  const workerRef = useRef<Worker | null>(null);
+  const wakeLockRef = useRef<any>(null);
+  const silentAudioRef = useRef<HTMLAudioElement | null>(null);
   const startTimeMsRef = useRef<number>(0);
   const lastProcessedElapsedRef = useRef<number>(-1);
   const mainRef = useRef<HTMLDivElement>(null);
+
+useEffect(() => {
+    const workerCode = `
+      let timer = null;
+      self.onmessage = function(e) {
+        if (e.data === 'start') {
+          if (!timer) timer = setInterval(() => self.postMessage('tick'), 250);
+        } else if (e.data === 'stop') {
+          if (timer) clearInterval(timer);
+          timer = null;
+        }
+      }
+    `;
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    workerRef.current = new Worker(URL.createObjectURL(blob));
+    
+    return () => {
+      if (workerRef.current) workerRef.current.terminate();
+    };
+  }, []);
+
+  const requestWakeLock = async () => {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+      }
+    } catch (err) {
+      console.log('Wake Lock error:', err);
+    }
+  };
+
+  const releaseWakeLock = () => {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release().catch(() => {});
+      wakeLockRef.current = null;
+    }
+  };
 
   const initAudio = useCallback(() => {
     if (!audioCtxRef.current) {
@@ -178,6 +217,41 @@ function ExamMetronomeContent({ isFocusMode, setIsFocusMode }: any) {
   useEffect(() => {
     updateVolumes(rhythmVolume, chimeVolume, envVolume);
   }, [rhythmVolume, chimeVolume, envVolume, updateVolumes]);
+
+  // Continuous silent audio loop to prevent iOS/Android from suspending AudioContext in background/screen lock
+  useEffect(() => {
+    if (isRunning) {
+      if (!silentAudioRef.current) {
+        const silentWav = "data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAACgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+        silentAudioRef.current = new Audio(silentWav);
+        silentAudioRef.current.loop = true;
+      }
+      silentAudioRef.current.play().catch((e) => console.log('Silent audio playback error:', e));
+    } else {
+      if (silentAudioRef.current) {
+        silentAudioRef.current.pause();
+      }
+    }
+  }, [isRunning]);
+
+  // Keep AudioContext resumed and refresh Screen Wake Lock on visibility change or lock screen
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (isRunning) {
+        if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+          audioCtxRef.current.resume().catch(() => {});
+        }
+        if (document.visibilityState === 'visible') {
+          requestWakeLock();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isRunning]);
 
   const toggleEnvSound = useCallback((type: string) => {
     initAudio();
@@ -274,6 +348,9 @@ function ExamMetronomeContent({ isFocusMode, setIsFocusMode }: any) {
 
   const playClickSound = useCallback(() => {
     const ctx = audioCtxRef.current;
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
     const gainNode = rhythmGainRef.current;
     if (!ctx || !gainNode) return;
 
@@ -296,6 +373,9 @@ function ExamMetronomeContent({ isFocusMode, setIsFocusMode }: any) {
 
   const playBeepSound = useCallback(() => {
     const ctx = audioCtxRef.current;
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
     const gainNode = rhythmGainRef.current;
     if (!ctx || !gainNode) return;
 
@@ -317,6 +397,9 @@ function ExamMetronomeContent({ isFocusMode, setIsFocusMode }: any) {
 
   const playChimeSound = useCallback(() => {
     const ctx = audioCtxRef.current;
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
     const gainNode = chimeGainRef.current;
     if (!ctx || !gainNode) return;
 
@@ -369,7 +452,8 @@ function ExamMetronomeContent({ isFocusMode, setIsFocusMode }: any) {
     setTimeout(playChimeSound, 1000);
     triggerFlashEffect();
     
-    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    if (workerRef.current) workerRef.current.postMessage("stop");
+    releaseWakeLock();
   }, [currentMode, playChimeSound, triggerFlashEffect, setIsFocusMode]);
 
   const gameLoop = useCallback(() => {
@@ -400,19 +484,27 @@ function ExamMetronomeContent({ isFocusMode, setIsFocusMode }: any) {
       }
     }
 
-    if (isRunning) {
-      animationFrameRef.current = requestAnimationFrame(gameLoop);
-    }
+
   }, [currentMode, playChimeSound, playCurrentMicroSound, triggerFlashEffect, endTimer, isRunning]);
 
   useEffect(() => {
+    if (workerRef.current) {
+      workerRef.current.onmessage = () => {
+        if (isRunning) {
+          gameLoop();
+        }
+      };
+    }
     if (isRunning) {
-      animationFrameRef.current = requestAnimationFrame(gameLoop);
+      workerRef.current?.postMessage('start');
+      requestWakeLock();
     } else {
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      workerRef.current?.postMessage('stop');
+      releaseWakeLock();
     }
     return () => {
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      workerRef.current?.postMessage('stop');
+      releaseWakeLock();
     };
   }, [isRunning, gameLoop]);
 
@@ -444,7 +536,8 @@ function ExamMetronomeContent({ isFocusMode, setIsFocusMode }: any) {
     setIsFocusMode(false);
     setPausedElapsedSeconds(0);
     lastProcessedElapsedRef.current = -1;
-    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    if (workerRef.current) workerRef.current.postMessage("stop");
+    releaseWakeLock();
     setStatusText("Süre sıfırlandı. Başlamak için hazır.");
     if (mainRef.current) mainRef.current.classList.remove('bg-emerald-900');
     
@@ -754,6 +847,8 @@ function StopwatchTimer() {
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  const totalOverallDuration = sessions.reduce((acc: number, session: any) => acc + (session.duration || 0), 0);
+
   const groupedSessions = sessions.reduce((acc: any, session: any) => {
     const dateStr = session.createdAt?.seconds 
       ? new Date(session.createdAt.seconds * 1000).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' })
@@ -802,7 +897,13 @@ function StopwatchTimer() {
       </div>
 
       <div className="w-full bg-slate-800/50 rounded-3xl p-6 mt-8 border border-white/5">
-        <h3 className="text-xl font-bold text-white mb-4">Günlük Çalışma Kayıtları</h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <h3 className="text-xl font-bold text-white">Günlük Çalışma Kayıtları</h3>
+          <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-xl self-start sm:self-auto">
+            <span className="text-xs font-semibold text-slate-300">Toplam Çalışma:</span>
+            <span className="text-sm font-black text-amber-400 tracking-wider">{formatTime(totalOverallDuration)}</span>
+          </div>
+        </div>
         <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
           {Object.keys(groupedSessions).length > 0 ? (
             Object.entries(groupedSessions).map(([dateStr, data]: [string, any]) => (

@@ -43,8 +43,17 @@ export default function ProtectedRoute({
     return children;
   }
 
-  // Phone & Email verification requirements removed - users register directly.
-  const requireVerification = false;
+  // If phone verification is false (not verified) in database, demand verification unless admin or bypass enabled
+  if (
+    userData &&
+    userData.role !== "admin" &&
+    !systemSettings?.bypassVerification &&
+    (userData.phoneVerified === false || !userData.phoneVerified) &&
+    location.pathname !== "/dogrulama" &&
+    location.pathname !== "/kayit-tamamla"
+  ) {
+    return <Navigate to="/dogrulama" replace />;
+  }
 
   if (allowedRoles && userData && !allowedRoles.includes(userData.role)) {
     return <Navigate to="/" replace />;

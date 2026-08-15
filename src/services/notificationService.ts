@@ -23,6 +23,16 @@ export interface Notification {
   isRead: boolean;
   createdAt: string;
   link?: string;
+
+  // Announcement specific fields
+  announcementId?: string;
+  category?: string;
+  priority?: 'low' | 'normal' | 'high' | 'critical';
+  summary?: string;
+  content?: string;
+  bannerUrl?: string;
+  actionUrl?: string;
+  actionLabel?: string;
 }
 
 export const notificationService = {

@@ -34,8 +34,17 @@ export default function Verification() {
   const [hasApiError, setHasApiError] = useState(false);
 
   useEffect(() => {
-    navigate('/');
-  }, [navigate]);
+    if (userData) {
+      if (!userData.phoneVerified) {
+        setVerificationStep('phone');
+      } else if (user && !user.emailVerified) {
+        setVerificationStep('email');
+      } else {
+        setVerificationStep('done');
+        navigate('/');
+      }
+    }
+  }, [userData, user, navigate]);
 
   const [emailCountdown, setEmailCountdown] = useState(60);
 
@@ -206,6 +215,12 @@ export default function Verification() {
       const resData = await apiResponse.json();
 
       if (apiResponse.ok && resData.success) {
+        if (user?.uid) {
+          await updateDoc(doc(db, 'users', user.uid), {
+            phoneVerified: true,
+            verificationDeferred: false
+          });
+        }
         setMessage('Telefon numaranız başarıyla doğrulandı!');
         setSimulatedNotification(null);
         setTimeout(() => {

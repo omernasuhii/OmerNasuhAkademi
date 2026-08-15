@@ -194,7 +194,8 @@ export async function checkAndRenewSubscription(
         await studentDataService.updateStudentProfile(userUid, {
           subscriptionStartDate: newStartDate,
           subscriptionEndDate: newEndDate,
-          subscriptionStatus: 'active'
+          subscriptionStatus: 'active',
+          askedAiQuestionsCount: 0
         });
 
         await studentDataService.logSubscriptionHistory({

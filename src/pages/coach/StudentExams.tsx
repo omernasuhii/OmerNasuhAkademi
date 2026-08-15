@@ -6,7 +6,8 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsToolti
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../lib/AuthContext';
 import { tourService } from '../../services/tourService';
-import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
+import { OnboardingTour, TourStep } from "../../components/OnboardingTour";
+import NoStudentSelected from "../../components/NoStudentSelected";
 import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
 
 const EXAM_STRUCTURE: any = {
@@ -120,7 +121,9 @@ export default function StudentExams() {
       const timer = setTimeout(() => {
         setIsTourOpen(true);
       }, 500);
-      return () => clearTimeout(timer);
+      
+
+  return () => clearTimeout(timer);
     }
   }, [location.state, userData]);
 
@@ -227,15 +230,15 @@ export default function StudentExams() {
         if (results && results.length > 0) {
           setExams(results.reverse()); // Chronological order
         } else {
-          setExams(SAMPLE_EXAMS);
+          setExams(isTourOpen ? SAMPLE_EXAMS : []);
         }
       } else {
-        setExams(SAMPLE_EXAMS);
+        setExams(isTourOpen ? SAMPLE_EXAMS : []);
       }
       setLoading(false);
     };
     fetchData();
-  }, [activeStudent?.uid]);
+  }, [activeStudent?.uid, isTourOpen]);
 
   // Filter exams by type
   let filteredExams: any[] = [];
@@ -568,6 +571,8 @@ export default function StudentExams() {
       return chartData;
     }
   }, [chartData, activeExamType, chartMetric, selectedBranchTarget]);
+
+  if (!activeStudent) { return <NoStudentSelected />; }
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">

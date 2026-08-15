@@ -4,6 +4,7 @@ import { useStudent } from "../../lib/StudentContext";
 import { useAuth } from "../../lib/AuthContext";
 import { tourService } from "../../services/tourService";
 import { OnboardingTour, TourStep } from "../../components/OnboardingTour";
+import NoStudentSelected from "../../components/NoStudentSelected";
 import { SAMPLE_DEMO_STUDENT } from "./CoachStudents";
 import {
   Search,
@@ -507,37 +508,30 @@ export default function DeepAnalysis() {
           if (results && results.length > 0) {
             setExams(results);
           } else {
-            setExams(SAMPLE_EXAMS);
+            setExams(isTourOpen ? SAMPLE_EXAMS : []);
           }
 
           if (analysesData && analysesData.length > 0) {
             setAnalyses(analysesData);
           } else {
-            setAnalyses(SAMPLE_ANALYSES);
+            setAnalyses(isTourOpen ? SAMPLE_ANALYSES : []);
           }
         } catch (e) {
           console.error("Failed to fetch data", e);
-          setExams(SAMPLE_EXAMS);
-          setAnalyses(SAMPLE_ANALYSES);
+          setExams(isTourOpen ? SAMPLE_EXAMS : []);
+          setAnalyses(isTourOpen ? SAMPLE_ANALYSES : []);
         } finally {
           setLoading(false);
         }
       } else {
-        setExams(SAMPLE_EXAMS);
-        setAnalyses(SAMPLE_ANALYSES);
+        setExams(isTourOpen ? SAMPLE_EXAMS : []);
+        setAnalyses(isTourOpen ? SAMPLE_ANALYSES : []);
         setLoading(false);
       }
     };
     fetchData();
-  }, [activeStudent?.uid]);
+  }, [activeStudent?.uid, isTourOpen]);
 
-  if (!selectedStudent) {
-    return (
-      <div className="h-full flex items-center justify-center text-slate-500">
-        Lütfen bir öğrenci seçin.
-      </div>
-    );
-  }
 
   // Effect to reset child tabs when parent changes
   const handleExamTypeChange = (type: string) => {
@@ -1236,6 +1230,10 @@ export default function DeepAnalysis() {
       })
       .slice(-15);
   }, [filteredExams, filteredAnalyses, branchesToLookAt]);
+
+  if (!activeStudent) {
+    return <NoStudentSelected />;
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">

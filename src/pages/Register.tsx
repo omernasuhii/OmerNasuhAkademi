@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { Mail, Lock, User, Phone, LogIn, ChevronLeft, Loader2, AlertCircle, CheckCircle2, GraduationCap } from "lucide-react";
+import { Mail, Lock, User, Phone, LogIn, ChevronLeft, Loader2, AlertCircle, CheckCircle2, GraduationCap, RefreshCw, MessageCircle } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, fetchSignInMethodsForEmail } from "firebase/auth";
 import { doc, setDoc, serverTimestamp, collection, query, where, getDocs, getDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { useAuth } from "../lib/AuthContext";
 import { referralService } from "../services/referralService";
+import { WhatsAppFallbackHelp } from "../components/WhatsAppFallbackHelp";
 
 export const formatPhoneNumber = (val: string) => {
   let cleaned = val.replace(/\D/g, "");
@@ -51,6 +52,52 @@ export default function Register() {
   const [otpArray, setOtpArray] = useState<string[]>(Array(6).fill(""));
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [smsGeneratedCode, setSmsGeneratedCode] = useState("");
+  const [simulatedNotification, setSimulatedNotification] = useState<string | null>(null);
+  const [hasApiError, setHasApiError] = useState(false);
+  const [countdown, setCountdown] = useState(60);
+
+  useEffect(() => {
+    let timer: any;
+    if (showOtpModal && countdown > 0) {
+      timer = setInterval(() => setCountdown((prev) => prev - 1), 1000);
+    }
+    return () => clearInterval(timer);
+  }, [showOtpModal, countdown]);
+
+  const handleSendOtpForRegister = async () => {
+    const rawPhone = phone.replace(/\D/g, "");
+    if (!rawPhone || rawPhone.length < 10) {
+      throw new Error("Lütfen geçerli bir telefon numarası giriniz.");
+    }
+
+    const rawPhoneQuery = rawPhone.startsWith("90") ? rawPhone : "90" + rawPhone;
+    const parsedPhone = "+" + rawPhoneQuery;
+
+    const apiResponse = await fetch("/api/twilio-verify-send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: parsedPhone })
+    });
+
+    const resData = await apiResponse.json();
+
+    if (apiResponse.ok && resData.success) {
+      setHasApiError(false);
+      if (resData.simulated) {
+        setSimulatedNotification(`FocusON Akademi WhatsApp doğrulama kodunuz (Test Modu): ${resData.code || "123456"}`);
+        setSmsGeneratedCode(resData.code || "123456");
+      } else {
+        setSimulatedNotification(null);
+        setSmsGeneratedCode("");
+      }
+      setOtpArray(Array(6).fill(""));
+      setCountdown(60);
+      setShowOtpModal(true);
+    } else {
+      setHasApiError(true);
+      throw new Error(resData.error || "WhatsApp doğrulama kodu gönderilemedi.");
+    }
+  };
 
   const handleGoogleLogin = async () => {
     setLoading(true);
@@ -190,22 +237,25 @@ export default function Register() {
 
       // 2. Check Phone
       const rawPhone = phone.replace(/\D/g, "");
-      if (rawPhone.length > 0) {
-        const formattedPhone = formatPhoneNumber(phone);
-        const rawPhoneQuery = rawPhone.startsWith("90") ? rawPhone : "90" + rawPhone;
-        const parsedPhone = "+" + rawPhoneQuery;
-        const possiblePhones = [formattedPhone, parsedPhone, rawPhoneQuery.substring(2), "0" + rawPhoneQuery.substring(2), "+90 " + rawPhoneQuery.substring(2)];
-        const phoneQ = query(collection(db, "users"), where("phone", "in", possiblePhones));
-        const phoneSnap = await getDocs(phoneQ);
-        if (!phoneSnap.empty) {
-          throw new Error("Bu telefon numarası zaten başka bir hesap tarafından kullanımda.");
-        }
+      if (rawPhone.length < 10) {
+        throw new Error("Lütfen telefon numaranızı eksiksiz giriniz.");
       }
 
-      // Create account directly without phone or email verification code
-      await createAccount(true);
+      const formattedPhone = formatPhoneNumber(phone);
+      const rawPhoneQuery = rawPhone.startsWith("90") ? rawPhone : "90" + rawPhone;
+      const parsedPhone = "+" + rawPhoneQuery;
+      const possiblePhones = [formattedPhone, parsedPhone, rawPhoneQuery.substring(2), "0" + rawPhoneQuery.substring(2), "+90 " + rawPhoneQuery.substring(2)];
+      const phoneQ = query(collection(db, "users"), where("phone", "in", possiblePhones));
+      const phoneSnap = await getDocs(phoneQ);
+      if (!phoneSnap.empty) {
+        throw new Error("Bu telefon numarası zaten başka bir hesap tarafından kullanımda.");
+      }
+
+      // Trigger WhatsApp OTP code sending
+      await handleSendOtpForRegister();
     } catch (err: any) {
       setError(err.message || "Bir hata oluştu.");
+    } finally {
       setLoading(false);
     }
   };
@@ -277,8 +327,149 @@ export default function Register() {
     }
   };
 
+  const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    if (pasted) {
+      const newArray = Array(6).fill("");
+      for (let i = 0; i < pasted.length; i++) {
+        newArray[i] = pasted[i];
+      }
+      setOtpArray(newArray);
+      const targetIndex = Math.min(pasted.length, 5);
+      const targetInput = document.getElementById(`otp-${targetIndex}`);
+      if (targetInput) targetInput.focus();
+    }
+  };
+
+  const handleRegisterDefer = async () => {
+    setLoading(true);
+    await createAccount(false);
+  };
+
   return (
     <div className="flex-1 flex items-center justify-center p-6 mt-16 min-h-[70vh]">
+      {/* OTP Verification Modal */}
+      {showOtpModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl relative my-8">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <MessageCircle size={32} />
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-1">WhatsApp Doğrulama Kodu</h2>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                <strong className="text-slate-200">{phone}</strong> numaralı hattınıza WhatsApp üzerinden 6 haneli doğrulama kodu gönderildi.
+              </p>
+            </div>
+
+            {simulatedNotification && (
+              <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs font-mono flex items-center gap-2">
+                <CheckCircle2 size={16} className="text-amber-400 shrink-0" />
+                <span>{simulatedNotification}</span>
+              </div>
+            )}
+
+            {error && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-300 text-xs flex items-center gap-2">
+                <AlertCircle size={16} className="text-red-400 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleVerifyOtp} className="space-y-6">
+              <div>
+                <label className="block text-xs font-medium text-slate-400 text-center mb-3">
+                  6 Haneli Doğrulama Kodunu Giriniz
+                </label>
+                <div className="flex justify-between gap-2 max-w-xs mx-auto">
+                  {otpArray.map((digit, idx) => (
+                    <input
+                      key={idx}
+                      id={`otp-${idx}`}
+                      type="text"
+                      maxLength={1}
+                      value={digit}
+                      onChange={(e) => handleOtpChange(e.target.value, idx)}
+                      onKeyDown={(e) => handleOtpKeyDown(e, idx)}
+                      onPaste={idx === 0 ? handleOtpPaste : undefined}
+                      className="w-10 h-12 text-center text-xl font-bold bg-slate-950 border border-slate-700 rounded-xl text-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>Kod gelmedi mi?</span>
+                <button
+                  type="button"
+                  disabled={countdown > 0 || verifyLoading}
+                  onClick={async () => {
+                    setError(null);
+                    try {
+                      await handleSendOtpForRegister();
+                    } catch (err: any) {
+                      setError(err.message);
+                    }
+                  }}
+                  className="text-emerald-400 hover:text-emerald-300 font-medium disabled:text-slate-600 flex items-center gap-1 transition-colors"
+                >
+                  <RefreshCw size={12} className={countdown > 0 ? "" : "animate-spin"} />
+                  {countdown > 0 ? `Tekrar Gönder (${countdown}s)` : "Tekrar Gönder"}
+                </button>
+              </div>
+
+              <button
+                type="submit"
+                disabled={verifyLoading || otpArray.join("").length < 6}
+                className={`w-full ${theme.button} text-white font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50`}
+              >
+                {verifyLoading ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" /> Doğrulanıyor...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={18} /> Doğrula ve Kaydı Tamamla
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* WhatsApp Fallback QR Code & Link Component */}
+            <WhatsAppFallbackHelp
+              phone={phone}
+              onCodeSent={(resData) => {
+                if (resData.simulated && resData.code) {
+                  setSimulatedNotification(`FocusON Akademi WhatsApp doğrulama kodunuz (Test Modu): ${resData.code}`);
+                  setSmsGeneratedCode(resData.code);
+                }
+              }}
+            />
+
+            <div className="mt-4 pt-4 border-t border-slate-800/80 text-center flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={handleRegisterDefer}
+                className="text-xs text-slate-400 hover:text-white transition-colors"
+              >
+                Telefon Doğrulamasını Ertele ve Devam Et
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowOtpModal(false);
+                  setError(null);
+                }}
+                className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                İptal Et / Bilgileri Düzenle
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="w-full max-w-md bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl relative overflow-hidden">
         <div className={`absolute top-0 right-0 w-64 h-64 ${isCoach ? 'bg-emerald-500/20' : 'bg-amber-500/20'} rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none`}></div>
         

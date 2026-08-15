@@ -6,7 +6,8 @@ import { tourService } from '../../services/tourService';
 import { studentDataService } from '../../services/studentDataService';
 import { ClipboardCheck, ChevronDown, ChevronRight, LineChart, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
+import { OnboardingTour, TourStep } from "../../components/OnboardingTour";
+import NoStudentSelected from "../../components/NoStudentSelected";
 import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
 
 const BRANCH_CATEGORIES = [
@@ -325,20 +326,20 @@ export default function StudentExamResults() {
       if (data && data.length > 0) {
         setExams(data);
       } else {
-        setExams(SAMPLE_EXAMS);
+        setExams(isTourOpen ? SAMPLE_EXAMS : []);
       }
     } else {
-      setExams(SAMPLE_EXAMS);
+      setExams(isTourOpen ? SAMPLE_EXAMS : []);
     }
     setLoading(false);
   };
 
   useEffect(() => {
     fetchExams();
-  }, [activeStudent?.uid]);
+  }, [activeStudent?.uid, isTourOpen]);
 
   const getDisplayExams = () => {
-    const listToFilter = exams.length > 0 ? exams : SAMPLE_EXAMS;
+    const listToFilter = exams;
     return listToFilter.filter(e => {
         if (activeTab === 'BRANŞ') return e.examType === 'BRANŞ';
         return e.examType === activeTab || (e.examType === 'YKS' && activeTab !== 'YKS');
@@ -350,6 +351,8 @@ export default function StudentExamResults() {
   };
 
   const displayExams = getDisplayExams();
+
+  if (!activeStudent) { return <NoStudentSelected />; }
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">

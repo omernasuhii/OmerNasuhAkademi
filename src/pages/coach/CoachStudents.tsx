@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
 import { useStudent } from '../../lib/StudentContext';
@@ -7,6 +7,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { safeStorage } from '../../lib/localStorage';
 import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
 import { tourService } from '../../services/tourService';
+import { presenceService } from '../../services/presenceService';
 import { 
   Users, 
   Search, 
@@ -66,7 +67,109 @@ export default function CoachStudents() {
   const location = useLocation();
 
   useEffect(() => {
-    if (user && userData) fetchStudents();
+    if (!user || !userData) return;
+
+    const q = userData?.role === 'admin'
+      ? query(collection(db, 'users'), where('role', '==', 'student'))
+      : query(collection(db, 'users'), where('coachId', '==', user.uid));
+
+    const unsubscribe = onSnapshot(q, async (snap) => {
+      const data = snap.docs.map(doc => ({
+        uid: doc.id,
+        ...doc.data(),
+        displayName: doc.data().displayName || (doc.data().firstName || doc.data().lastName ? `${doc.data().firstName || ''} ${doc.data().lastName || ''}`.trim() : 'İsimsiz Öğrenci')
+      }));
+
+      const enrichedStudents = await Promise.all(data.map(async (student) => {
+         let parentUid = undefined;
+         let parentFirstName = undefined;
+         let parentLastName = undefined;
+         try {
+           const usersRef = collection(db, 'users');
+           const qParent = query(usersRef, where('role', '==', 'parent'), where('studentUid', '==', student.uid));
+           const parentSnap = await getDocs(qParent);
+           if (!parentSnap.empty) {
+             const parentData = parentSnap.docs[0].data();
+             parentUid = parentSnap.docs[0].id;
+             parentFirstName = parentData.firstName;
+             parentLastName = parentData.lastName;
+           }
+         } catch(e) {}
+
+         const examsRef = collection(db, 'exam_results');
+         const qExams = query(examsRef, where('studentId', '==', student.uid));
+         const examsSnap = await getDocs(qExams);
+         
+         let latestScore: number | null = null;
+         let progress: string | null = null;
+         
+         if (!examsSnap.empty) {
+             const exams = examsSnap.docs.map(e => e.data())
+                                          .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+             
+             const getScore = (e: any) => {
+                 if (e.examType === 'TYT' || e.examType === 'AYT') {
+                    let total = 0;
+                    if (e.scores) {
+                         Object.values(e.scores).forEach((s: any) => {
+                              total += parseFloat(s.n || 0);
+                         });
+                    }
+                    return total || parseFloat(e.score) || 0;
+                 }
+                 return parseFloat(e.score) || 0;
+             };
+             
+             const recentExamsCount = exams.filter(e => e.examType === 'TYT' || e.examType === 'AYT' || e.examType === 'YKS');
+             if (recentExamsCount.length > 0) {
+                 latestScore = getScore(recentExamsCount[0]);
+             }
+             
+             const recentExamsForPercentile = exams.filter(e => (e.examType === 'TYT' || e.examType === 'AYT' || e.examType === 'YKS') && e.percentile != null).slice(0, 2);
+             if (recentExamsForPercentile.length >= 2) {
+                 const p1 = parseFloat(recentExamsForPercentile[0].percentile);
+                 const p2 = parseFloat(recentExamsForPercentile[1].percentile);
+                 if (!isNaN(p1) && !isNaN(p2)) {
+                      progress = (p2 - p1).toFixed(1);
+                 }
+             }
+         }
+         
+         let nextAppt = null;
+         try {
+             const userStr = safeStorage.getItem('user');
+             const currentUser = userStr ? JSON.parse(userStr) : null;
+             const apptsRef = collection(db, 'appointments');
+             const qAppts = query(apptsRef, where('studentId', '==', student.uid));
+             const apptsSnap = await getDocs(qAppts);
+             if (!apptsSnap.empty) {
+                 const appts = apptsSnap.docs.map(d => d.data())
+                                            .filter(a => ['pending', 'confirmed'].includes(a.status || ''))
+                                            .filter(a => currentUser?.uid ? a.coachId === currentUser.uid : true)
+                                            .filter(a => new Date(a.date) >= new Date(new Date().toISOString().split('T')[0]))
+                                            .sort((a,b) => new Date(a.date + 'T' + a.startTime).getTime() - new Date(b.date + 'T' + b.startTime).getTime());
+                 if (appts.length > 0) {
+                     nextAppt = appts[0];
+                 }
+             }
+         } catch(e) {}
+
+         return {
+           ...student,
+           parentUid,
+           parentFirstName,
+           parentLastName,
+           latestScore,
+           progress,
+           nextAppt
+         };
+      }));
+
+      setStudents(enrichedStudents);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, [user, userData]);
 
   useEffect(() => {
@@ -307,18 +410,35 @@ export default function CoachStudents() {
               </div>
 
               <div className="flex items-center gap-4 mb-6">
-                 <div className="w-16 h-16 rounded-2xl bg-slate-800 border border-white/5 flex items-center justify-center text-slate-500 font-black text-2xl group-hover:scale-105 transition-all overflow-hidden relative">
+                 <div className="w-16 h-16 rounded-2xl bg-slate-800 border border-white/5 flex items-center justify-center text-slate-500 font-black text-2xl group-hover:scale-105 transition-all overflow-hidden relative shrink-0">
                     {student.photoURL ? (
                        <img src={student.photoURL} alt="" className="w-full h-full object-cover" />
                     ) : (
                        student.displayName.charAt(0)
                     )}
+                    {presenceService.isOnline(student) && (
+                       <div className="absolute bottom-1 right-1 w-3.5 h-3.5 bg-emerald-500 border-2 border-slate-900 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
+                    )}
                  </div>
-                 <div>
-                    <h3 className="text-lg font-bold text-white group-hover:text-emerald-400 transition-colors leading-tight">{student.displayName}</h3>
+                 <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                       <h3 className="text-lg font-bold text-white group-hover:text-emerald-400 transition-colors leading-tight truncate">{student.displayName}</h3>
+                    </div>
                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">
                       {student.branch || 'Alan Yok'} • {student.grade || 'Sınıf Yok'}
                     </p>
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                       {presenceService.isOnline(student) ? (
+                          <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            Çevrimiçi
+                          </span>
+                       ) : (
+                          <span className="text-[10px] text-slate-500 font-medium truncate">
+                            {presenceService.formatLastSeen(student)}
+                          </span>
+                       )}
+                    </div>
                  </div>
               </div>
 

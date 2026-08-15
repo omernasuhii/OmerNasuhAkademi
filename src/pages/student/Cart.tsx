@@ -193,6 +193,7 @@ export default function Cart() {
             subscriptionStartDate: now.toISOString(),
             subscriptionEndDate: expiration.toISOString(),
             subscriptionStatus: 'active',
+            askedAiQuestionsCount: 0,
             autoRenew: true
           });
 

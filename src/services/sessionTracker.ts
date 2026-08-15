@@ -6,6 +6,7 @@ export const sessionTracker = {
     try {
       await setDoc(doc(db, 'users', userId), {
         lastLoginAt: serverTimestamp(),
+        lastSeenAt: serverTimestamp(),
         isOnline: true
       }, { merge: true });
     } catch (err) {
@@ -28,6 +29,7 @@ export const sessionTracker = {
     try {
       await setDoc(doc(db, 'users', userId), {
         lastLogoutAt: serverTimestamp(),
+        lastSeenAt: serverTimestamp(),
         isOnline: false
       }, { merge: true });
     } catch (err) {

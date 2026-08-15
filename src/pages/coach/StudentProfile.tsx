@@ -8,6 +8,7 @@ import { studentDataService } from '../../services/studentDataService';
 import { calculateSubjectMultipliers, TASK_WEIGHTS } from '../../lib/programCalculations';
 import { serverTimestamp } from 'firebase/firestore';
 import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
+import NoStudentSelected from '../../components/NoStudentSelected';
 import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
 
 export default function StudentProfile() {
@@ -115,7 +116,7 @@ export default function StudentProfile() {
     if (Object.keys(multipliers).some(k => multipliers[k] > 1.0)) {
       return multipliers;
     }
-    if (location.state?.startTour || location.state?.isDemo || !selectedStudent) {
+    if (location.state?.startTour || location.state?.isDemo) {
       return {
         'Temel Matematik': 1.85,
         'Fizik': 1.60,
@@ -164,6 +165,10 @@ export default function StudentProfile() {
     }
     setLoading(false);
   };
+
+  if (!activeStudent) {
+    return <NoStudentSelected />;
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">

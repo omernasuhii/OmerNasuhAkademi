@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, Brain, User, Loader2, Sparkles, Check, HelpCircle, Upload, Image, X, Volume2, VolumeX, Play, Pause, RotateCcw, BookOpen, CheckCircle2 } from 'lucide-react';
+import { Send, Brain, User, Loader2, Sparkles, Check, HelpCircle, Upload, Image, Camera, X, Volume2, VolumeX, Play, Pause, RotateCcw, BookOpen, CheckCircle2, MessageSquare, Gift, History, Filter, Search, Trash2, Calendar, FolderOpen, Tag, ChevronRight, FileText, Layers, Maximize2 } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
 import ReactMarkdown from 'react-markdown';
 import { appointmentService, Service } from '../../services/appointmentService';
@@ -20,6 +21,13 @@ interface Message {
   interactiveAnswered?: boolean;
 }
 
+interface FollowUpMessage {
+  id: string;
+  sender: 'user' | 'ai';
+  text: string;
+  timestamp: string;
+}
+
 type WizardState = {
   isActive: boolean;
   step: number;
@@ -37,7 +45,14 @@ type WizardState = {
 
 export default function AIAssistant() {
   const { user, userData } = useAuth();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'chat' | 'solver'>('chat');
+
+  // Question Limit Calculations (140 per subscription)
+  const MAX_QUESTIONS_PER_SUB = 140;
+  const currentQuestionCount = userData?.askedAiQuestionsCount || 0;
+  const remainingQuestions = Math.max(0, MAX_QUESTIONS_PER_SUB - currentQuestionCount);
+  const isLimitReached = currentQuestionCount >= MAX_QUESTIONS_PER_SUB;
 
   // Existing Chat States
   const [messages, setMessages] = useState<Message[]>([
@@ -61,13 +76,261 @@ export default function AIAssistant() {
   const [solverResult, setSolverResult] = useState<{
     text: string;
     audioDataUrl: string | null;
+    hasValidSingleQuestion?: boolean;
+    questionStatus?: 'SINGLE_QUESTION' | 'NO_QUESTION' | 'MULTIPLE_QUESTIONS';
   } | null>(null);
+  const [isAudioGenerating, setIsAudioGenerating] = useState(false);
   const [solverError, setSolverError] = useState<string | null>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Camera Capture States
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Interactive Follow-Up Chat States (0 Hak - Free Follow-up)
+  const [followUpMessages, setFollowUpMessages] = useState<FollowUpMessage[]>([]);
+  const [followUpInput, setFollowUpInput] = useState('');
+  const [isFollowUpLoading, setIsFollowUpLoading] = useState(false);
+  const followUpScrollRef = useRef<HTMLDivElement>(null);
+
+  // Soru Çözüm Geçmişi & Veri Depolama States
+  const [solverSubTab, setSolverSubTab] = useState<'solver' | 'history'>('solver');
+  const [selectedSubject, setSelectedSubject] = useState<string>('Matematik');
+  const [currentQuestionId, setCurrentQuestionId] = useState<string | null>(null);
+  const [historyItems, setHistoryItems] = useState<any[]>([]);
+  const [historySubjectFilter, setHistorySubjectFilter] = useState<string>('Tümü');
+  const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
+  const [isHistoryLoading, setIsHistoryLoading] = useState<boolean>(false);
+
+  // Dedicated Detail Modal State for Archived Questions
+  const [selectedHistoryDetail, setSelectedHistoryDetail] = useState<any | null>(null);
+  const [historyDetailAudioPlaying, setHistoryDetailAudioPlaying] = useState(false);
+  const historyDetailAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const [historyDetailFollowUpInput, setHistoryDetailFollowUpInput] = useState('');
+  const [isHistoryDetailFollowUpLoading, setIsHistoryDetailFollowUpLoading] = useState(false);
+  const [expandedImage, setExpandedImage] = useState<string | null>(null);
+
+  const SUBJECTS = [
+    'Matematik',
+    'Geometri',
+    'Fizik',
+    'Kimya',
+    'Biyoloji',
+    'Türkçe',
+    'Tarih',
+    'Coğrafya',
+    'Felsefe / Din',
+    'Genel'
+  ];
+
+  const getSubjectColor = (subj: string) => {
+    switch (subj) {
+      case 'Matematik': return 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30';
+      case 'Geometri': return 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30';
+      case 'Fizik': return 'bg-purple-500/20 text-purple-300 border-purple-500/30';
+      case 'Kimya': return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+      case 'Biyoloji': return 'bg-teal-500/20 text-teal-300 border-teal-500/30';
+      case 'Türkçe': return 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+      case 'Tarih': return 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+      case 'Coğrafya': return 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30';
+      case 'Felsefe / Din': return 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/30';
+      default: return 'bg-slate-500/20 text-slate-300 border-slate-500/30';
+    }
+  };
+
+  const loadHistoryItems = async () => {
+    if (!user?.uid) return;
+    setIsHistoryLoading(true);
+    try {
+      const items = await studentDataService.getSolvedQuestionHistory(user.uid);
+      setHistoryItems(prev => {
+        return items.map(newItem => {
+          const existing = prev.find(p => p.id === newItem.id);
+          if (existing?.solverResult?.audioDataUrl && !newItem.solverResult?.audioDataUrl) {
+            return {
+              ...newItem,
+              solverResult: {
+                ...newItem.solverResult,
+                audioDataUrl: existing.solverResult.audioDataUrl
+              }
+            };
+          }
+          return newItem;
+        });
+      });
+    } catch (err) {
+      console.error("Geçmiş sorular yüklenirken hata:", err);
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user?.uid) {
+      loadHistoryItems();
+    }
+  }, [user?.uid]);
+
+  const handleOpenHistoryItem = (item: any) => {
+    setSelectedHistoryDetail(item);
+    setHistoryDetailAudioPlaying(false);
+    setHistoryDetailFollowUpInput('');
+  };
+
+  const handleLoadHistoryToSolver = (item: any) => {
+    setCurrentQuestionId(item.id);
+    setSelectedSubject(item.subject || 'Matematik');
+    setQText(item.qText || '');
+    setQImagePreview(item.qImagePreview || null);
+    setSolverResult(item.solverResult || null);
+    setFollowUpMessages(item.followUpMessages || []);
+    setSelectedHistoryDetail(null);
+    setSolverSubTab('solver');
+  };
+
+  const toggleHistoryDetailAudioPlay = () => {
+    if (!historyDetailAudioRef.current) return;
+    if (historyDetailAudioPlaying) {
+      historyDetailAudioRef.current.pause();
+      setHistoryDetailAudioPlaying(false);
+    } else {
+      historyDetailAudioRef.current.play().catch(console.error);
+      setHistoryDetailAudioPlaying(true);
+    }
+  };
+
+  const handleSendHistoryDetailFollowUp = async (textOverride?: string) => {
+    if (!selectedHistoryDetail) return;
+    if (selectedHistoryDetail.solverResult?.hasValidSingleQuestion === false) return;
+
+    const query = (textOverride || historyDetailFollowUpInput).trim();
+    if (!query || isHistoryDetailFollowUpLoading) return;
+
+    const userMsg: FollowUpMessage = {
+      id: Date.now().toString(),
+      sender: 'user',
+      text: query,
+      timestamp: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+    };
+
+    const currentFollowUps = Array.isArray(selectedHistoryDetail.followUpMessages)
+      ? selectedHistoryDetail.followUpMessages
+      : [];
+
+    const updated = [...currentFollowUps, userMsg];
+
+    setSelectedHistoryDetail((prev: any) => ({
+      ...prev,
+      followUpMessages: updated
+    }));
+    setHistoryDetailFollowUpInput('');
+    setIsHistoryDetailFollowUpLoading(true);
+
+    try {
+      const res = await fetch('/api/student-question-followup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          questionText: selectedHistoryDetail.qText || '',
+          originalSolution: selectedHistoryDetail.solverResult?.text || '',
+          chatHistory: currentFollowUps,
+          userMessage: query,
+          studentName: userData?.displayName || userData?.name || 'Öğrenci'
+        })
+      });
+
+      const data = await res.json();
+      if (data.success && data.text) {
+        const aiMsg: FollowUpMessage = {
+          id: (Date.now() + 1).toString(),
+          sender: 'ai',
+          text: data.text,
+          timestamp: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+        };
+        const updatedMsgs = [...updated, aiMsg];
+
+        setSelectedHistoryDetail((prev: any) => ({
+          ...prev,
+          followUpMessages: updatedMsgs
+        }));
+
+        if (userData?.uid && selectedHistoryDetail.id) {
+          studentDataService.saveSolvedQuestionHistory(userData.uid, {
+            ...selectedHistoryDetail,
+            followUpMessages: updatedMsgs
+          }).then(() => loadHistoryItems()).catch(console.error);
+        }
+      }
+    } catch (err) {
+      console.error("History detail followup error:", err);
+    } finally {
+      setIsHistoryDetailFollowUpLoading(false);
+    }
+  };
+
+  const handleDeleteHistoryItem = async (e: React.MouseEvent, qId: string) => {
+    e.stopPropagation();
+    if (!user?.uid) return;
+    if (window.confirm("Bu çözülmüş soruyu arşivinizden silmek istediğinize emin misiniz?")) {
+      await studentDataService.deleteSolvedQuestionHistory(user.uid, qId);
+      setHistoryItems(prev => prev.filter(i => i.id !== qId));
+      if (currentQuestionId === qId) {
+        handleResetQuestion();
+      }
+    }
+  };
+
+  const filteredHistoryItems = historyItems.filter(item => {
+    const matchesSubject = historySubjectFilter === 'Tümü' || (item.subject || 'Genel') === historySubjectFilter;
+    const qTextLower = (item.qText || '').toLowerCase();
+    const solverTextLower = (item.solverResult?.text || '').toLowerCase();
+    const searchLower = historySearchQuery.toLowerCase().trim();
+    const matchesSearch = !searchLower || qTextLower.includes(searchLower) || solverTextLower.includes(searchLower);
+    return matchesSubject && matchesSearch;
+  });
 
   const generateId = () => Date.now().toString() + Math.random().toString(36).substring(2, 9);
+
+  const compressImageDataUrl = (dataUrl: string, maxDimension = 1000, quality = 0.7): Promise<string> => {
+    return new Promise((resolve) => {
+      if (!dataUrl || !dataUrl.startsWith('data:image')) {
+        resolve(dataUrl);
+        return;
+      }
+      const img = new window.Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } else {
+          resolve(dataUrl);
+        }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -78,10 +341,16 @@ export default function AIAssistant() {
     }
     setSolverError(null);
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       const resStr = evt.target?.result as string;
-      setQImagePreview(resStr);
-      setQImageMime(file.type || 'image/jpeg');
+      try {
+        const compressed = await compressImageDataUrl(resStr, 1000, 0.7);
+        setQImagePreview(compressed);
+        setQImageMime('image/jpeg');
+      } catch (err) {
+        setQImagePreview(resStr);
+        setQImageMime(file.type || 'image/jpeg');
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -89,9 +358,106 @@ export default function AIAssistant() {
   const handleRemoveImage = () => {
     setQImagePreview(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
+  };
+
+  const openCameraModal = async () => {
+    setCameraError(null);
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        });
+        setCameraStream(stream);
+        setIsCameraModalOpen(true);
+      } catch (err: any) {
+        console.warn("Kamera canlı akışı açılamadı, cihaz kamerası seçeneği tetikleniyor:", err);
+        if (cameraInputRef.current) {
+          cameraInputRef.current.click();
+        } else {
+          setSolverError("Kamera erişimi sağlanamadı. Lütfen tarayıcı izinlerini kontrol edin.");
+        }
+      }
+    } else if (cameraInputRef.current) {
+      cameraInputRef.current.click();
+    } else {
+      setSolverError("Cihazınızda kamera desteği bulunamadı.");
+    }
+  };
+
+  useEffect(() => {
+    if (isCameraModalOpen && cameraStream && videoRef.current) {
+      videoRef.current.srcObject = cameraStream;
+    }
+  }, [isCameraModalOpen, cameraStream]);
+
+  const handleCapturePhoto = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      compressImageDataUrl(dataUrl, 1000, 0.7).then((compressed) => {
+        setQImagePreview(compressed);
+        setQImageMime('image/jpeg');
+        closeCameraModal();
+      }).catch(() => {
+        setQImagePreview(dataUrl);
+        setQImageMime('image/jpeg');
+        closeCameraModal();
+      });
+    }
+  };
+
+  const closeCameraModal = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setIsCameraModalOpen(false);
+    setCameraError(null);
+  };
+
+  const handleDropImage = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        setSolverError("Lütfen geçerli bir resim dosyası seçin.");
+        return;
+      }
+      if (file.size > 12 * 1024 * 1024) {
+        setSolverError("Görsel boyutu 12MB'dan küçük olmalıdır.");
+        return;
+      }
+      setSolverError(null);
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        const resStr = evt.target?.result as string;
+        try {
+          const compressed = await compressImageDataUrl(resStr, 1000, 0.7);
+          setQImagePreview(compressed);
+          setQImageMime('image/jpeg');
+        } catch (err) {
+          setQImagePreview(resStr);
+          setQImageMime(file.type || 'image/jpeg');
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleSolveQuestion = async () => {
+    if (isLimitReached) {
+      setSolverError("Abonelik döneminiz boyunca tanımlanan 140 soru sorma hakkınızı tamamladınız. Soru sorabilmek için lütfen aboneliğinizi yenileyin veya paketinizi yükseltin.");
+      return;
+    }
+
     if (!qText.trim() && !qImagePreview) {
       setSolverError("Lütfen bir soru metni yazın veya soru görseli yükleyin.");
       return;
@@ -100,10 +466,12 @@ export default function AIAssistant() {
     setIsSolving(true);
     setSolverError(null);
     setSolverResult(null);
+    setFollowUpMessages([]);
     setIsPlayingAudio(false);
 
     try {
-      const studentName = userData?.displayName || userData?.name || "Öğrenci";
+      const rawName = userData?.displayName || userData?.name || userData?.firstName || "";
+      const studentName = rawName ? rawName.trim().split(' ')[0] : "Öğrenci";
       const res = await fetch("/api/student-question-assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -121,18 +489,80 @@ export default function AIAssistant() {
         throw new Error(data.error || "Soru çözümü sırasında bir hata oluştu.");
       }
 
-      let audioUrl: string | null = null;
-      if (data.audioBase64) {
-        audioUrl = `data:${data.audioMimeType || 'audio/wav'};base64,${data.audioBase64}`;
-      }
+      const isValidSingleQ = data.hasValidSingleQuestion !== false;
 
       setSolverResult({
         text: data.text,
-        audioDataUrl: audioUrl
+        audioDataUrl: null,
+        hasValidSingleQuestion: isValidSingleQ,
+        questionStatus: data.questionStatus || (isValidSingleQ ? 'SINGLE_QUESTION' : 'NO_QUESTION')
       });
 
+      const newQId = Date.now().toString() + Math.random().toString(36).substring(2, 7);
+      setCurrentQuestionId(newQId);
+
       if (userData?.uid) {
+        const nextCount = (userData.askedAiQuestionsCount || 0) + 1;
+        studentDataService.updateStudentProfile(userData.uid, { askedAiQuestionsCount: nextCount }).catch(console.error);
         studentDataService.awardXP(userData.uid, 5, 'AI Soru Çözümü').catch(console.error);
+
+        studentDataService.saveSolvedQuestionHistory(userData.uid, {
+          id: newQId,
+          subject: selectedSubject,
+          qText: qText.trim(),
+          qImagePreview,
+          solverResult: {
+            text: data.text,
+            audioDataUrl: null,
+            hasValidSingleQuestion: isValidSingleQ,
+            questionStatus: data.questionStatus
+          },
+          followUpMessages: []
+        }).then(() => loadHistoryItems()).catch(console.error);
+      }
+
+      // ONLY generate audio if it is a valid single question!
+      if (isValidSingleQ) {
+        setIsAudioGenerating(true);
+        fetch("/api/student-question-audio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: data.text,
+            voiceName: selectedVoice
+          })
+        })
+        .then(res => res.json())
+        .then(audioData => {
+          if (audioData.audioBase64) {
+            const audioUrl = `data:${audioData.audioMimeType || 'audio/wav'};base64,${audioData.audioBase64}`;
+            setSolverResult(prev => prev ? { ...prev, audioDataUrl: audioUrl } : null);
+
+            if (userData?.uid && newQId) {
+              studentDataService.saveSolvedQuestionHistory(userData.uid, {
+                id: newQId,
+                subject: selectedSubject,
+                qText: qText.trim(),
+                qImagePreview,
+                solverResult: {
+                  text: data.text,
+                  audioDataUrl: audioUrl,
+                  hasValidSingleQuestion: isValidSingleQ,
+                  questionStatus: data.questionStatus
+                },
+                followUpMessages: []
+              }).then(() => loadHistoryItems()).catch(console.error);
+            }
+          }
+        })
+        .catch(err => {
+          console.warn("Sesli çözüm yüklenemedi:", err);
+        })
+        .finally(() => {
+          setIsAudioGenerating(false);
+        });
+      } else {
+        setIsAudioGenerating(false);
       }
 
     } catch (err: any) {
@@ -155,6 +585,169 @@ export default function AIAssistant() {
       });
     }
   };
+
+  const handleRegenerateAudio = async () => {
+    if (!solverResult || !solverResult.text) return;
+    setIsAudioGenerating(true);
+    try {
+      const res = await fetch("/api/student-question-audio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: solverResult.text,
+          voiceName: selectedVoice
+        })
+      });
+      const audioData = await res.json();
+      if (audioData.audioBase64) {
+        const audioUrl = `data:${audioData.audioMimeType || 'audio/wav'};base64,${audioData.audioBase64}`;
+        setSolverResult(prev => prev ? { ...prev, audioDataUrl: audioUrl } : null);
+        if (userData?.uid && currentQuestionId) {
+          studentDataService.saveSolvedQuestionHistory(userData.uid, {
+            id: currentQuestionId,
+            subject: selectedSubject,
+            qText,
+            qImagePreview,
+            solverResult: {
+              ...solverResult,
+              audioDataUrl: audioUrl
+            },
+            followUpMessages
+          }).catch(console.error);
+        }
+      }
+    } catch (err) {
+      console.error("Audio regeneration failed:", err);
+    } finally {
+      setIsAudioGenerating(false);
+    }
+  };
+
+  const handleSendFollowUp = async (textOverride?: string) => {
+    if (solverResult?.hasValidSingleQuestion === false) {
+      return;
+    }
+    const query = (textOverride || followUpInput).trim();
+    if (!query || isFollowUpLoading) return;
+
+    const userMsg: FollowUpMessage = {
+      id: Date.now().toString(),
+      sender: 'user',
+      text: query,
+      timestamp: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+    };
+
+    const updated = [...followUpMessages, userMsg];
+    setFollowUpMessages(updated);
+    setFollowUpInput('');
+    setIsFollowUpLoading(true);
+
+    try {
+      const res = await fetch('/api/student-question-followup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          questionText: qText,
+          originalSolution: solverResult?.text || '',
+          chatHistory: followUpMessages,
+          userMessage: query,
+          studentName: (userData?.displayName || userData?.name || userData?.firstName || 'Öğrenci').trim().split(' ')[0]
+        })
+      });
+
+      const data = await res.json();
+      if (data.success && data.text) {
+        const aiMsg: FollowUpMessage = {
+          id: (Date.now() + 1).toString(),
+          sender: 'ai',
+          text: data.text,
+          timestamp: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+        };
+        const updatedMsgs = [...updated, aiMsg];
+        setFollowUpMessages(updatedMsgs);
+
+        if (userData?.uid && currentQuestionId) {
+          studentDataService.saveSolvedQuestionHistory(userData.uid, {
+            id: currentQuestionId,
+            subject: selectedSubject,
+            qText,
+            qImagePreview,
+            solverResult,
+            followUpMessages: updatedMsgs
+          }).then(() => loadHistoryItems()).catch(console.error);
+        }
+      } else {
+        const errMsg: FollowUpMessage = {
+          id: (Date.now() + 1).toString(),
+          sender: 'ai',
+          text: 'Açıklama alınırken bir hata oluştu. Lütfen tekrar deneyin.',
+          timestamp: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+        };
+        const updatedMsgs = [...updated, errMsg];
+        setFollowUpMessages(updatedMsgs);
+
+        if (userData?.uid && currentQuestionId) {
+          studentDataService.saveSolvedQuestionHistory(userData.uid, {
+            id: currentQuestionId,
+            subject: selectedSubject,
+            qText,
+            qImagePreview,
+            solverResult,
+            followUpMessages: updatedMsgs
+          }).then(() => loadHistoryItems()).catch(console.error);
+        }
+      }
+    } catch (error) {
+      console.error("Followup error:", error);
+    } finally {
+      setIsFollowUpLoading(false);
+    }
+  };
+
+  const handleResetQuestion = () => {
+    setSolverResult(null);
+    setQText('');
+    setQImagePreview(null);
+    setSolverError(null);
+    setFollowUpMessages([]);
+    setIsPlayingAudio(false);
+    if (user?.uid) {
+      const localKey = `ai_solver_state_${user.uid}`;
+      try { localStorage.removeItem(localKey); } catch (e) {}
+      studentDataService.saveAIAssistantSolverState(user.uid, {
+        qText: '',
+        qImagePreview: null,
+        solverResult: null,
+        followUpMessages: []
+      }).catch(console.error);
+    }
+  };
+
+  useEffect(() => {
+    if (followUpScrollRef.current) {
+      followUpScrollRef.current.scrollTop = followUpScrollRef.current.scrollHeight;
+    }
+  }, [followUpMessages, isFollowUpLoading]);
+
+  // Always start with a fresh new question form when visiting the page
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    // Reset active solver state for a clean new question input screen
+    setQText('');
+    setQImagePreview(null);
+    setSolverResult(null);
+    setFollowUpMessages([]);
+    setSolverError(null);
+    setCurrentQuestionId(null);
+    setIsPlayingAudio(false);
+
+    // Clean up any stale local cached solver state
+    const localKey = `ai_solver_state_${user.uid}`;
+    try {
+      localStorage.removeItem(localKey);
+    } catch (e) {}
+  }, [user?.uid]);
 
   const [wizardState, setWizardState] = useState<WizardState>({
     isActive: false, step: 0, availableServices: [], availableCoaches: []
@@ -744,8 +1337,12 @@ export default function AIAssistant() {
   };
 
   return (
-    <div className="flex flex-col flex-1 h-[calc(100vh-130px)] min-h-[550px] max-h-[850px] w-full max-w-5xl mx-auto rounded-3xl overflow-hidden bg-slate-900/50 border border-white/10 shadow-2xl relative">
-      <div className="absolute inset-0 bg-slate-950/40 -z-10" />
+    <div className={`flex flex-col w-full max-w-5xl mx-auto rounded-3xl bg-slate-900/50 border border-white/10 shadow-2xl relative ${
+      activeTab === 'solver'
+        ? 'min-h-[550px]'
+        : 'flex-1 h-[calc(100vh-130px)] min-h-[550px] max-h-[850px] overflow-hidden'
+    }`}>
+      <div className="absolute inset-0 bg-slate-950/40 -z-10 rounded-3xl" />
       {/* Header */}
       <div className="p-4 md:p-6 bg-slate-900/80 backdrop-blur-md border-b border-white/5 shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
          <div>
@@ -787,7 +1384,7 @@ export default function AIAssistant() {
       </div>
 
       {activeTab === 'solver' ? (
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar relative">
+        <div className="p-4 md:p-6 space-y-6 relative">
           <div className="max-w-4xl mx-auto space-y-6">
             
             {/* Top Info Banner */}
@@ -811,18 +1408,329 @@ export default function AIAssistant() {
 
               {solverResult && (
                 <button
-                  onClick={() => {
-                    setSolverResult(null);
-                    setQText('');
-                    setQImagePreview(null);
-                    setSolverError(null);
-                    setIsPlayingAudio(false);
-                  }}
+                  onClick={handleResetQuestion}
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold border border-white/10 flex items-center gap-2 shrink-0 transition-colors cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   <span>Yeni Soru Çöz</span>
                 </button>
+              )}
+            </div>
+
+            {/* Sub-Tab Selector: Soru Çözümü vs Soru Arşivi */}
+            <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-white/10 gap-1.5">
+              <button
+                onClick={() => setSolverSubTab('solver')}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                  solverSubTab === 'solver'
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <HelpCircle className="w-4 h-4" />
+                <span>✍️ Yeni Soru Sor & Çöz</span>
+              </button>
+
+              <button
+                onClick={() => setSolverSubTab('history')}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                  solverSubTab === 'history'
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <History className="w-4 h-4" />
+                <span>📚 Soru Arşivi & Çözüm Geçmişi</span>
+                <span className="bg-white/20 text-white text-[10px] px-2 py-0.5 rounded-full font-mono font-black">
+                  {historyItems.length}
+                </span>
+              </button>
+            </div>
+
+            {solverSubTab === 'history' ? (
+              /* HISTORY VIEW */
+              <div className="space-y-6">
+                {/* Search & Subject Filter Bar */}
+                <div className="bg-slate-900/90 border border-white/10 rounded-3xl p-5 md:p-6 space-y-4 shadow-xl">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-extrabold text-white flex items-center gap-2">
+                        <FolderOpen className="w-4 h-4 text-indigo-400" />
+                        Çözülmüş Soru Veri Deposu
+                      </h4>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Geçmişte çözdürdüğünüz soruları ders bazlı filtreleyin, çözümleri tekrar dinleyin veya takip sohbetine devam edin.
+                      </p>
+                    </div>
+                    <button
+                      onClick={loadHistoryItems}
+                      disabled={isHistoryLoading}
+                      className="px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-slate-300 border border-white/10 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+                    >
+                      <RotateCcw className={`w-3.5 h-3.5 ${isHistoryLoading ? 'animate-spin' : ''}`} />
+                      <span>Yenile</span>
+                    </button>
+                  </div>
+
+                  {/* Search Input */}
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={historySearchQuery}
+                      onChange={(e) => setHistorySearchQuery(e.target.value)}
+                      placeholder="Soru metni veya çözüm içerisinde ara..."
+                      className="w-full bg-slate-950 border border-white/10 focus:border-indigo-500/50 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-slate-200 placeholder:text-slate-500 outline-none transition-colors"
+                    />
+                    {historySearchQuery && (
+                      <button
+                        onClick={() => setHistorySearchQuery('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Subject Filter Chips */}
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {['Tümü', ...SUBJECTS].map((subj) => {
+                      const count = subj === 'Tümü' 
+                        ? historyItems.length 
+                        : historyItems.filter(i => (i.subject || 'Genel') === subj).length;
+
+                      return (
+                        <button
+                          key={subj}
+                          onClick={() => setHistorySubjectFilter(subj)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                            historySubjectFilter === subj
+                              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 border border-indigo-400'
+                              : 'bg-slate-950 hover:bg-slate-800 text-slate-400 border border-white/5'
+                          }`}
+                        >
+                          <span>{subj}</span>
+                          <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-mono ${
+                            historySubjectFilter === subj ? 'bg-white/20 text-white' : 'bg-slate-900 text-slate-500'
+                          }`}>
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* History List Grid */}
+                {isHistoryLoading ? (
+                  <div className="p-12 text-center bg-slate-900/50 rounded-3xl border border-white/5 space-y-3">
+                    <Loader2 className="w-8 h-8 animate-spin text-indigo-400 mx-auto" />
+                    <p className="text-xs text-slate-400 font-bold">Çözüm arşiviniz yükleniyor...</p>
+                  </div>
+                ) : filteredHistoryItems.length === 0 ? (
+                  <div className="p-12 text-center bg-slate-900/50 rounded-3xl border border-white/5 space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-slate-800 text-slate-400 flex items-center justify-center mx-auto border border-white/10">
+                      <BookOpen className="w-6 h-6" />
+                    </div>
+                    <h4 className="text-sm font-bold text-white">
+                      {historySearchQuery || historySubjectFilter !== 'Tümü' 
+                        ? 'Aramanıza Uygun Soru Bulunamadı' 
+                        : 'Henüz Kaydedilmiş Soru Yok'}
+                    </h4>
+                    <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                      {historySearchQuery || historySubjectFilter !== 'Tümü'
+                        ? 'Filtreleri veya arama teriminizi değiştirerek tekrar deneyin.'
+                        : 'Soru çözdürdüğünüzde tüm çözümleriniz otomatik olarak bu arşivde ders bazlı saklanır.'}
+                    </p>
+                    <button
+                      onClick={() => setSolverSubTab('solver')}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-indigo-600/20 cursor-pointer inline-flex items-center gap-1.5 mt-2"
+                    >
+                      <HelpCircle className="w-4 h-4" />
+                      <span>Hemen Soru Çözdür</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {filteredHistoryItems.map((item) => {
+                      const itemSubject = item.subject || 'Genel';
+                      const badgeClass = getSubjectColor(itemSubject);
+                      const formattedDate = item.createdAt 
+                        ? new Date(item.createdAt).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                        : 'Geçmiş Soru';
+
+                      const followCount = Array.isArray(item.followUpMessages) ? item.followUpMessages.length : 0;
+                      const hasAudio = !!item.solverResult?.audioDataUrl;
+
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => handleOpenHistoryItem(item)}
+                          className="bg-slate-900/90 hover:bg-slate-800/90 border border-white/10 hover:border-indigo-500/40 rounded-3xl p-5 space-y-3.5 transition-all cursor-pointer group shadow-lg relative flex flex-col justify-between"
+                        >
+                          <div className="space-y-3">
+                            {/* Header Badge & Date */}
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-[11px] font-extrabold px-2.5 py-0.5 rounded-lg border ${badgeClass}`}>
+                                  {itemSubject}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
+                                  <Calendar className="w-3 h-3 text-slate-500" />
+                                  {formattedDate}
+                                </span>
+                              </div>
+
+                              <button
+                                onClick={(e) => handleDeleteHistoryItem(e, item.id)}
+                                title="Sil"
+                                className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            {/* Content Thumbnail / Text Preview */}
+                            <div className="flex gap-3">
+                              {item.qImagePreview && (
+                                <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-950 border border-white/10 shrink-0">
+                                  <img src={item.qImagePreview} alt="Soru" className="w-full h-full object-cover" />
+                                </div>
+                              )}
+
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-semibold text-slate-200 line-clamp-2">
+                                  {item.qText || "Görsel Soru"}
+                                </p>
+                                <p className="text-[11px] text-slate-400 line-clamp-2 mt-1">
+                                  {item.solverResult?.text ? item.solverResult.text.replace(/[*#_`]/g, '') : "Çözüm açıklaması..."}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Card Footer Indicators & Open Button */}
+                          <div className="pt-3 border-t border-white/5 flex items-center justify-between gap-2 text-[11px]">
+                            <div className="flex items-center gap-2">
+                              {followCount > 0 && (
+                                <span className="bg-indigo-500/10 text-indigo-300 px-2 py-0.5 rounded-md font-bold flex items-center gap-1 border border-indigo-500/20">
+                                  <MessageSquare className="w-3 h-3" />
+                                  {followCount} Takip
+                                </span>
+                              )}
+                              {hasAudio && (
+                                <span className="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-md font-bold flex items-center gap-1 border border-emerald-500/20">
+                                  <Volume2 className="w-3 h-3" />
+                                  Sesli
+                                </span>
+                              )}
+                            </div>
+
+                            <span className="text-indigo-400 font-bold group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
+                              Çözümü İncele <ChevronRight className="w-3.5 h-3.5" />
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* SOLVER VIEW */
+              <>
+                {/* Subject Selector Bar */}
+                <div className="bg-slate-900/90 border border-white/10 rounded-3xl p-4 md:p-5 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-extrabold text-slate-200 flex items-center gap-2">
+                      <Tag className="w-4 h-4 text-indigo-400" />
+                      <span>Soru Ders Kategorisi:</span>
+                    </label>
+                    <span className="text-[10px] font-bold text-slate-400 bg-slate-950 px-2.5 py-1 rounded-lg border border-white/5">
+                      Seçili: <strong className="text-indigo-400">{selectedSubject}</strong>
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {SUBJECTS.map((subj) => (
+                      <button
+                        key={subj}
+                        type="button"
+                        onClick={() => setSelectedSubject(subj)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          selectedSubject === subj
+                            ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 border border-indigo-400'
+                            : 'bg-slate-950 hover:bg-slate-800 text-slate-400 border border-white/5 hover:border-white/20'
+                        }`}
+                      >
+                        {subj}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+            {/* Question Right Counter & Status Card */}
+            <div className="bg-slate-900/90 border border-white/10 rounded-3xl p-5 md:p-6 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                    isLimitReached ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30'
+                  }`}>
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-extrabold text-white flex items-center gap-2">
+                      Soru Sorma Hakkı
+                      <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${
+                        isLimitReached 
+                          ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' 
+                          : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20'
+                      }`}>
+                        Abonelik Dönemi
+                      </span>
+                    </h4>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {isLimitReached 
+                        ? 'Abonelik soru hakkınız dolmuştur.' 
+                        : `140 soruluk abonelik hakkınızdan kalan: ${remainingQuestions} soru`}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-left sm:text-right shrink-0">
+                  <span className={`text-2xl font-black ${isLimitReached ? 'text-rose-400' : 'text-indigo-400'}`}>
+                    {remainingQuestions}
+                  </span>
+                  <span className="text-xs text-slate-400 font-bold ml-1">/ 140 Kalan Hak</span>
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-white/5 p-0.5">
+                <div 
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    isLimitReached 
+                      ? 'bg-rose-500' 
+                      : remainingQuestions <= 20 
+                      ? 'bg-amber-500' 
+                      : 'bg-gradient-to-r from-indigo-500 to-purple-500'
+                  }`} 
+                  style={{ width: `${Math.min(100, Math.max(0, (currentQuestionCount / MAX_QUESTIONS_PER_SUB) * 100))}%` }}
+                />
+              </div>
+
+              {/* Renewal Action if limit reached */}
+              {isLimitReached && (
+                <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 bg-rose-500/10 border border-rose-500/20 p-3.5 rounded-2xl">
+                  <p className="text-xs font-semibold text-rose-200">
+                    140 soru çözme hakkınızı doldurdunuz. Soru asistanını kullanmaya devam etmek için paketinizi yenileyebilir veya yükseltebilirsiniz.
+                  </p>
+                  <button
+                    onClick={() => navigate('/panel/ogrenci/abonelik')}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl transition-all shadow-md shrink-0 cursor-pointer"
+                  >
+                    Aboneliği Yenile / Paketi Yükselt
+                  </button>
+                </div>
               )}
             </div>
 
@@ -861,16 +1769,43 @@ export default function AIAssistant() {
                       </div>
                     ) : (
                       <div
-                        onClick={() => fileInputRef.current?.click()}
-                        className="border-2 border-dashed border-white/10 hover:border-indigo-500/50 bg-slate-950/40 hover:bg-slate-950/80 rounded-2xl p-6 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2 group"
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                        onDrop={handleDropImage}
+                        className="border-2 border-dashed border-white/10 hover:border-indigo-500/40 bg-slate-950/40 hover:bg-slate-950/80 rounded-2xl p-5 text-center transition-all flex flex-col items-center justify-center gap-3"
                       >
-                        <div className="w-10 h-10 rounded-full bg-slate-800 group-hover:bg-indigo-600/20 text-slate-400 group-hover:text-indigo-400 flex items-center justify-center transition-colors">
-                          <Upload className="w-5 h-5" />
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                            <Camera className="w-5 h-5" />
+                          </div>
+                          <div className="w-10 h-10 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center">
+                            <Upload className="w-5 h-5" />
+                          </div>
                         </div>
-                        <span className="text-xs font-semibold text-slate-300 group-hover:text-indigo-300">
-                          Fotoğraf Yükle veya Sürükle
-                        </span>
-                        <span className="text-[10px] text-slate-500">PNG, JPG, WEBP desteklenir</span>
+
+                        <div>
+                          <span className="text-xs font-bold text-slate-200 block">Soru Görseli Yükleyin</span>
+                          <span className="text-[10px] text-slate-400">Fotoğraf çekin, galeriden seçin veya sürükleyin</span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2.5 w-full pt-1">
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl flex items-center justify-center gap-2 border border-white/10 transition-all cursor-pointer active:scale-95 shadow-sm"
+                          >
+                            <Image className="w-4 h-4 text-purple-400" />
+                            <span>Galeriden Seç</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={openCameraModal}
+                            className="px-3 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95 shadow-md shadow-indigo-600/20"
+                          >
+                            <Camera className="w-4 h-4" />
+                            <span>Fotoğraf Çek</span>
+                          </button>
+                        </div>
                       </div>
                     )}
 
@@ -878,6 +1813,15 @@ export default function AIAssistant() {
                       ref={fileInputRef}
                       type="file"
                       accept="image/*"
+                      onChange={handleImageSelect}
+                      className="hidden"
+                    />
+
+                    <input
+                      ref={cameraInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
                       onChange={handleImageSelect}
                       className="hidden"
                     />
@@ -908,24 +1852,29 @@ export default function AIAssistant() {
                       onChange={(e) => setSelectedVoice(e.target.value)}
                       className="w-full bg-slate-950 border border-white/10 rounded-2xl p-3 text-slate-200 text-xs outline-none focus:border-indigo-500/50 transition-colors cursor-pointer"
                     >
-                      <option value="Puck">Puck (Erkek - Doğal & Enerjik)</option>
-                      <option value="Charon">Charon (Erkek - Tok & Derin)</option>
-                      <option value="Aoede">Aoede (Kadın - Akıcı & Eğitici)</option>
-                      <option value="Fenrir">Fenrir (Erkek - Tempolu)</option>
-                      <option value="Kore">Kore (Kadın - Yumuşak & Anlaşılır)</option>
+                      <option value="Puck">Ömer (Erkek - Doğal & Enerjik)</option>
+                      <option value="Charon">Harun (Erkek - Tok & Derin)</option>
+                      <option value="Aoede">Betül (Kadın - Akıcı & Eğitici)</option>
+                      <option value="Fenrir">Hüseyin (Erkek - Tempolu)</option>
+                      <option value="Kore">Zeynep (Kadın - Yumuşak & Anlaşılır)</option>
                     </select>
                   </div>
 
                   {/* Submit Button */}
                   <button
                     onClick={handleSolveQuestion}
-                    disabled={isSolving || (!qText.trim() && !qImagePreview)}
+                    disabled={isSolving || isLimitReached || (!qText.trim() && !qImagePreview)}
                     className="w-full py-3.5 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold text-xs rounded-2xl shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:cursor-not-allowed"
                   >
                     {isSolving ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin text-white" />
                         <span>Sorun İnceleniyor ve Çözülüyor...</span>
+                      </>
+                    ) : isLimitReached ? (
+                      <>
+                        <X className="w-4 h-4 text-rose-300" />
+                        <span>Soru Sorma Hakkınız Doldu (140/140)</span>
                       </>
                     ) : (
                       <>
@@ -975,48 +1924,88 @@ export default function AIAssistant() {
                 {!isSolving && solverResult && (
                   <div className="space-y-4">
                     
-                    {/* Audio Player Component */}
-                    {solverResult.audioDataUrl && (
-                      <div className="bg-gradient-to-r from-emerald-950/40 via-slate-900 to-indigo-950/40 border border-emerald-500/30 rounded-3xl p-5 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
-                              <Volume2 className="w-5 h-5" />
+                    {/* Audio Player Component - Only if single valid question */}
+                    {solverResult.hasValidSingleQuestion !== false && (
+                      <>
+                        {isAudioGenerating && !solverResult.audioDataUrl && (
+                          <div className="bg-gradient-to-r from-emerald-950/20 via-slate-900 to-indigo-950/20 border border-emerald-500/10 rounded-3xl p-5 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500/50 flex items-center justify-center border border-emerald-500/20">
+                                <Volume2 className="w-5 h-5 animate-pulse" />
+                              </div>
+                              <div>
+                                <h5 className="font-bold text-white/70 text-xs">Sesli Çözüm Hazırlanıyor...</h5>
+                                <p className="text-[11px] text-emerald-400/50">Gemini Voice • {selectedVoice}</p>
+                              </div>
                             </div>
-                            <div>
-                              <h5 className="font-extrabold text-white text-xs">Sesli Çözümlü Anlatım</h5>
-                              <p className="text-[11px] text-emerald-400/80 font-medium">Gemini Voice • {selectedVoice}</p>
-                            </div>
+                            <Loader2 className="w-5 h-5 text-emerald-500 animate-spin" />
                           </div>
+                        )}
+                        
+                        {solverResult.audioDataUrl && (
+                          <div className="bg-gradient-to-r from-emerald-950/40 via-slate-900 to-indigo-950/40 border border-emerald-500/30 rounded-3xl p-5 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                                  <Volume2 className="w-5 h-5" />
+                                </div>
+                                <div>
+                                  <h5 className="font-extrabold text-white text-xs">Sesli Çözümlü Anlatım</h5>
+                                  <p className="text-[11px] text-emerald-400/80 font-medium">Gemini Voice • {selectedVoice}</p>
+                                </div>
+                              </div>
 
-                          <button
-                            onClick={toggleAudioPlay}
-                            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-500/20 transition-transform active:scale-95 cursor-pointer"
-                          >
-                            {isPlayingAudio ? (
-                              <>
-                                <Pause className="w-4 h-4 fill-current" />
-                                <span>Durdur</span>
-                              </>
-                            ) : (
-                              <>
-                                <Play className="w-4 h-4 fill-current ml-0.5" />
-                                <span>Çözümü Dinle</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
+                              <button
+                                onClick={toggleAudioPlay}
+                                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-500/20 transition-transform active:scale-95 cursor-pointer"
+                              >
+                                {isPlayingAudio ? (
+                                  <>
+                                    <Pause className="w-4 h-4 fill-current" />
+                                    <span>Durdur</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Play className="w-4 h-4 fill-current ml-0.5" />
+                                    <span>Çözümü Dinle</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
 
-                        {/* Hidden Audio element */}
-                        <audio
-                          ref={audioRef}
-                          src={solverResult.audioDataUrl}
-                          onEnded={() => setIsPlayingAudio(false)}
-                          onPause={() => setIsPlayingAudio(false)}
-                          onPlay={() => setIsPlayingAudio(true)}
-                          className="hidden"
-                        />
-                      </div>
+                            {/* Hidden Audio element */}
+                            <audio
+                              ref={audioRef}
+                              src={solverResult.audioDataUrl}
+                              onEnded={() => setIsPlayingAudio(false)}
+                              onPause={() => setIsPlayingAudio(false)}
+                              onPlay={() => setIsPlayingAudio(true)}
+                              className="hidden"
+                            />
+                          </div>
+                        )}
+
+                        {!isAudioGenerating && !solverResult.audioDataUrl && (
+                          <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-indigo-950/30 border border-white/10 rounded-3xl p-5 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-xl bg-slate-800 text-slate-400 flex items-center justify-center border border-white/5">
+                                <Volume2 className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <h5 className="font-bold text-slate-200 text-xs">Sesli Anlatım</h5>
+                                <p className="text-[11px] text-slate-400">Çözümü yapay zekaya seslendiriniz</p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={handleRegenerateAudio}
+                              className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-md shadow-emerald-500/10"
+                            >
+                              <Volume2 className="w-4 h-4" />
+                              <span>Seslendir</span>
+                            </button>
+                          </div>
+                        )}
+                      </>
                     )}
 
                     {/* Text Solution Display */}
@@ -1031,16 +2020,139 @@ export default function AIAssistant() {
                       </div>
                     </div>
 
+                    {/* İnteraktif Takip Sohbeti (Soru Hakkından Düşmeyen Ücretsiz Takip) */}
+                    {solverResult.hasValidSingleQuestion === false ? (
+                      <div className="bg-slate-900/90 border border-amber-500/30 rounded-3xl p-5 md:p-6 space-y-2 shadow-xl">
+                        <div className="flex items-center gap-2.5 text-amber-400 font-extrabold text-xs md:text-sm">
+                          <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30 shrink-0">
+                            <MessageSquare className="w-4 h-4" />
+                          </div>
+                          <span>Takip Sohbeti Devre Dışı</span>
+                        </div>
+                        <p className="text-xs text-slate-300 leading-relaxed pl-10">
+                          Görselde geçerli tek bir soru bulunmadığı veya birden fazla soru tespit edildiği için bu yanıt üzerinde takip sohbeti başlatılamamaktadır. Lütfen yalnızca tek bir soru içeren net bir görsel yükleyerek tekrar deneyiniz.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="bg-slate-900/90 border border-indigo-500/30 rounded-3xl p-5 md:p-6 space-y-4 shadow-xl">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-white/10">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
+                              <MessageSquare className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <h5 className="font-extrabold text-white text-xs md:text-sm flex items-center gap-2">
+                                İnteraktif Takip Sohbeti
+                                <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
+                                  <Gift className="w-3 h-3" /> Soru Hakkınızdan Düşmez (Ücretsiz)
+                                </span>
+                              </h5>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                Çözümde takıldığınız veya anlamadığınız yerleri sorun, soru hakkınızdan düşmeden detaylandıralım!
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Quick prompt suggestions */}
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {[
+                            "💡 3. Adımı daha detaylı açıklar mısın?",
+                            "❓ Formül/Eşitlik nereden geliyor?",
+                            "✏️ Farklı bir çözüm yöntemi var mı?",
+                            "🎯 Benzer bir soru tipinde nelere dikkat etmeliyim?"
+                          ].map((promptText, pIdx) => (
+                            <button
+                              key={pIdx}
+                              onClick={() => handleSendFollowUp(promptText)}
+                              disabled={isFollowUpLoading}
+                              className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-indigo-300 hover:text-white border border-indigo-500/20 hover:border-indigo-500/40 rounded-xl text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50"
+                            >
+                              {promptText}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Chat messages feed if any */}
+                        {followUpMessages.length > 0 && (
+                          <div 
+                            ref={followUpScrollRef} 
+                            className="space-y-3 p-3.5 bg-slate-950/80 rounded-2xl border border-white/5"
+                          >
+                            {followUpMessages.map((msg) => (
+                              <div 
+                                key={msg.id} 
+                                className={`flex gap-3 text-xs ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                              >
+                                {msg.sender === 'ai' && (
+                                  <div className="w-7 h-7 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30 shrink-0 mt-1">
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                  </div>
+                                )}
+                                <div className={`p-3 rounded-2xl max-w-[85%] ${
+                                  msg.sender === 'user' 
+                                    ? 'bg-indigo-600 text-white rounded-tr-none' 
+                                    : 'bg-slate-900 border border-white/10 text-slate-200 rounded-tl-none'
+                                }`}>
+                                  <div className="prose prose-invert prose-xs max-w-none text-xs">
+                                    <ReactMarkdown>{msg.text}</ReactMarkdown>
+                                  </div>
+                                  <span className="block text-[9px] opacity-60 text-right mt-1 font-mono">
+                                    {msg.timestamp}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+
+                            {isFollowUpLoading && (
+                              <div className="flex items-center gap-2.5 p-3 bg-slate-900/60 rounded-2xl border border-white/5 text-xs text-indigo-300">
+                                <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                                <span>Takip sorunuz inceleniyor ve açıklanıyor...</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Input box */}
+                        <form 
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            handleSendFollowUp();
+                          }}
+                          className="flex gap-2 pt-1"
+                        >
+                          <input
+                            type="text"
+                            value={followUpInput}
+                            onChange={(e) => setFollowUpInput(e.target.value)}
+                            placeholder="Çözümle ilgili anlamadığınız yeri sorun (ör: x nereden geldi?)"
+                            disabled={isFollowUpLoading}
+                            className="flex-1 bg-slate-950 border border-white/10 focus:border-indigo-500/50 rounded-2xl px-4 py-3 text-xs text-slate-200 placeholder:text-slate-500 outline-none transition-colors"
+                          />
+                          <button
+                            type="submit"
+                            disabled={isFollowUpLoading || !followUpInput.trim()}
+                            className="px-4 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs rounded-2xl transition-all flex items-center gap-1.5 shadow-md shadow-indigo-600/20 cursor-pointer disabled:cursor-not-allowed shrink-0"
+                          >
+                            {isFollowUpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                            <span className="hidden sm:inline">Sor</span>
+                          </button>
+                        </form>
+                      </div>
+                    )}
+
                   </div>
                 )}
 
               </div>
 
             </div>
+          </>
+        )}
 
-          </div>
-        </div>
-      ) : (
+      </div>
+    </div>
+  ) : (
         <>
           {/* Chat Area */}
       <div 
@@ -1151,6 +2263,350 @@ export default function AIAssistant() {
       </div>
       </>
       )}
+
+      {/* Dedicated History Question Detail Modal */}
+      <AnimatePresence>
+        {selectedHistoryDetail && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md overflow-hidden"
+            onClick={() => {
+              setSelectedHistoryDetail(null);
+              setHistoryDetailAudioPlaying(false);
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-3xl max-h-[88vh] bg-slate-900 border border-indigo-500/30 rounded-3xl p-5 md:p-8 space-y-6 shadow-2xl overflow-y-auto custom-scrollbar"
+            >
+              {/* Modal Header */}
+              <div className="flex items-start justify-between gap-4 pb-4 border-b border-white/10">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className={`text-xs font-extrabold px-3 py-1 rounded-xl border ${getSubjectColor(selectedHistoryDetail.subject || 'Genel')}`}>
+                      {selectedHistoryDetail.subject || 'Genel'}
+                    </span>
+                    <span className="text-xs text-slate-400 font-mono flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                      {selectedHistoryDetail.createdAt 
+                        ? new Date(selectedHistoryDetail.createdAt).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                        : 'Geçmiş Soru'}
+                    </span>
+                  </div>
+                  <h3 className="text-lg md:text-xl font-black text-white flex items-center gap-2">
+                    <BookOpen className="w-5 h-5 text-indigo-400" />
+                    Arşivlenmiş Soru ve Çözüm Detayı
+                  </h3>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => {
+                      handleDeleteHistoryItem(e, selectedHistoryDetail.id);
+                      setSelectedHistoryDetail(null);
+                    }}
+                    title="Bu Soruyu Arşivden Sil"
+                    className="p-2.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-2xl transition-colors cursor-pointer border border-white/5"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedHistoryDetail(null);
+                      setHistoryDetailAudioPlaying(false);
+                    }}
+                    title="Kapat"
+                    className="p-2.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-2xl transition-colors cursor-pointer border border-white/5"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* SECTION 1: QUESTION (Soru Görseli veya Metni) */}
+              <div className="bg-slate-950/80 border border-white/10 rounded-2xl p-5 space-y-3">
+                <div className="flex items-center gap-2 text-xs font-extrabold text-indigo-400 uppercase tracking-wider">
+                  <HelpCircle className="w-4 h-4" />
+                  <span>Soru Detayı</span>
+                </div>
+
+                {selectedHistoryDetail.qImagePreview && (
+                  <div className="relative group max-w-lg mx-auto overflow-hidden rounded-2xl border border-white/10 bg-slate-900">
+                    <img 
+                      src={selectedHistoryDetail.qImagePreview} 
+                      alt="Soru Görseli" 
+                      className="w-full h-auto max-h-[380px] object-contain rounded-2xl"
+                    />
+                    <button
+                      onClick={() => setExpandedImage(selectedHistoryDetail.qImagePreview)}
+                      className="absolute top-3 right-3 p-2 bg-slate-950/80 hover:bg-slate-900 text-white rounded-xl border border-white/20 text-xs font-bold flex items-center gap-1.5 backdrop-blur-sm opacity-90 group-hover:opacity-100 transition-opacity cursor-pointer"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                      <span>Tam Ekran Gör</span>
+                    </button>
+                  </div>
+                )}
+
+                {selectedHistoryDetail.qText && (
+                  <div className="p-4 bg-slate-900/90 rounded-xl border border-white/5 text-sm text-slate-200 font-medium whitespace-pre-wrap leading-relaxed">
+                    {selectedHistoryDetail.qText}
+                  </div>
+                )}
+              </div>
+
+              {/* SECTION 2: SOLUTION (Çözüm ve Sesli Anlatım) */}
+              <div className="bg-slate-950/80 border border-emerald-500/20 rounded-2xl p-5 md:p-6 space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-xs font-extrabold text-emerald-400 uppercase tracking-wider">
+                    <Sparkles className="w-4 h-4" />
+                    <span>Adım Adım Yapay Zeka Çözümü</span>
+                  </div>
+
+                  {selectedHistoryDetail.solverResult?.audioDataUrl && (
+                    <button
+                      onClick={toggleHistoryDetailAudioPlay}
+                      className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-500/20 transition-transform active:scale-95 cursor-pointer"
+                    >
+                      {historyDetailAudioPlaying ? (
+                        <>
+                          <Pause className="w-3.5 h-3.5 fill-current" />
+                          <span>Durdur</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                          <span>Sesli Dinle</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                {selectedHistoryDetail.solverResult?.audioDataUrl && (
+                  <audio
+                    ref={historyDetailAudioRef}
+                    src={selectedHistoryDetail.solverResult.audioDataUrl}
+                    onEnded={() => setHistoryDetailAudioPlaying(false)}
+                    onPause={() => setHistoryDetailAudioPlaying(false)}
+                    onPlay={() => setHistoryDetailAudioPlaying(true)}
+                    className="hidden"
+                  />
+                )}
+
+                <div className="prose prose-invert prose-sm max-w-none text-slate-200 leading-relaxed bg-slate-900/90 p-5 rounded-2xl border border-white/5">
+                  <ReactMarkdown>{selectedHistoryDetail.solverResult?.text || 'Çözüm yükleniyor...'}</ReactMarkdown>
+                </div>
+              </div>
+
+              {/* SECTION 3: INTERACTIVE FOLLOW-UP CHAT */}
+              {selectedHistoryDetail.solverResult?.hasValidSingleQuestion !== false ? (
+                <div className="bg-slate-950/80 border border-indigo-500/20 rounded-2xl p-5 space-y-4">
+                  <div className="flex items-center justify-between pb-2 border-b border-white/5">
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="w-4 h-4 text-indigo-400" />
+                      <span className="text-xs font-extrabold text-white">İnteraktif Takip Sohbeti</span>
+                      <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-black px-2 py-0.5 rounded-full border border-emerald-500/30">
+                        Ücretsiz
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Previous follow up messages */}
+                  {Array.isArray(selectedHistoryDetail.followUpMessages) && selectedHistoryDetail.followUpMessages.length > 0 && (
+                    <div className="space-y-3 p-3.5 bg-slate-900/90 rounded-2xl border border-white/5">
+                      {selectedHistoryDetail.followUpMessages.map((msg: any) => (
+                        <div
+                          key={msg.id}
+                          className={`flex gap-3 text-xs ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                        >
+                          {msg.sender === 'ai' && (
+                            <div className="w-6 h-6 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30 shrink-0 mt-0.5">
+                              <Sparkles className="w-3 h-3" />
+                            </div>
+                          )}
+                          <div className={`p-3 rounded-2xl max-w-[85%] ${
+                            msg.sender === 'user'
+                              ? 'bg-indigo-600 text-white rounded-tr-none'
+                              : 'bg-slate-950 border border-white/10 text-slate-200 rounded-tl-none'
+                          }`}>
+                            <div className="prose prose-invert prose-xs max-w-none text-xs">
+                              <ReactMarkdown>{msg.text}</ReactMarkdown>
+                            </div>
+                            <span className="block text-[9px] opacity-60 text-right mt-1 font-mono">
+                              {msg.timestamp}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+
+                      {isHistoryDetailFollowUpLoading && (
+                        <div className="flex items-center gap-2 p-3 bg-slate-950/60 rounded-2xl border border-white/5 text-xs text-indigo-300">
+                          <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                          <span>Cevap hazırlanıyor...</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Input form */}
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSendHistoryDetailFollowUp();
+                    }}
+                    className="flex gap-2"
+                  >
+                    <input
+                      type="text"
+                      value={historyDetailFollowUpInput}
+                      onChange={(e) => setHistoryDetailFollowUpInput(e.target.value)}
+                      placeholder="Anlamadığınız yeri sorun..."
+                      disabled={isHistoryDetailFollowUpLoading}
+                      className="flex-1 bg-slate-900 border border-white/10 focus:border-indigo-500/50 rounded-2xl px-4 py-2.5 text-xs text-slate-200 placeholder:text-slate-500 outline-none transition-colors"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isHistoryDetailFollowUpLoading || !historyDetailFollowUpInput.trim()}
+                      className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs rounded-2xl transition-all flex items-center gap-1.5 shadow-md shadow-indigo-600/20 cursor-pointer shrink-0"
+                    >
+                      {isHistoryDetailFollowUpLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                      <span>Sor</span>
+                    </button>
+                  </form>
+                </div>
+              ) : null}
+
+              {/* Modal Action Buttons Footer */}
+              <div className="pt-4 border-t border-white/10 flex justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setSelectedHistoryDetail(null);
+                    setHistoryDetailAudioPlaying(false);
+                  }}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-2xl border border-white/10 transition-colors cursor-pointer"
+                >
+                  Pencereyi Kapat
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Expanded Full-Screen Image Lightbox */}
+      <AnimatePresence>
+        {expandedImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setExpandedImage(null)}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-lg cursor-zoom-out"
+          >
+            <div className="relative max-w-5xl max-h-[95vh]">
+              <img
+                src={expandedImage}
+                alt="Tam Ekran Soru"
+                className="w-auto h-auto max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl border border-white/20"
+              />
+              <button
+                onClick={() => setExpandedImage(null)}
+                className="absolute -top-12 right-0 p-2 text-white bg-slate-800 hover:bg-slate-700 rounded-xl border border-white/10 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+                <span>Kapat</span>
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {/* Live Camera Capture Modal */}
+      <AnimatePresence>
+        {isCameraModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-900 border border-white/10 rounded-3xl p-5 md:p-6 max-w-lg w-full space-y-4 shadow-2xl relative overflow-hidden"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
+                    <Camera className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold text-white">Soru Fotoğrafı Çek</h3>
+                    <p className="text-[11px] text-slate-400">Canlı görünüm ile sorunuzu fotoğraflayın</p>
+                  </div>
+                </div>
+                <button
+                  onClick={closeCameraModal}
+                  className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="relative rounded-2xl overflow-hidden bg-black border border-white/10 aspect-video flex items-center justify-center shadow-inner">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover rounded-2xl"
+                />
+                <div className="absolute inset-0 border-2 border-dashed border-indigo-400/40 rounded-2xl pointer-events-none flex items-center justify-center p-4">
+                  <span className="text-[11px] font-semibold text-white/80 bg-black/60 px-3 py-1.5 rounded-full backdrop-blur-md border border-white/10">
+                    Soruyu hizada tutarak fotoğrafı çekin
+                  </span>
+                </div>
+              </div>
+
+              {cameraError && (
+                <p className="text-xs text-rose-400 text-center font-medium">{cameraError}</p>
+              )}
+
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-white/5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeCameraModal();
+                    cameraInputRef.current?.click();
+                  }}
+                  className="w-full sm:w-auto px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 border border-white/10 transition-all cursor-pointer"
+                >
+                  <Camera className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Cihaz Kamerasını Aç</span>
+                </button>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                  <button
+                    type="button"
+                    onClick={closeCameraModal}
+                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                  >
+                    İptal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCapturePhoto}
+                    className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition-all active:scale-95 cursor-pointer"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>Fotoğrafı Çek</span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

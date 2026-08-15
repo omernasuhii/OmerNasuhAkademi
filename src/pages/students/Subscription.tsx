@@ -121,7 +121,7 @@ export const SUBSCRIPTION_PACKAGES: SubscriptionPackage[] = [
       "Otomatik Hata Telafi Testi",
       "Veliler için Kapsamlı Bilgilendirme Raporları",
       "Öğrenci ve Veliler için Yapay Zekâ Asistan",
-      "300 Soruluk Yapay Zekâ Soru Çözümü"
+      "140 Soruluk Yapay Zekâ Soru Çözümü"
     ]
   }
 ];

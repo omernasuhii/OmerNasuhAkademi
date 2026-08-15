@@ -46,6 +46,7 @@ const TITLE_MAP: Record<string, string> = {
   '/panel/admin/ogrenciler': 'Öğrenci Yönetimi',
   '/panel/admin/koc-onaylari': 'Koç Başvuru Onayları',
   '/panel/admin/ucretli-abonelikler': 'Finans & Kesinti Ayarları',
+  '/panel/admin/ayarlar': 'Sistem Ayarları',
   '/panel/admin/sistem-ayarlari': 'Sistem Ayarları',
   '/panel/admin/duyurular': 'Duyuru Yönetimi',
   '/panel/admin/etkinlikler': 'Etkinlik Yönetimi',

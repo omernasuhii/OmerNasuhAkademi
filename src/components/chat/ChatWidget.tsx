@@ -1,9 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { MessageSquare, X, Send, Loader2, User } from 'lucide-react';
+import { MessageSquare, X, Send, Loader2, User, Phone as PhoneIcon } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
 import { collection, query, getDocs, where, doc, getDoc, onSnapshot, addDoc, serverTimestamp, updateDoc, orderBy, increment } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+
+function formatE164Phone(phone: string): string {
+  if (!phone) return "";
+  let cleaned = phone.replace(/\D/g, "");
+  if (cleaned.startsWith("0")) cleaned = cleaned.substring(1);
+  if (cleaned.startsWith("90")) cleaned = cleaned.substring(2);
+  if (cleaned.length === 10) return `+90${cleaned}`;
+  return phone;
+}
 
 export default function ChatWidget() {
   const { userData } = useAuth();
@@ -11,6 +20,7 @@ export default function ChatWidget() {
   const [spaces, setSpaces] = useState<any[]>([]);
   const [activeSpace, setActiveSpace] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
+  const [whatsappMsgs, setWhatsappMsgs] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [isCreatingChat, setIsCreatingChat] = useState(false);
@@ -151,30 +161,109 @@ export default function ChatWidget() {
     prevUnreadCount.current = currentUnreadCount;
   }, [spaces, userData]);
 
-  useEffect(() => {
-    if (activeSpace) {
-      const q = query(
-        collection(db, `chats/${activeSpace.id}/messages`),
-        orderBy('createdAt', 'asc')
-      );
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setMessages(msgs);
-        setTimeout(() => {
-          if (chatContainerRef.current) {
-            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-          }
-        }, 100);
-      }, (error) => {
-        console.error("Error in messages listener:", error);
-      });
-      return () => unsubscribe();
-    }
-  }, [activeSpace]);
-
+  const derivedSpaces = React.useMemo(() => {
+    if (!userData || userData.role === 'admin') return spaces;
+    const waSpace = {
+      id: 'virtual-whatsapp',
+      isVirtualWhatsApp: true,
+      participantNames: { 'virtual-whatsapp': 'WhatsApp' },
+      participants: [userData.uid, 'virtual-whatsapp'],
+      lastMessage: 'Gönderilen ve alınan WhatsApp mesajları',
+      updatedAt: null,
+      unreadCount: {}
+    };
+    return [waSpace, ...spaces];
+  }, [spaces, userData]);
 
   useEffect(() => {
     if (activeSpace && userData) {
+      let unsubscribeChat = () => {};
+      let unsubscribeWa = () => {};
+
+      if (!activeSpace.isVirtualWhatsApp) {
+        const q = query(
+          collection(db, `chats/${activeSpace.id}/messages`),
+          orderBy('createdAt', 'asc')
+        );
+        unsubscribeChat = onSnapshot(q, (snapshot) => {
+          const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setMessages(msgs);
+          setTimeout(() => {
+            if (chatContainerRef.current) {
+              chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+            }
+          }, 100);
+        }, (error) => {
+          console.error("Error in messages listener:", error);
+        });
+      } else {
+        setMessages([]);
+      }
+
+      let targetPhone = '';
+      if (activeSpace.isVirtualWhatsApp) {
+         targetPhone = userData.phone || userData.phoneNumber || userData.parentPhone || '';
+      } else if (userData.role === 'admin') {
+         const otherUserId = activeSpace.participants.find((p: string) => p !== userData.uid);
+         const otherUser = allUsers.find(u => u.id === otherUserId);
+         if (otherUser) {
+           targetPhone = otherUser.phone || otherUser.phoneNumber || otherUser.parentPhone || '';
+         }
+      }
+
+      if (targetPhone) {
+        const cleanPhone = formatE164Phone(targetPhone);
+        if (cleanPhone) {
+          const waQ = query(
+            collection(db, 'whatsapp_messages'),
+            where('phone', '==', cleanPhone)
+          );
+          unsubscribeWa = onSnapshot(waQ, (snapshot) => {
+            const wMsgs = snapshot.docs.map(doc => ({ id: doc.id, isWhatsApp: true, ...doc.data() }));
+            setWhatsappMsgs(wMsgs);
+            setTimeout(() => {
+              if (chatContainerRef.current) {
+                chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+              }
+            }, 100);
+          }, (err) => console.error("Error in whatsapp listener:", err));
+        }
+      } else {
+        setWhatsappMsgs([]);
+      }
+
+      return () => {
+        unsubscribeChat();
+        unsubscribeWa();
+      };
+    }
+  }, [activeSpace, userData, allUsers]);
+
+  const combinedMessages = React.useMemo(() => {
+    if (!activeSpace) return [];
+    const combined = [...messages];
+    whatsappMsgs.forEach(wa => {
+      const t = wa.timestamp?.toDate ? wa.timestamp.toDate() : (wa.timestamp ? new Date(wa.timestamp) : new Date());
+      combined.push({
+        id: wa.id,
+        isWhatsApp: true,
+        text: wa.body,
+        senderId: wa.direction === 'inbound' ? 'whatsapp_user' : 'whatsapp_system',
+        senderName: wa.direction === 'inbound' ? (wa.senderName || 'Kullanıcı (WhatsApp)') : 'Sistem (WhatsApp)',
+        createdAt: { toDate: () => t },
+        direction: wa.direction
+      });
+    });
+
+    return combined.sort((a, b) => {
+      const tA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
+      const tB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
+      return tA - tB;
+    });
+  }, [messages, whatsappMsgs, activeSpace]);
+
+  useEffect(() => {
+    if (activeSpace && userData && !activeSpace.isVirtualWhatsApp) {
       const currentSpace = spaces.find(s => s.id === activeSpace.id);
       if (currentSpace && currentSpace.unreadCount?.[userData.uid] > 0) {
         updateDoc(doc(db, 'chats', activeSpace.id), {
@@ -186,7 +275,7 @@ export default function ChatWidget() {
 
   const handleSpaceClick = async (space: any) => {
     setActiveSpace(space);
-    if (userData && (space.unreadCount?.[userData.uid] > 0 || space.unreadCount?.[userData.uid] === undefined)) {
+    if (userData && !space.isVirtualWhatsApp && (space.unreadCount?.[userData.uid] > 0 || space.unreadCount?.[userData.uid] === undefined)) {
       try {
         await updateDoc(doc(db, 'chats', space.id), {
           [`unreadCount.${userData.uid}`]: 0
@@ -408,7 +497,7 @@ export default function ChatWidget() {
                       const queryStr = searchQuery.trim().toLowerCase();
                       const isSearching = queryStr.length > 1;
                       
-                      const displaySpaces = (userData.role === 'admin' && isSearching) ? spaces.filter(s => {
+                      const displaySpaces = (userData.role === 'admin' && isSearching) ? derivedSpaces.filter(s => {
                         let names = '';
                         if (s.participants.includes(userData.uid)) {
                           const otherParticipantId = s.participants.find((p: string) => p !== userData.uid);
@@ -418,7 +507,7 @@ export default function ChatWidget() {
                         }
                         const lastMsg = (s.lastMessage || '').toLowerCase();
                         return names.includes(queryStr) || lastMsg.includes(queryStr);
-                      }) : spaces;
+                      }) : derivedSpaces;
 
                       const displayUsers = (userData.role === 'admin' && isSearching) ? allUsers.filter(u => 
                         u.id !== userData.uid &&
@@ -434,7 +523,10 @@ export default function ChatWidget() {
                               let otherName = 'Sohbet';
                               let otherRole = undefined;
                               let otherPhoto = null;
-                              if (space.participants.includes(userData.uid)) {
+                              if (space.isVirtualWhatsApp) {
+                                otherName = 'WhatsApp (SMS Geçmişi)';
+                                otherPhoto = null;
+                              } else if (space.participants.includes(userData.uid)) {
                                 const otherParticipantId = space.participants.find((p: string) => p !== userData.uid);
                                 otherName = space.participantNames?.[otherParticipantId] || 'Sohbet';
                                 otherRole = space.participantRoles?.[otherParticipantId];
@@ -449,8 +541,10 @@ export default function ChatWidget() {
                                   onClick={() => handleSpaceClick(space)}
                                   className="w-full text-left p-3 rounded-xl hover:bg-white/5 transition-colors flex items-center gap-3"
                                 >
-                                  <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0 overflow-hidden">
-                                    {otherPhoto ? (
+                                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 overflow-hidden ${space.isVirtualWhatsApp ? 'bg-emerald-500/20' : 'bg-blue-500/20'}`}>
+                                    {space.isVirtualWhatsApp ? (
+                                      <MessageSquare size={16} className="text-emerald-400" />
+                                    ) : otherPhoto ? (
                                       <img src={otherPhoto} alt={otherName} className="w-full h-full object-cover" />
                                     ) : (
                                       <User size={16} className="text-blue-400" />
@@ -597,6 +691,13 @@ export default function ChatWidget() {
                   </button>
                   <div className="flex items-center gap-2.5 mb-4 shrink-0">
                     {(() => {
+                      if (activeSpace.isVirtualWhatsApp) {
+                        return (
+                          <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
+                            <MessageSquare size={14} className="text-emerald-400" />
+                          </div>
+                        );
+                      }
                       if (activeSpace.participants.includes(userData.uid)) {
                         const otherParticipantId = activeSpace.participants.find((p: string) => p !== userData.uid);
                         const otherPhoto = otherParticipantId ? userPhotos[otherParticipantId] : null;
@@ -618,7 +719,9 @@ export default function ChatWidget() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <h4 className="text-white font-bold truncate">
-                          {activeSpace.participants.includes(userData.uid) 
+                          {activeSpace.isVirtualWhatsApp
+                            ? 'WhatsApp (SMS Geçmişi)'
+                            : activeSpace.participants.includes(userData.uid) 
                             ? (activeSpace.participantNames?.[activeSpace.participants.find((p: string) => p !== userData.uid)] || 'Sohbet')
                             : Object.values(activeSpace.participantNames || {}).join(' & ')}
                         </h4>
@@ -636,9 +739,16 @@ export default function ChatWidget() {
                     data-no-auto-scroll-top="true"
                     className="flex-1 overflow-y-auto space-y-4 mb-4 custom-scrollbar pr-2"
                   >
-                    {messages.length > 0 ? (
-                      messages.map(msg => {
-                        const isMe = msg.senderId === userData.uid;
+                    {combinedMessages.length > 0 ? (
+                      combinedMessages.map(msg => {
+                        let isMe = msg.senderId === userData.uid;
+                        if (msg.isWhatsApp) {
+                           if (userData.role === 'admin') {
+                             isMe = msg.direction === 'outbound'; // For admin, outbound is "me" (system)
+                           } else {
+                             isMe = msg.direction === 'inbound'; // For user, inbound is "me" (what they sent)
+                           }
+                        }
                         return (
                           <div key={msg.id} className={`flex gap-2.5 max-w-[85%] ${isMe ? 'flex-row-reverse self-end' : 'flex-row self-start'}`}>
                             <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 mt-1 bg-slate-800 flex items-center justify-center">
@@ -666,10 +776,11 @@ export default function ChatWidget() {
                                   Yönetici
                                 </span>
                               )}
-                              <div className={`p-3 rounded-2xl ${isMe ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-slate-800 text-slate-200 rounded-tl-sm'}`}>
+                              <div className={`p-3 rounded-2xl ${isMe ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-slate-800 text-slate-200 rounded-tl-sm'} ${msg.isWhatsApp ? 'border border-emerald-500/30' : ''}`}>
                                 <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
                               </div>
-                              <span className="text-[10px] text-slate-500 mt-1">
+                              <span className="text-[10px] text-slate-500 mt-1 flex items-center gap-1">
+                                {msg.isWhatsApp && <MessageSquare size={10} className="text-emerald-400" />}
                                 {msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleTimeString('tr-TR', {hour: '2-digit', minute:'2-digit'}) : 'Şimdi'}
                               </span>
                             </div>
@@ -682,22 +793,24 @@ export default function ChatWidget() {
                     <div ref={messagesEndRef} />
                   </div>
 
-                  <form onSubmit={sendMessage} className="flex gap-2 shrink-0">
-                    <input 
-                      type="text" 
-                      value={newMessage}
-                      onChange={e => setNewMessage(e.target.value)}
-                      placeholder="Mesaj yazın..."
-                      className="flex-1 bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
-                    />
-                    <button 
-                      type="submit"
-                      disabled={!newMessage.trim() || loading}
-                      className="bg-blue-600 hover:bg-blue-700 text-white p-2.5 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0"
-                    >
-                      <Send size={18} />
-                    </button>
-                  </form>
+                  {!activeSpace.isVirtualWhatsApp && (
+                    <form onSubmit={sendMessage} className="flex gap-2 shrink-0">
+                      <input 
+                        type="text" 
+                        value={newMessage}
+                        onChange={e => setNewMessage(e.target.value)}
+                        placeholder="Mesaj yazın..."
+                        className="flex-1 bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                      />
+                      <button 
+                        type="submit"
+                        disabled={!newMessage.trim() || loading}
+                        className="bg-blue-600 hover:bg-blue-700 text-white p-2.5 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0"
+                      >
+                        <Send size={18} />
+                      </button>
+                    </form>
+                  )}
                 </div>
               )}
             </div>

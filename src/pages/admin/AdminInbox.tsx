@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { Inbox, Search, ExternalLink, Calendar, CheckCircle2, ChevronRight, MessageCircle, Phone, Mail, Briefcase, Send, X, Paperclip, FileText, Image as ImageIcon, Download, Video, Music, ChevronDown, Plus, Trash2, Edit2, Check, AlertCircle, Smartphone, Sparkles, Command, Info, ArrowLeft, RefreshCw, Eye, Radio, Copy, ShieldCheck, Terminal, Globe, Activity, Lock, Key, Clock } from 'lucide-react';
+import { Inbox, Search, ExternalLink, Calendar, CheckCircle2, ChevronRight, MessageCircle, MessageSquare, Phone, Mail, Briefcase, Send, X, Paperclip, FileText, Image as ImageIcon, Download, Video, Music, ChevronDown, Plus, Trash2, Edit2, Check, AlertCircle, Smartphone, Sparkles, Command, Info, ArrowLeft, RefreshCw, Eye, Radio, Copy, ShieldCheck, Terminal, Globe, Activity, Lock, Key, Clock, History } from 'lucide-react';
 import { collection, query, orderBy, limit, getDocs, onSnapshot, addDoc, updateDoc, doc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { format } from 'date-fns';
@@ -33,10 +33,24 @@ interface WhatsAppMessage {
   senderName: string | null;
   direction: 'inbound' | 'outbound';
   timestamp: any;
+  messageSid?: string | null;
+  status?: 'queued' | 'sending' | 'sent' | 'delivered' | 'read' | 'failed' | 'undelivered' | 'simulation';
+  sendMethod?: 'twilio' | 'simulation' | 'twilio_error';
+  isTemplate?: boolean;
+  templateName?: string | null;
+  templateSid?: string | null;
+  templateVars?: Record<string, any> | null;
+  templateButtons?: Array<{
+    text: string;
+    url?: string;
+    type?: 'url' | 'quick_reply' | 'call';
+  }> | null;
   mediaUrl?: string;
   mediaType?: 'image' | 'video' | 'audio' | 'document' | string;
   fileName?: string;
   fileSize?: string;
+  errorCode?: string | number | null;
+  errorMessage?: string | null;
 }
 
 interface WhatsAppTemplate {
@@ -57,7 +71,20 @@ export default function AdminInbox() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryTab = searchParams.get('tab');
 
-  const [whatsAppSubTab, setWhatsAppSubTab] = useState<'all' | 'admin' | 'status'>('all');
+  const [whatsAppSubTab, setWhatsAppSubTab] = useState<'all' | 'logs' | 'errors' | 'status'>('all');
+  const [isSyncingStatuses, setIsSyncingStatuses] = useState(false);
+
+  // WhatsApp Template Modal State
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [selectedTemplateForSend, setSelectedTemplateForSend] = useState<'haftalik_veli_raporu_v1' | 'focuson_otp_code' | 'randevu_hatirlatma' | 'kocluk_bilgilendirme'>('haftalik_veli_raporu_v1');
+  const [templateCustomName, setTemplateCustomName] = useState('');
+  const [templateCustomLink, setTemplateCustomLink] = useState('');
+  const [isSendingTemplateMsg, setIsSendingTemplateMsg] = useState(false);
+
+  // WhatsApp Logs Subtab Filter States
+  const [logSearchTerm, setLogSearchTerm] = useState('');
+  const [logDirectionFilter, setLogDirectionFilter] = useState<'all' | 'inbound' | 'outbound' | 'template'>('all');
+  const [logStatusFilter, setLogStatusFilter] = useState<'all' | 'read' | 'delivered' | 'sent' | 'failed' | 'simulation'>('all');
 
   // Twilio WhatsApp Integration & Webhook Status states
   const [twilioAccountSid, setTwilioAccountSid] = useState('');
@@ -73,9 +100,46 @@ export default function AdminInbox() {
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   // Testing WhatsApp sending
+  const [testSendType, setTestSendType] = useState<'template' | 'text'>('template');
   const [testPhoneNumber, setTestPhoneNumber] = useState('');
   const [testMessageBody, setTestMessageBody] = useState('FocusON Akademi Twilio WhatsApp test mesajıdır.');
+  const [testTemplatePreset, setTestTemplatePreset] = useState<'koc_odeme' | 'veli_abonelik' | 'otp' | 'custom'>('koc_odeme');
+  const [testTemplateSid, setTestTemplateSid] = useState('HX0cfb2d5c6385cae753e5ab633294c3a7');
+  const [testVar1, setTestVar1] = useState('Mustafa Demir');
+  const [testVar2, setTestVar2] = useState('4');
+  const [testVar3, setTestVar3] = useState('1.500');
+  const [testVar4, setTestVar4] = useState('350');
+  const [testVar5, setTestVar5] = useState('Derece YKS Paket');
   const [isSendingTest, setIsSendingTest] = useState(false);
+
+  const handleSelectTemplatePreset = (preset: 'koc_odeme' | 'veli_abonelik' | 'otp' | 'custom') => {
+    setTestTemplatePreset(preset);
+    setTestSendType('template');
+    if (preset === 'koc_odeme') {
+      setTestTemplateSid('HX0cfb2d5c6385cae753e5ab633294c3a7');
+      setTestVar1('Mustafa Demir');
+      setTestVar2('4');
+      setTestVar3('1.500');
+      setTestVar4('350');
+    } else if (preset === 'veli_abonelik') {
+      setTestTemplateSid('HXdbff2ce81cacc365c1e3c16897ec4a53');
+      setTestVar1('Zeynep Kaya');
+      setTestVar2('5');
+      setTestVar3('100');
+      setTestVar4('850');
+      setTestVar5('Haftalık Takip Paket');
+    } else if (preset === 'otp') {
+      setTestTemplateSid('HX885e9543b48e8a4cb1b577c825a9afb7');
+      setTestVar1('849201');
+    } else {
+      setTestTemplateSid('');
+      setTestVar1('');
+      setTestVar2('');
+      setTestVar3('');
+      setTestVar4('');
+      setTestVar5('');
+    }
+  };
 
   // Haftalık Otomatik WhatsApp Raporu State'leri
   const [isTriggeringWeeklyReports, setIsTriggeringWeeklyReports] = useState(false);
@@ -85,6 +149,7 @@ export default function AdminInbox() {
   const [singleTestStudentId, setSingleTestStudentId] = useState('demo_student_1');
   const [singleTestCustomName, setSingleTestCustomName] = useState('');
   const [singleTestPhone, setSingleTestPhone] = useState('');
+  const [singleTestTemplate, setSingleTestTemplate] = useState('weekly_report');
   const [isSingleTesting, setIsSingleTesting] = useState(false);
   const [singleTestResult, setSingleTestResult] = useState<any>(null);
   const [firestoreStudents, setFirestoreStudents] = useState<{ id: string; name: string; phone: string }[]>([]);
@@ -116,6 +181,7 @@ export default function AdminInbox() {
     loadStudents();
   }, []);
 
+  
   const handleRunSingleStudentTest = async () => {
     setIsSingleTesting(true);
     setSingleTestResult(null);
@@ -123,38 +189,43 @@ export default function AdminInbox() {
       const selectedStudentObj = firestoreStudents.find(s => s.id === singleTestStudentId);
       const studentName = singleTestCustomName.trim() || selectedStudentObj?.name || (singleTestStudentId === 'demo_student_2' ? 'Zeynep Kaya' : 'Ahmet Yılmaz');
       
-      const res = await fetch('/api/send-weekly-reports', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const payload = {
           studentId: singleTestStudentId,
           parentPhone: singleTestPhone.trim() || selectedStudentObj?.phone || undefined,
           studentName,
           force: true
-        })
+      };
+      
+      let endpoint = '/api/send-weekly-reports';
+      if (singleTestTemplate === 'subscription_reminder') {
+          endpoint = '/api/test-subscription-reminders';
+      }
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
-      if (res.ok && data.logs && data.logs.length > 0) {
-        setSingleTestResult({
-          success: true,
-          message: data.message,
-          log: data.logs[0]
-        });
-      } else {
-        setSingleTestResult({
-          success: false,
-          error: data.error || 'Test sırasında bir hata oluştu.'
-        });
-      }
+      if (!res.ok) throw new Error(data.error || 'Test sırasında bir hata oluştu.');
+      
+      setSingleTestResult({
+        success: true,
+        message: data.message || 'Test başarılı!',
+        log: data.logs?.[0] || data
+      });
+      
     } catch (err: any) {
+      console.error("Single test error:", err);
       setSingleTestResult({
         success: false,
-        error: err.message
+        error: err?.message || 'Bir hata oluştu.'
       });
     } finally {
       setIsSingleTesting(false);
     }
   };
+
 
   const handleTriggerWeeklyReports = async () => {
     setIsTriggeringWeeklyReports(true);
@@ -206,12 +277,69 @@ export default function AdminInbox() {
     setActiveTab(tabId);
     setSearchParams({ tab: tabId });
   };
+
+  const syncWhatsAppStatuses = async () => {
+    try {
+      setIsSyncingStatuses(true);
+      const res = await fetch('/api/whatsapp-sync-statuses', { method: 'POST' });
+      const data = await res.json();
+      if (data.success && data.updatedCount > 0) {
+        fetchWhatsAppMessages(false);
+      }
+    } catch (err) {
+      console.error("WhatsApp status sync error:", err);
+    } finally {
+      setIsSyncingStatuses(false);
+    }
+  };
+
+  useEffect(() => {
+    let intervalId: any = null;
+    if (activeTab === 'whatsapp' && whatsAppSubTab === 'logs') {
+      syncWhatsAppStatuses();
+      intervalId = setInterval(() => {
+        syncWhatsAppStatuses();
+      }, 10000);
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [activeTab, whatsAppSubTab]);
   
   // WhatsApp Chat states
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
   const [whatsAppSearchTerm, setWhatsAppSearchTerm] = useState('');
   const [chatInputText, setChatInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [showAllChatHistory, setShowAllChatHistory] = useState(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = (instant = true) => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: instant ? 'auto' : 'smooth' });
+    } else if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  };
+
+  // Reset showAllChatHistory and auto-scroll to bottom when selectedPhone or active chat updates
+  useEffect(() => {
+    setShowAllChatHistory(false);
+  }, [selectedPhone]);
+
+  useEffect(() => {
+    if (selectedPhone && activeTab === 'whatsapp' && whatsAppSubTab === 'all') {
+      scrollToBottom(true);
+      const timer1 = setTimeout(() => scrollToBottom(true), 50);
+      const timer2 = setTimeout(() => scrollToBottom(true), 200);
+      return () => {
+        clearTimeout(timer1);
+        clearTimeout(timer2);
+      };
+    }
+  }, [selectedPhone, activeTab, whatsAppSubTab, showAllChatHistory]);
+
   const [selectedFile, setSelectedFile] = useState<{
     file: File;
     name: string;
@@ -391,18 +519,44 @@ export default function AdminInbox() {
     }
     setIsSendingTest(true);
     try {
+      let payload: any = {
+        to: testPhoneNumber.trim(),
+        phone: testPhoneNumber.trim()
+      };
+
+      if (testSendType === 'template') {
+        if (!testTemplateSid.trim()) {
+          alert('Lütfen geçerli bir Şablon SID (Content SID) girin.');
+          setIsSendingTest(false);
+          return;
+        }
+
+        const varsObj: Record<string, string> = {};
+        if (testVar1.trim()) varsObj["1"] = testVar1.trim();
+        if (testVar2.trim() && testTemplatePreset !== 'otp') varsObj["2"] = testVar2.trim();
+        if (testVar3.trim() && (testTemplatePreset === 'koc_odeme' || testTemplatePreset === 'veli_abonelik' || testTemplatePreset === 'custom')) varsObj["3"] = testVar3.trim();
+        if (testVar4.trim() && (testTemplatePreset === 'koc_odeme' || testTemplatePreset === 'veli_abonelik' || testTemplatePreset === 'custom')) varsObj["4"] = testVar4.trim();
+        if (testVar5.trim() && (testTemplatePreset === 'veli_abonelik' || testTemplatePreset === 'custom')) varsObj["5"] = testVar5.trim();
+
+        payload.isTemplate = true;
+        payload.templateSid = testTemplateSid.trim();
+        payload.templateVars = varsObj;
+      } else {
+        payload.message = testMessageBody.trim() || 'FocusOn Akademi Twilio WhatsApp Test Mesajı';
+      }
+
       const res = await fetch('/api/whatsapp-send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: testPhoneNumber.trim(),
-          phone: testPhoneNumber.trim(),
-          message: testMessageBody.trim() || 'FocusOn Akademi Twilio WhatsApp Test Mesajı'
-        })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (res.ok) {
-        alert(`Test mesajı başarıyla gönderildi!\nİletim Yöntemi: ${data.method === 'twilio' ? 'Canlı Twilio API' : 'Simülasyon Modu'}\nMesaj ID: ${data.messageId || '-'}`);
+        const typeInfo = testSendType === 'template'
+          ? `Resmi Şablon (${testTemplateSid})\nDeğişkenler: ${JSON.stringify(payload.templateVars)}`
+          : `Metin Mesajı: "${payload.message}"`;
+        
+        alert(`Test mesajı başarıyla işlendi!\n\n• Gönderim Türü: ${typeInfo}\n• İletim Yöntemi: ${data.method === 'twilio' ? 'Canlı Twilio API' : 'Simülasyon Modu'}\n• Message SID: ${data.messageId || '-'}`);
       } else {
         alert('Gönderim hatası: ' + (data.error || 'Mesaj gönderilemedi.'));
       }
@@ -574,6 +728,7 @@ export default function AdminInbox() {
       setChatInputText('');
       setSelectedFile(null);
       await fetchWhatsAppMessages(false); // Refresh messages to show the outbound message
+      setTimeout(() => scrollToBottom(true), 100);
 
       if (resData.metaAuthError) {
         alert("WhatsApp API Yetkilendirme Hatası (Meta OAuth Error 190): Erişim anahtarınızın (Token) süresi dolmuş. Mesajınız simülasyon modunda başarıyla kaydedildi, yapay zeka simüle edilmiş yanıtı gönderecektir.");
@@ -583,6 +738,86 @@ export default function AdminInbox() {
       alert('Mesaj gönderilirken hata oluştu.');
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleSendTemplateMessage = async () => {
+    if (!selectedPhone) {
+      alert('Lütfen bir sohbet seçin.');
+      return;
+    }
+    setIsSendingTemplateMsg(true);
+    try {
+      let tSid = '';
+      let tName = selectedTemplateForSend;
+      let tVars: Record<string, string> = {};
+      let tButtons: Array<{ text: string; url?: string; type?: string }> = [];
+      let fullMsgBody = '';
+
+      if (selectedTemplateForSend === 'haftalik_veli_raporu_v1') {
+        tSid = 'HXb083373137421bce630a0ad915cd4d0f';
+        const stName = templateCustomName.trim() || 'Değerli Öğrencimiz';
+        const pdfLink = templateCustomLink.trim() || 'https://omernasuhakademi.com/veli-girisi';
+        tVars = { "1": stName, "2": "manual_report" };
+        tButtons = [
+          { text: "📄 Haftalık Raporu Gör", url: pdfLink, type: "url" },
+          { text: "🏫 Veli & Öğrenci Portalı", url: "https://omernasuhakademi.com/veli-girisi", type: "url" }
+        ];
+        fullMsgBody = `Sayın Velimiz,\n\n${stName} isimli öğrencimizin haftalık gelişim ve koçluk değerlendirme raporu oluşturulmuştur.\n\n📄 Haftalık PDF Raporu:\n${pdfLink}\n\nFocusON Akademi Rehberlik Birimi`;
+      } else if (selectedTemplateForSend === 'focuson_otp_code') {
+        tSid = 'HXc123otp';
+        const code = templateCustomName.trim() || '123456';
+        tVars = { "1": code };
+        tButtons = [
+          { text: "🔑 Kodu Tek Tıkla Onayla", url: `https://omernasuhakademi.com/v?c=${code}`, type: "url" }
+        ];
+        fullMsgBody = `FocusON Akademi doğrulama ve giriş kodunuz: ${code}`;
+      } else if (selectedTemplateForSend === 'randevu_hatirlatma') {
+        tSid = 'HXrandevu123';
+        const dateStr = templateCustomName.trim() || 'Yarın saat 15:00';
+        tVars = { "1": dateStr };
+        tButtons = [
+          { text: "📅 Randevu Detayı", url: "https://omernasuhakademi.com/randevularim", type: "url" }
+        ];
+        fullMsgBody = `Sayın Velimiz / Öğrencimiz,\n\nFocusON Akademi randevunuz/dersiniz ${dateStr} olarak planlanmıştır. Katılımınızı bekliyoruz.`;
+      } else {
+        tSid = 'HXkocluk123';
+        const infoStr = templateCustomName.trim() || 'Haftalık Soru Hedefi Görevi';
+        tVars = { "1": infoStr };
+        tButtons = [
+          { text: "📚 Ödevleri İncele", url: "https://omernasuhakademi.com/ogrenci/odevler", type: "url" }
+        ];
+        fullMsgBody = `Merhaba,\n\nEğitim koçunuz yeni ödev ve görev tanımlamıştır: ${infoStr}. Başarılar dileriz!`;
+      }
+
+      const res = await fetch('/api/whatsapp-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: selectedPhone,
+          phone: selectedPhone,
+          message: fullMsgBody,
+          isTemplate: true,
+          templateName: tName,
+          templateSid: tSid,
+          templateVars: tVars,
+          templateButtons: tButtons
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setShowTemplateModal(false);
+        setTemplateCustomName('');
+        setTemplateCustomLink('');
+        await fetchWhatsAppMessages(false);
+        setTimeout(() => scrollToBottom(true), 100);
+      } else {
+        alert('Hata: ' + (data.error || 'Şablon mesajı gönderilemedi.'));
+      }
+    } catch (err: any) {
+      alert('Hata: ' + err.message);
+    } finally {
+      setIsSendingTemplateMsg(false);
     }
   };
 
@@ -674,9 +909,35 @@ export default function AdminInbox() {
 
   const adminEscalatedCount = conversations.filter(isEscalated).length;
 
-  const activeConversations = whatsAppSubTab === 'admin'
-    ? conversations.filter(isEscalated)
-    : conversations;
+  const failedMessages = whatsappMessages.filter(m => m.status === 'failed' || m.status === 'undelivered' || m.errorCode != null);
+  const failedMessagesCount = failedMessages.length;
+
+  const filteredLogs = whatsappMessages.filter(msg => {
+    const queryStr = logSearchTerm.toLowerCase().trim();
+    const matchedU = findMatchedUser(msg.phone);
+    const matchesSearch = !queryStr ||
+      msg.phone.includes(queryStr) ||
+      (msg.body && msg.body.toLowerCase().includes(queryStr)) ||
+      (msg.messageSid && msg.messageSid.toLowerCase().includes(queryStr)) ||
+      (msg.senderName && msg.senderName.toLowerCase().includes(queryStr)) ||
+      (matchedU?.firstName && `${matchedU.firstName} ${matchedU.lastName || ''}`.toLowerCase().includes(queryStr));
+
+    const matchesDirection = logDirectionFilter === 'all' ||
+      (logDirectionFilter === 'inbound' && msg.direction === 'inbound') ||
+      (logDirectionFilter === 'outbound' && msg.direction === 'outbound') ||
+      (logDirectionFilter === 'template' && msg.isTemplate);
+
+    const matchesStatus = logStatusFilter === 'all' ||
+      (logStatusFilter === 'read' && msg.status === 'read') ||
+      (logStatusFilter === 'delivered' && msg.status === 'delivered') ||
+      (logStatusFilter === 'sent' && msg.status === 'sent') ||
+      (logStatusFilter === 'failed' && (msg.status === 'failed' || msg.status === 'undelivered')) ||
+      (logStatusFilter === 'simulation' && (msg.status === 'simulation' || msg.sendMethod === 'simulation'));
+
+    return matchesSearch && matchesDirection && matchesStatus;
+  });
+
+  const activeConversations = conversations;
 
   const filteredConversations = activeConversations.filter(conv => {
     const term = whatsAppSearchTerm.toLowerCase().trim();
@@ -767,28 +1028,42 @@ export default function AdminInbox() {
               }`}
             >
               <MessageCircle size={16} />
-              <span>Tüm Mesajlar</span>
+              <span>Sohbetler</span>
               {whatsAppSubTab === 'all' && (
                 <motion.div layoutId="waSubTabLine" className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500" />
               )}
             </button>
             <button
-              onClick={() => setWhatsAppSubTab('admin')}
+              onClick={() => setWhatsAppSubTab('logs')}
               className={`pb-3 text-sm font-semibold transition-all relative flex items-center gap-1.5 px-2 whitespace-nowrap ${
-                whatsAppSubTab === 'admin'
-                  ? 'text-red-400 font-bold'
+                whatsAppSubTab === 'logs'
+                  ? 'text-blue-400 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <FileText size={16} />
+              <span>Mesaj & Şablon Logları</span>
+              {whatsAppSubTab === 'logs' && (
+                <motion.div layoutId="waSubTabLine" className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500" />
+              )}
+            </button>
+            <button
+              onClick={() => setWhatsAppSubTab('errors')}
+              className={`pb-3 text-sm font-semibold transition-all relative flex items-center gap-1.5 px-2 whitespace-nowrap ${
+                whatsAppSubTab === 'errors'
+                  ? 'text-amber-400 font-bold'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <AlertCircle size={16} />
-              <span>Yönetici Mesajları</span>
-              {adminEscalatedCount > 0 && (
-                <span className="bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-black animate-pulse">
-                  {adminEscalatedCount}
+              <span>Hatalı Mesajlar</span>
+              {failedMessagesCount > 0 && (
+                <span className="bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                  {failedMessagesCount}
                 </span>
               )}
-              {whatsAppSubTab === 'admin' && (
-                <motion.div layoutId="waSubTabLine" className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500" />
+              {whatsAppSubTab === 'errors' && (
+                <motion.div layoutId="waSubTabLine" className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500" />
               )}
             </button>
             <button
@@ -800,7 +1075,7 @@ export default function AdminInbox() {
               }`}
             >
               <Radio size={16} />
-              <span>Twilio WhatsApp & Webhook Durumu</span>
+              <span>WhatsApp Şablonları & Test Paneli</span>
               {whatsAppSubTab === 'status' && (
                 <motion.div layoutId="waSubTabLine" className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500" />
               )}
@@ -809,233 +1084,128 @@ export default function AdminInbox() {
 
           {whatsAppSubTab === 'status' ? (
             <div className="space-y-6">
-              {/* Twilio Canlı Bağlantı Kartları */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-slate-900 border border-white/5 p-5 rounded-2xl shadow-xl flex items-center justify-between">
-                  <div>
-                    <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">Twilio API Bağlantısı</span>
-                    <div className="mt-2 flex items-center gap-2">
-                      {twilioStatusLoading ? (
-                        <div className="animate-spin w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full" />
-                      ) : twilioStatus?.twilioConnected ? (
-                        <span className="px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold rounded-full flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                          Twilio API Aktif & Bağlı
-                        </span>
-                      ) : (
-                        <span className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold rounded-full flex items-center gap-1.5">
-                          Simülasyon Modu (Kimlik Bilgileri Eksik)
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    onClick={fetchTwilioSettings}
-                    disabled={twilioStatusLoading}
-                    className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition-all"
-                    title="Durumu Yenile"
-                  >
-                    <RefreshCw size={18} className={twilioStatusLoading ? "animate-spin" : ""} />
-                  </button>
-                </div>
-
-                <div className="bg-slate-900 border border-white/5 p-5 rounded-2xl shadow-xl">
-                  <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">Twilio WhatsApp Numarası</span>
-                  <p className="text-lg font-bold text-white mt-1">
-                    {twilioWhatsappNumber || 'Yapılandırılmadı'}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Sağlayıcı: <span className="text-emerald-400 font-semibold">Twilio Sandbox / Messaging Service</span>
-                  </p>
-                </div>
-
-                <div className="bg-slate-900 border border-white/5 p-5 rounded-2xl shadow-xl">
-                  <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">Account SID</span>
-                  <p className="text-sm font-mono font-bold text-slate-200 mt-1 truncate">
-                    {twilioAccountSid ? `${twilioAccountSid.substring(0, 10)}...` : 'Yapılandırılmadı'}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Durum: <span className="text-emerald-400 font-semibold">{twilioAccountSid ? 'Kayıtlı' : 'Eksik'}</span>
-                  </p>
-                </div>
-              </div>
-
-              {/* Twilio Webhook Yapılandırması */}
+              {/* WhatsApp Resmi Şablon Kataloğu */}
               <div className="bg-slate-900 border border-white/5 rounded-2xl p-6 shadow-2xl space-y-5">
                 <div className="flex items-center justify-between border-b border-white/5 pb-4">
                   <div className="flex items-center gap-3">
                     <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl">
-                      <ShieldCheck size={22} />
+                      <FileText size={22} />
                     </div>
                     <div>
-                      <h3 className="text-base font-bold text-white">Twilio Console Webhook Yapılandırması</h3>
-                      <p className="text-xs text-slate-400">Gelen WhatsApp mesajları için Twilio Console URL adresi</p>
+                      <h3 className="text-base font-bold text-white">Sistem WhatsApp Şablonları (Approved Templates)</h3>
+                      <p className="text-xs text-slate-400">Meta/Twilio tarafından onaylanmış resmi bildirim şablonları ve değişken yapılandırmaları</p>
                     </div>
                   </div>
-                  <a
-                    href="https://console.twilio.com/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5"
-                  >
-                    <ExternalLink size={14} />
-                    <span>Twilio Console</span>
-                  </a>
+                  <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold rounded-xl flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    3 Aktif Şablon Tanımlı
+                  </span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Globe size={14} className="text-emerald-400" />
-                        <span>Sabit Alan Adı Webhook URL</span>
-                      </span>
-                      <span className="text-[10px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-1.5 py-0.5 rounded font-mono">Önerilen</span>
-                    </label>
-                    <div className="flex items-center bg-slate-950 border border-white/10 rounded-xl overflow-hidden p-1">
-                      <input
-                        type="text"
-                        readOnly
-                        value="https://omernasuhakademi.com/api/whatsapp-webhook"
-                        className="bg-transparent text-xs text-slate-200 px-3 py-1.5 w-full outline-none font-mono"
-                      />
-                      <button
-                        onClick={() => copyToClipboard("https://omernasuhakademi.com/api/whatsapp-webhook", 'webhookUrl')}
-                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition-all flex items-center gap-1 shrink-0 cursor-pointer"
-                      >
-                        {copiedField === 'webhookUrl' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                        <span>{copiedField === 'webhookUrl' ? 'Kopyalandı' : 'Kopyala'}</span>
-                      </button>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  {/* Şablon 1: Koç Bakiye Uyarısı */}
+                  <div className="bg-slate-950/80 border border-white/10 rounded-xl p-4.5 space-y-3 flex flex-col justify-between">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] uppercase font-mono font-bold bg-amber-500/10 border border-amber-500/30 text-amber-400 px-2 py-0.5 rounded">
+                          Koç Bildirimi
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">koc_odeme_bilgilendirme_v1</span>
+                      </div>
+                      <h4 className="text-sm font-bold text-white">Koç Abonelik & Bakiye Yetersizliği Uyarısı</h4>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Koçun öğrencilerinin abonelik yenilemesi yaklaştığında sistem kesintisi için koç bakiye yetersizse otomatik uyarır.
+                      </p>
+                      <div className="bg-slate-900 p-2.5 rounded-lg border border-white/5 space-y-1 font-mono text-[10px] text-slate-300">
+                        <div className="text-slate-400 font-semibold mb-1">SID: HX0cfb2d5c6385cae753e5ab633294c3a7</div>
+                        <div><strong className="text-emerald-400">&#123;&#123;1&#125;&#125;</strong> Koç Ad Soyad</div>
+                        <div><strong className="text-emerald-400">&#123;&#123;2&#125;&#125;</strong> Öğrenci Sayısı</div>
+                        <div><strong className="text-emerald-400">&#123;&#123;3&#125;&#125;</strong> Tahmini Kesinti (TL)</div>
+                        <div><strong className="text-emerald-400">&#123;&#123;4&#125;&#125;</strong> Mevcut Bakiye (TL)</div>
+                      </div>
+                      <div className="bg-slate-900/60 p-2.5 rounded-lg text-[11px] text-slate-300 italic border border-white/5">
+                        "Sayın &#123;&#123;1&#125;&#125;, önümüzdeki 5 gün içinde &#123;&#123;2&#125;&#125; öğrencinizin abonelik yenilemesi bulunmaktadır. Tahmini sistem kesintisi: &#123;&#123;3&#125;&#125; TL, Mevcut bakiyeniz: &#123;&#123;4&#125;&#125; TL..."
+                      </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectTemplatePreset('koc_odeme')}
+                      className="w-full py-2 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Send size={13} />
+                      <span>Bu Şablonu Test Formuna Yükle</span>
+                    </button>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Globe size={14} className="text-blue-400" />
-                        <span>Canlı Container Webhook URL</span>
-                      </span>
-                      <span className="text-[10px] bg-blue-500/10 border border-blue-500/30 text-blue-400 px-1.5 py-0.5 rounded font-mono">Doğrudan Bağlantı</span>
-                    </label>
-                    <div className="flex items-center bg-slate-950 border border-white/10 rounded-xl overflow-hidden p-1">
-                      <input
-                        type="text"
-                        readOnly
-                        value={`${window.location.origin}/api/whatsapp-webhook`}
-                        className="bg-transparent text-xs text-slate-200 px-3 py-1.5 w-full outline-none font-mono text-[11px]"
-                      />
-                      <button
-                        onClick={() => copyToClipboard(`${window.location.origin}/api/whatsapp-webhook`, 'directWebhookUrl')}
-                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition-all flex items-center gap-1 shrink-0 cursor-pointer"
-                      >
-                        {copiedField === 'directWebhookUrl' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                        <span>{copiedField === 'directWebhookUrl' ? 'Kopyalandı' : 'Kopyala'}</span>
-                      </button>
+                  {/* Şablon 2: Veli Abonelik Yenileme */}
+                  <div className="bg-slate-950/80 border border-white/10 rounded-xl p-4.5 space-y-3 flex flex-col justify-between">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] uppercase font-mono font-bold bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-2 py-0.5 rounded">
+                          Veli Bildirimi
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">ogrenci_abonelik_hatirlatma</span>
+                      </div>
+                      <h4 className="text-sm font-bold text-white">Veli / Öğrenci Abonelik Yenileme Uyarısı</h4>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Öğrenci aboneliği bitmesine 5 veya 1 gün kala veliye/öğrenciye bakiye yükleme uyarısı gönderir.
+                      </p>
+                      <div className="bg-slate-900 p-2.5 rounded-lg border border-white/5 space-y-1 font-mono text-[10px] text-slate-300">
+                        <div className="text-slate-400 font-semibold mb-1">SID: HXdbff2ce81cacc365c1e3c16897ec4a53</div>
+                        <div><strong className="text-emerald-400">&#123;&#123;1&#125;&#125;</strong> Öğrenci Adı</div>
+                        <div><strong className="text-emerald-400">&#123;&#123;2&#125;&#125;</strong> Kalan Gün</div>
+                        <div><strong className="text-emerald-400">&#123;&#123;3&#125;&#125;</strong> Bakiyeniz (TL)</div>
+                        <div><strong className="text-emerald-400">&#123;&#123;4&#125;&#125;</strong> Yenileme Ücreti (TL)</div>
+                        <div><strong className="text-emerald-400">&#123;&#123;5&#125;&#125;</strong> Paket Adı</div>
+                      </div>
+                      <div className="bg-slate-900/60 p-2.5 rounded-lg text-[11px] text-slate-300 italic border border-white/5">
+                        "Sayın Velimiz, &#123;&#123;1&#125;&#125; isimli öğrencimizin &#123;&#123;5&#125;&#125; aboneliğinin bitmesine &#123;&#123;2&#125;&#125; gün kalmıştır. Bakiyeniz: &#123;&#123;3&#125;&#125; TL..."
+                      </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectTemplatePreset('veli_abonelik')}
+                      className="w-full py-2 px-3 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Send size={13} />
+                      <span>Bu Şablonu Test Formuna Yükle</span>
+                    </button>
                   </div>
-                </div>
 
-                <div className="bg-slate-950/60 border border-white/5 rounded-xl p-4 text-xs text-slate-300 space-y-2">
-                  <h4 className="font-bold text-emerald-400 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-                    <Info size={14} />
-                    <span>Twilio WhatsApp Sandbox / Phone Number Kurulum Adımları</span>
-                  </h4>
-                  <ol className="list-decimal list-inside space-y-1 text-slate-400 leading-relaxed">
-                    <li><strong className="text-white">console.twilio.com</strong> adresine giriş yapın.</li>
-                    <li><strong className="text-white">Messaging &gt; Settings &gt; WhatsApp sandbox settings</strong> bölümüne gidin.</li>
-                    <li><strong className="text-white">"WHEN A MESSAGE COMES IN"</strong> alanına yukarıdaki Webhook URL adresini yapıştırın ve HTTP POST metodunu seçin.</li>
-                    <li>Değişiklikleri kaydedin. Artık gelen WhatsApp mesajları doğrudan asistan robot tarafından işlenecektir.</li>
-                  </ol>
+                  {/* Şablon 3: OTP Doğrulama */}
+                  <div className="bg-slate-950/80 border border-white/10 rounded-xl p-4.5 space-y-3 flex flex-col justify-between">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] uppercase font-mono font-bold bg-blue-500/10 border border-blue-500/30 text-blue-400 px-2 py-0.5 rounded">
+                          OTP / Doğrulama
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">doğrulama_kodu</span>
+                      </div>
+                      <h4 className="text-sm font-bold text-white">WhatsApp Doğrulama / OTP Kodu</h4>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Sisteme yeni giriş yapan veya numara doğrulayan kullanıcılara 6 haneli güvenlik kodunu iletir.
+                      </p>
+                      <div className="bg-slate-900 p-2.5 rounded-lg border border-white/5 space-y-1 font-mono text-[10px] text-slate-300">
+                        <div className="text-slate-400 font-semibold mb-1">SID: HX885e9543b48e8a4cb1b577c825a9afb7</div>
+                        <div><strong className="text-emerald-400">&#123;&#123;1&#125;&#125;</strong> 6 Haneli Doğrulama Kodu</div>
+                      </div>
+                      <div className="bg-slate-900/60 p-2.5 rounded-lg text-[11px] text-slate-300 italic border border-white/5">
+                        "FocusON Akademi doğrulama kodunuz: &#123;&#123;1&#125;&#125;"
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectTemplatePreset('otp')}
+                      className="w-full py-2 px-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Send size={13} />
+                      <span>Bu Şablonu Test Formuna Yükle</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {/* OTOMATİK PAZARTESİ 10:00 HAFTALIK RAPOR SİSTEMİ KARTI */}
-              <div className="bg-slate-900 border border-emerald-500/20 rounded-2xl p-6 shadow-2xl space-y-5 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
-                
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl border border-emerald-500/30 shrink-0">
-                      <Clock size={24} />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-base font-bold text-white">Otomatik Pazartesi 10:00 WhatsApp Veli Raporu</h3>
-                        <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold rounded-full flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                          Zamanlayıcı Aktif
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Her Pazartesi saat 10:00'da tüm öğrencilerin verileri analiz edilir, PDF oluşturulur ve WhatsApp'tan iletilir.
-                      </p>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleTriggerWeeklyReports}
-                    disabled={isTriggeringWeeklyReports}
-                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 shrink-0 cursor-pointer"
-                  >
-                    {isTriggeringWeeklyReports ? (
-                      <>
-                        <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                        <span>Raporlar Oluşturuluyor & Gönderiliyor...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Send size={15} />
-                        <span>Hemen Rapor Oluştur & WhatsApp'tan Gönder</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {/* 4 Temel Sistem Mimarisi Bileşeni */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  <div className="bg-slate-950/80 border border-white/5 p-3.5 rounded-xl space-y-1">
-                    <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
-                      <span className="w-5 h-5 rounded-full bg-emerald-500/10 flex items-center justify-center text-[11px]">1</span>
-                      Zamanlayıcı Görev
-                    </div>
-                    <p className="text-[11px] text-slate-400 leading-tight">
-                      Her Pazartesi 10:00'da insan müdahalesi olmadan otomatik tetiklenen sunucu cron zamanlayıcısı.
-                    </p>
-                  </div>
-
-                  <div className="bg-slate-950/80 border border-white/5 p-3.5 rounded-xl space-y-1">
-                    <div className="flex items-center gap-2 text-blue-400 font-bold text-xs">
-                      <span className="w-5 h-5 rounded-full bg-blue-500/10 flex items-center justify-center text-[11px]">2</span>
-                      Yapay Zeka Analizi
-                    </div>
-                    <p className="text-[11px] text-slate-400 leading-tight">
-                      Gemini API ile son 7 günlük soru, deneme ve konu verilerinden pedagojik veli metni üretilir.
-                    </p>
-                  </div>
-
-                  <div className="bg-slate-950/80 border border-white/5 p-3.5 rounded-xl space-y-1">
-                    <div className="flex items-center gap-2 text-purple-400 font-bold text-xs">
-                      <span className="w-5 h-5 rounded-full bg-purple-500/10 flex items-center justify-center text-[11px]">3</span>
-                      Sunucu Tarafı PDF
-                    </div>
-                    <p className="text-[11px] text-slate-400 leading-tight">
-                      jsPDF motoru ile kurum logolu, soru karneli ve grafikli resmi veli PDF raporu oluşturulur.
-                    </p>
-                  </div>
-
-                  <div className="bg-slate-950/80 border border-white/5 p-3.5 rounded-xl space-y-1">
-                    <div className="flex items-center gap-2 text-amber-400 font-bold text-xs">
-                      <span className="w-5 h-5 rounded-full bg-amber-500/10 flex items-center justify-center text-[11px]">4</span>
-                      WhatsApp İletimi
-                    </div>
-                    <p className="text-[11px] text-slate-400 leading-tight">
-                      Twilio WhatsApp Business API üzerinden PDF eki ile birlikte velinin telefonuna iletilir.
-                    </p>
-                  </div>
-                </div>
-
-                {/* SADECE 1 ÖĞRENCİDE TEST ETME PANELDEN KONTROL KUTUSU */}
+              {/* SADECE 1 ÖĞRENCİDE TEST ETME PANELDEN KONTROL KUTUSU */}
                 <div className="bg-slate-950/90 border border-emerald-500/30 p-4.5 rounded-xl space-y-4">
                   <div className="flex items-center justify-between gap-2 border-b border-white/5 pb-2.5">
                     <div className="flex items-center gap-2">
@@ -1049,7 +1219,8 @@ export default function AdminInbox() {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-300 mb-1">
                         1) Öğrenci Seçin
@@ -1075,15 +1246,29 @@ export default function AdminInbox() {
 
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                        2) Veli Telefon Numarası (Opsiyonel Test No)
+                        2) Veli Telefonu (Opsiyonel)
                       </label>
                       <input
                         type="text"
                         value={singleTestPhone}
                         onChange={(e) => setSingleTestPhone(e.target.value)}
-                        placeholder="Örn: +905550001122 veya kendi telefonunuz"
+                        placeholder="Örn: +905550001122"
                         className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-emerald-500 font-mono"
                       />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                        3) Test Edilecek Şablon
+                      </label>
+                      <select
+                        value={singleTestTemplate}
+                        onChange={(e) => setSingleTestTemplate(e.target.value)}
+                        className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
+                      >
+                        <option value="weekly_report">Haftalık Veli Raporu (PDF'li)</option>
+                        <option value="subscription_reminder">Abonelik Yenileme Hatırlatması</option>
+                      </select>
                     </div>
 
                     <div className="flex items-end">
@@ -1107,6 +1292,7 @@ export default function AdminInbox() {
                       </button>
                     </div>
                   </div>
+
 
                   {singleTestResult && (
                     <div className={`p-4 rounded-xl text-xs space-y-2.5 border ${
@@ -1147,47 +1333,223 @@ export default function AdminInbox() {
                     {weeklyReportLogMessage}
                   </div>
                 )}
-              </div>
 
-              {/* Twilio Test Mesajı Gönderme Formu */}
-              <div className="bg-slate-900 border border-white/5 rounded-2xl p-6 shadow-2xl space-y-4">
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Send size={18} className="text-emerald-400" />
-                  <span>Twilio WhatsApp Test Mesajı Gönder</span>
-                </h3>
+              {/* Twilio WhatsApp Test Mesajı Gönderme Formu */}
+              <div className="bg-slate-900 border border-white/5 rounded-2xl p-6 shadow-2xl space-y-5">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-white/5 pb-4">
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Send size={18} className="text-emerald-400" />
+                    <span>Twilio WhatsApp Canlı Test Paneli</span>
+                  </h3>
+
+                  {/* Gönderim Tipi Seçimi */}
+                  <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-white/10 text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setTestSendType('template')}
+                      className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                        testSendType === 'template'
+                          ? 'bg-emerald-600 text-white font-bold shadow-md'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <FileText size={14} />
+                      <span>Onaylı Şablon (Meta SID)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTestSendType('text')}
+                      className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                        testSendType === 'text'
+                          ? 'bg-emerald-600 text-white font-bold shadow-md'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <MessageSquare size={14} />
+                      <span>Serbest Metin Mesajı</span>
+                    </button>
+                  </div>
+                </div>
+
                 <form onSubmit={handleSendTestTwilioMessage} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Alıcı Telefon Numarası
-                      </label>
-                      <input
-                        type="text"
-                        value={testPhoneNumber}
-                        onChange={(e) => setTestPhoneNumber(e.target.value)}
-                        placeholder="+905xxxxxxxxx"
-                        className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-emerald-500 transition-all font-mono"
-                      />
+                  {/* Alıcı Numarası */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Alıcı Telefon Numarası (E.164 Formatı)
+                    </label>
+                    <input
+                      type="text"
+                      value={testPhoneNumber}
+                      onChange={(e) => setTestPhoneNumber(e.target.value)}
+                      placeholder="+905xxxxxxxxx"
+                      className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-emerald-500 transition-all font-mono"
+                    />
+                  </div>
+
+                  {testSendType === 'template' ? (
+                    <div className="space-y-4 bg-slate-950/60 border border-white/5 p-4 rounded-xl">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-300 mb-1">
+                            Şablon Seçimi (Preset)
+                          </label>
+                          <select
+                            value={testTemplatePreset}
+                            onChange={(e) => handleSelectTemplatePreset(e.target.value as any)}
+                            className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-emerald-500 font-medium"
+                          >
+                            <option value="koc_odeme">Koç Bakiye Uyarısı (HX0cfb2d...)</option>
+                            <option value="veli_abonelik">Veli Abonelik Yenileme (HXdbff2c...)</option>
+                            <option value="otp">OTP Doğrulama Kodu (HX885e95...)</option>
+                            <option value="custom">Özel Şablon SID (Manuel)</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-300 mb-1">
+                            Twilio Content SID
+                          </label>
+                          <input
+                            type="text"
+                            value={testTemplateSid}
+                            onChange={(e) => {
+                              setTestTemplateSid(e.target.value);
+                              setTestTemplatePreset('custom');
+                            }}
+                            placeholder="HXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                            className="w-full bg-slate-900 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-emerald-400 font-mono outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Dynamic Variables Input Fields */}
+                      <div className="space-y-2 pt-2 border-t border-white/5">
+                        <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                          Şablon Değişkenleri (contentVariables)
+                        </label>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                              &#123;&#123;1&#125;&#125; {
+                                testTemplatePreset === 'koc_odeme' ? 'Koç Adı Soyadı' :
+                                testTemplatePreset === 'veli_abonelik' ? 'Öğrenci Adı' :
+                                testTemplatePreset === 'otp' ? 'Doğrulama Kodu' : 'Değişken 1'
+                              }
+                            </label>
+                            <input
+                              type="text"
+                              value={testVar1}
+                              onChange={(e) => setTestVar1(e.target.value)}
+                              className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-emerald-500 font-mono"
+                            />
+                          </div>
+
+                          {testTemplatePreset !== 'otp' && (
+                            <div>
+                              <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                                &#123;&#123;2&#125;&#125; {
+                                  testTemplatePreset === 'koc_odeme' ? 'Öğrenci Sayısı' :
+                                  testTemplatePreset === 'veli_abonelik' ? 'Kalan Gün' : 'Değişken 2'
+                                }
+                              </label>
+                              <input
+                                type="text"
+                                value={testVar2}
+                                onChange={(e) => setTestVar2(e.target.value)}
+                                className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-emerald-500 font-mono"
+                              />
+                            </div>
+                          )}
+
+                          {(testTemplatePreset === 'koc_odeme' || testTemplatePreset === 'veli_abonelik' || testTemplatePreset === 'custom') && (
+                            <div>
+                              <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                                &#123;&#123;3&#125;&#125; {
+                                  testTemplatePreset === 'koc_odeme' ? 'Tahmini Kesinti (TL)' :
+                                  testTemplatePreset === 'veli_abonelik' ? 'Bakiyeniz (TL)' : 'Değişken 3'
+                                }
+                              </label>
+                              <input
+                                type="text"
+                                value={testVar3}
+                                onChange={(e) => setTestVar3(e.target.value)}
+                                className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-emerald-500 font-mono"
+                              />
+                            </div>
+                          )}
+
+                          {(testTemplatePreset === 'koc_odeme' || testTemplatePreset === 'veli_abonelik' || testTemplatePreset === 'custom') && (
+                            <div>
+                              <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                                &#123;&#123;4&#125;&#125; {
+                                  testTemplatePreset === 'koc_odeme' ? 'Mevcut Bakiye (TL)' :
+                                  testTemplatePreset === 'veli_abonelik' ? 'Yenileme Ücreti (TL)' : 'Değişken 4'
+                                }
+                              </label>
+                              <input
+                                type="text"
+                                value={testVar4}
+                                onChange={(e) => setTestVar4(e.target.value)}
+                                className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-emerald-500 font-mono"
+                              />
+                            </div>
+                          )}
+
+                          {(testTemplatePreset === 'veli_abonelik' || testTemplatePreset === 'custom') && (
+                            <div>
+                              <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                                &#123;&#123;5&#125;&#125; {
+                                  testTemplatePreset === 'veli_abonelik' ? 'Paket Adı' : 'Değişken 5'
+                                }
+                              </label>
+                              <input
+                                type="text"
+                                value={testVar5}
+                                onChange={(e) => setTestVar5(e.target.value)}
+                                className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-emerald-500 font-mono"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Önizleme JSON */}
+                      <div className="text-[10px] text-slate-400 font-mono bg-slate-950 p-2.5 rounded-lg border border-white/5">
+                        <span className="text-slate-500 block mb-1">Twilio'ya İletilecek contentVariables Nesnesi:</span>
+                        <code className="text-emerald-300">
+                          {JSON.stringify({
+                            "1": testVar1 || undefined,
+                            "2": testTemplatePreset !== 'otp' ? (testVar2 || undefined) : undefined,
+                            "3": (testTemplatePreset === 'koc_odeme' || testTemplatePreset === 'veli_abonelik' || testTemplatePreset === 'custom') ? (testVar3 || undefined) : undefined,
+                            "4": (testTemplatePreset === 'koc_odeme' || testTemplatePreset === 'veli_abonelik' || testTemplatePreset === 'custom') ? (testVar4 || undefined) : undefined,
+                            "5": (testTemplatePreset === 'veli_abonelik' || testTemplatePreset === 'custom') ? (testVar5 || undefined) : undefined
+                          }, null, 2)}
+                        </code>
+                      </div>
                     </div>
+                  ) : (
                     <div>
                       <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Mesaj Gövdesi
+                        Serbest Mesaj Gövdesi (Direct Text Message)
                       </label>
-                      <input
-                        type="text"
+                      <textarea
+                        rows={3}
                         value={testMessageBody}
                         onChange={(e) => setTestMessageBody(e.target.value)}
-                        className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-emerald-500 transition-all"
+                        placeholder="WhatsApp mesaj içeriğini girin..."
+                        className="w-full bg-slate-950 border border-white/10 rounded-xl p-3 text-xs text-white outline-none focus:border-emerald-500 transition-all leading-relaxed"
                       />
                     </div>
-                  </div>
+                  )}
+
                   <button
                     type="submit"
                     disabled={isSendingTest}
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer"
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20"
                   >
                     {isSendingTest ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
-                    <span>{isSendingTest ? 'Gönderiliyor...' : 'Test Mesajını Gönder'}</span>
+                    <span>{isSendingTest ? 'Gönderiliyor...' : 'Test WhatsApp Mesajını Gönder'}</span>
                   </button>
                 </form>
               </div>
@@ -1301,6 +1663,344 @@ export default function AdminInbox() {
                       </button>
                     </div>
                   </div>
+                </div>
+              )}
+            </div>
+          ) : whatsAppSubTab === 'logs' ? (
+            <div className="space-y-6">
+              {/* Canlı Twilio İletim & Okundu Durum Takibi Bilgi/Buton Barı */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-blue-500/10 border border-blue-500/20 p-3.5 rounded-2xl gap-3 text-xs text-blue-300 font-medium">
+                <div className="flex items-center gap-2.5">
+                  <RefreshCw size={16} className={isSyncingStatuses ? "animate-spin text-blue-400 shrink-0" : "text-blue-400 shrink-0"} />
+                  <span>
+                    <strong>Twilio Canlı İletim & Okundu Takibi:</strong> Son 2 gün içindeki giden mesajların iletildi/okundu bilgileri Twilio üzerinden sürekli sorgulanır. Okundu bilgisi alındığında sorgulama sonlandırılır.
+                  </span>
+                </div>
+                <button
+                  onClick={syncWhatsAppStatuses}
+                  disabled={isSyncingStatuses}
+                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50 shrink-0 text-xs cursor-pointer shadow-sm"
+                >
+                  <RefreshCw size={13} className={isSyncingStatuses ? "animate-spin" : ""} />
+                  <span>{isSyncingStatuses ? "Sorgulanıyor..." : "Şimdi Senkronize Et"}</span>
+                </button>
+              </div>
+
+              {/* İstatistik Özet Kartları */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-slate-900 border border-white/5 p-4 rounded-2xl">
+                  <span className="text-xs text-slate-400 font-semibold uppercase font-sans">Toplam Kayıtlı Mesaj</span>
+                  <p className="text-2xl font-bold text-white mt-1">{whatsappMessages.length}</p>
+                  <span className="text-[11px] text-slate-500">Veritabanı geçmişi</span>
+                </div>
+                <div className="bg-slate-900 border border-white/5 p-4 rounded-2xl">
+                  <span className="text-xs text-slate-400 font-semibold uppercase font-sans">📥 Gelen Mesajlar</span>
+                  <p className="text-2xl font-bold text-emerald-400 mt-1">
+                    {whatsappMessages.filter(m => m.direction === 'inbound').length}
+                  </p>
+                  <span className="text-[11px] text-slate-500">Kullanıcılardan gelen</span>
+                </div>
+                <div className="bg-slate-900 border border-white/5 p-4 rounded-2xl">
+                  <span className="text-xs text-slate-400 font-semibold uppercase font-sans">📤 Giden & Şablonlar</span>
+                  <p className="text-2xl font-bold text-blue-400 mt-1">
+                    {whatsappMessages.filter(m => m.direction === 'outbound').length}
+                  </p>
+                  <span className="text-[11px] text-slate-500">
+                    ({whatsappMessages.filter(m => m.isTemplate).length} Şablon mesajı)
+                  </span>
+                </div>
+                <div className="bg-slate-900 border border-white/5 p-4 rounded-2xl">
+                  <span className="text-xs text-slate-400 font-semibold uppercase font-sans">✓✓ İletilme / Okunma Oranı</span>
+                  <p className="text-2xl font-bold text-emerald-400 mt-1">
+                    {whatsappMessages.filter(m => m.direction === 'outbound').length > 0
+                      ? `%${Math.round((whatsappMessages.filter(m => m.status === 'delivered' || m.status === 'read').length / whatsappMessages.filter(m => m.direction === 'outbound').length) * 100)}`
+                      : '%100'}
+                  </p>
+                  <span className="text-[11px] text-slate-500 font-mono">Twilio canlı callback</span>
+                </div>
+              </div>
+
+              {/* Filtre ve Arama Barı */}
+              <div className="bg-slate-900 border border-white/5 p-4 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="relative w-full md:w-96">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+                  <input
+                    type="text"
+                    placeholder="Numara, mesaj içeriği veya SID ara..."
+                    value={logSearchTerm}
+                    onChange={(e) => setLogSearchTerm(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-xs text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                  {/* Yön Filtresi */}
+                  <select
+                    value={logDirectionFilter}
+                    onChange={(e) => setLogDirectionFilter(e.target.value as any)}
+                    className="bg-slate-950 border border-white/10 text-xs text-slate-300 rounded-xl px-3 py-2 outline-none font-semibold cursor-pointer"
+                  >
+                    <option value="all">Tüm Yönler</option>
+                    <option value="inbound">📥 Sadece Gelenler</option>
+                    <option value="outbound">📤 Sadece Gidenler</option>
+                    <option value="template">📜 Sadece Şablon Mesajları</option>
+                  </select>
+
+                  {/* Durum Filtresi */}
+                  <select
+                    value={logStatusFilter}
+                    onChange={(e) => setLogStatusFilter(e.target.value as any)}
+                    className="bg-slate-950 border border-white/10 text-xs text-slate-300 rounded-xl px-3 py-2 outline-none font-semibold cursor-pointer"
+                  >
+                    <option value="all">Tüm İletim Durumları</option>
+                    <option value="read">🔵 Okundu</option>
+                    <option value="delivered">🟢 İletildi</option>
+                    <option value="sent">⚪ Gönderildi</option>
+                    <option value="failed">🔴 Hatalı / İletilemedi</option>
+                    <option value="simulation">🟣 Simülasyon</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Log Listesi Tablosu */}
+              <div className="bg-slate-900 border border-white/5 rounded-2xl overflow-hidden shadow-2xl">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950/80 text-slate-400 font-semibold border-b border-white/5 uppercase tracking-wider text-[10px]">
+                      <tr>
+                        <th className="p-4">Yön & Zaman</th>
+                        <th className="p-4">Alıcı / Gönderen</th>
+                        <th className="p-4">Mesaj Tipi & İçerik</th>
+                        <th className="p-4">Twilio SID & Durum</th>
+                        <th className="p-4 text-right">İşlem</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5 text-slate-300">
+                      {filteredLogs.map((msg) => {
+                        const matchedU = findMatchedUser(msg.phone);
+                        const formattedDate = msg.timestamp?.toDate
+                          ? format(msg.timestamp.toDate(), 'dd.MM.yyyy HH:mm:ss', { locale: tr })
+                          : msg.timestamp?.seconds
+                            ? format(new Date(msg.timestamp.seconds * 1000), 'dd.MM.yyyy HH:mm:ss', { locale: tr })
+                            : 'Tarih Belirsiz';
+
+                        return (
+                          <tr key={msg.id} className="hover:bg-slate-800/40 transition-colors">
+                            <td className="p-4 whitespace-nowrap">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  msg.direction === 'inbound'
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                    : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                                }`}>
+                                  {msg.direction === 'inbound' ? '📥 GELEN' : '📤 GİDEN'}
+                                </span>
+                              </div>
+                              <span className="text-[11px] text-slate-400 font-mono block mt-1">
+                                {formattedDate}
+                              </span>
+                            </td>
+
+                            <td className="p-4">
+                              <div className="font-bold text-white text-xs">
+                                {matchedU ? `${matchedU.firstName || ''} ${matchedU.lastName || ''}`.trim() : msg.senderName || 'Bilinmeyen Kullanıcı'}
+                              </div>
+                              <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                                {msg.phone}
+                              </div>
+                              {matchedU && (
+                                <span className="inline-block mt-1 px-1.5 py-0.5 bg-blue-500/10 text-blue-400 text-[9px] font-bold rounded uppercase">
+                                  {matchedU.role === 'student' ? 'Öğrenci' : matchedU.role === 'parent' ? 'Veli' : 'Kayıtlı Kullanıcı'}
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="p-4 max-w-md">
+                              {msg.isTemplate && (
+                                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-purple-500/10 border border-purple-500/20 text-purple-300 text-[10px] font-bold rounded mb-1.5">
+                                  <Sparkles size={11} />
+                                  <span>Şablon: {msg.templateName || 'Standart'}</span>
+                                </div>
+                              )}
+                              <p className="text-xs text-slate-200 line-clamp-3 whitespace-pre-wrap leading-relaxed">
+                                {msg.body || '(Boş Mesaj)'}
+                              </p>
+                              {msg.templateButtons && msg.templateButtons.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {msg.templateButtons.map((btn, bIdx) => (
+                                    <a
+                                      key={bIdx}
+                                      href={btn.url || '#'}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="px-2 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[10px] font-bold rounded flex items-center gap-1"
+                                    >
+                                      <span>{btn.text}</span>
+                                      <ExternalLink size={10} />
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+
+                            <td className="p-4 whitespace-nowrap">
+                              <div className="space-y-1">
+                                {msg.messageSid ? (
+                                  <button
+                                    onClick={() => copyToClipboard(msg.messageSid!, `sid_${msg.id}`)}
+                                    className="font-mono text-[11px] text-slate-400 hover:text-white flex items-center gap-1 bg-slate-950 px-2 py-1 rounded border border-white/5 cursor-pointer"
+                                    title="Tıkla ve Twilio SID Kopyala"
+                                  >
+                                    <span className="truncate max-w-[110px]">{msg.messageSid}</span>
+                                    {copiedField === `sid_${msg.id}` ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                                  </button>
+                                ) : (
+                                  <span className="text-[11px] text-slate-500 italic">-</span>
+                                )}
+
+                                <div>
+                                  {msg.status === 'read' ? (
+                                    <span className="px-2 py-0.5 bg-blue-500/10 border border-blue-500/30 text-blue-400 text-[10px] font-bold rounded-full inline-flex items-center gap-1">
+                                      <CheckCircle2 size={11} /> Okundu
+                                    </span>
+                                  ) : msg.status === 'delivered' ? (
+                                    <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold rounded-full inline-flex items-center gap-1">
+                                      <CheckCircle2 size={11} /> İletildi
+                                    </span>
+                                  ) : msg.status === 'sent' ? (
+                                    <span className="px-2 py-0.5 bg-slate-800 border border-slate-700 text-slate-300 text-[10px] font-bold rounded-full inline-flex items-center gap-1">
+                                      <Check size={11} /> Gönderildi
+                                    </span>
+                                  ) : msg.status === 'failed' || msg.status === 'undelivered' ? (
+                                    <span className="px-2 py-0.5 bg-rose-500/10 border border-rose-500/30 text-rose-400 text-[10px] font-bold rounded-full inline-flex items-center gap-1" title={msg.errorMessage || 'Hata'}>
+                                      <AlertCircle size={11} /> Hata ({msg.errorCode || 'Fail'})
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 bg-purple-500/10 border border-purple-500/30 text-purple-300 text-[10px] font-bold rounded-full inline-flex items-center gap-1">
+                                      ⚡ Simülasyon
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+
+                            <td className="p-4 text-right whitespace-nowrap">
+                              <button
+                                onClick={() => {
+                                  setSelectedPhone(msg.phone);
+                                  setWhatsAppSubTab('all');
+                                }}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all shadow cursor-pointer inline-flex items-center gap-1"
+                              >
+                                <span>Sohbete Git</span>
+                                <ChevronRight size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : whatsAppSubTab === 'errors' ? (
+            <div className="space-y-6">
+              <div className="bg-rose-950/30 border border-rose-500/20 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-rose-500/10 text-rose-400 rounded-2xl border border-rose-500/20">
+                    <AlertCircle size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Hatalı & Başarısız WhatsApp Mesaj Logları</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Twilio webhook'larından veya sunucu isteklerinden alınan hata kodları ve başarısız iletimler.
+                    </p>
+                  </div>
+                </div>
+                <div className="px-4 py-2 bg-rose-500/10 border border-rose-500/30 text-rose-400 font-bold text-sm rounded-xl flex items-center gap-2">
+                  <span>Toplam Hata Sayısı:</span>
+                  <span className="text-lg font-black">{failedMessages.length}</span>
+                </div>
+              </div>
+
+              {failedMessages.length === 0 ? (
+                <div className="bg-slate-900 border border-white/5 rounded-2xl p-12 text-center">
+                  <CheckCircle2 size={40} className="mx-auto text-emerald-400 mb-3" />
+                  <h4 className="text-white font-bold text-base">Harika! Hatalı Mesaj Bulunmuyor</h4>
+                  <p className="text-slate-400 text-xs mt-1">Tüm gönderilen WhatsApp mesajları başarıyla iletildi.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {failedMessages.map((msg) => {
+                    const matchedU = findMatchedUser(msg.phone);
+                    const formattedDate = msg.timestamp?.toDate
+                      ? format(msg.timestamp.toDate(), 'dd.MM.yyyy HH:mm:ss', { locale: tr })
+                      : msg.timestamp?.seconds
+                        ? format(new Date(msg.timestamp.seconds * 1000), 'dd.MM.yyyy HH:mm:ss', { locale: tr })
+                        : 'Tarih Belirsiz';
+
+                    return (
+                      <div key={msg.id} className="bg-slate-900 border border-rose-500/20 rounded-2xl p-5 shadow-xl space-y-4 flex flex-col justify-between">
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                            <div>
+                              <span className="font-bold text-white text-sm block">
+                                {matchedU ? `${matchedU.firstName || ''} ${matchedU.lastName || ''}`.trim() : msg.senderName || 'Bilinmeyen Müşteri'}
+                              </span>
+                              <span className="text-xs text-slate-400 font-mono block mt-0.5">{msg.phone}</span>
+                            </div>
+                            <span className="px-2.5 py-1 bg-rose-500/10 border border-rose-500/30 text-rose-400 font-mono font-bold text-xs rounded-lg">
+                              Hata Kodu: {msg.errorCode || '30008'}
+                            </span>
+                          </div>
+
+                          <div className="bg-slate-950 border border-white/5 p-3 rounded-xl space-y-1">
+                            <span className="text-[10px] uppercase font-bold text-rose-400 tracking-wider block">Hata Açıklaması:</span>
+                            <p className="text-xs text-slate-200 leading-relaxed font-medium">
+                              {msg.errorCode == 63016
+                                ? '⚠️ 24 saatlik yanıt penceresi dolmuş. Bu kullanıcıya yalnızca önceden Meta onaylı WhatsApp Şablon Mesajı gönderilebilir.'
+                                : msg.errorCode == 30008
+                                  ? '⚠️ Mesaj teslim edilemedi. Müşterinin telefonu kapalı, kapsama alanı dışında veya numara WhatsApp kullanmıyor.'
+                                  : msg.errorMessage || 'Mesaj iletimi sırasında beklenmeyen sunucu/sağlayıcı hatası oluştu.'}
+                            </p>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-[10px] uppercase font-bold text-slate-400">Gönderilmeye Çalışılan Mesaj:</span>
+                            <p className="text-xs text-slate-300 bg-slate-950/60 p-2.5 rounded-lg border border-white/5 line-clamp-3">
+                              {msg.body}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="pt-3 border-t border-white/5 flex items-center justify-between gap-2">
+                          <span className="text-[10px] text-slate-500 font-mono">{formattedDate}</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                setSelectedPhone(msg.phone);
+                                setShowTemplateModal(true);
+                              }}
+                              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-xl transition-all shadow flex items-center gap-1 cursor-pointer"
+                            >
+                              <Sparkles size={12} />
+                              <span>Şablon Olarak Gönder</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedPhone(msg.phone);
+                                setWhatsAppSubTab('all');
+                              }}
+                              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                            >
+                              <span>Sohbete Git</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1469,7 +2169,13 @@ export default function AdminInbox() {
               const groupedMessages: GroupedMessages[] = [];
               let currentGroup: GroupedMessages | null = null;
 
-              activeConv.messages.forEach((msg) => {
+              const chatMessages = showAllChatHistory 
+                ? activeConv.messages 
+                : activeConv.messages.slice(-20);
+
+              const hasOlderMessages = activeConv.messages.length > 20 && !showAllChatHistory;
+
+              chatMessages.forEach((msg) => {
                 const msgDate = msg.timestamp?.toDate 
                   ? msg.timestamp.toDate() 
                   : msg.timestamp?.seconds 
@@ -1558,7 +2264,19 @@ export default function AdminInbox() {
                   )}
 
                   {/* Mesaj Alanı */}
-                  <div className="flex-1 p-4 overflow-y-auto space-y-6 max-h-[460px] scrollbar-thin bg-slate-950/10">
+                  <div ref={chatScrollRef} className="flex-1 p-4 overflow-y-auto space-y-6 max-h-[460px] scrollbar-thin bg-slate-950/10">
+                    {hasOlderMessages && (
+                      <div className="flex justify-center mb-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowAllChatHistory(true)}
+                          className="px-3.5 py-1.5 bg-slate-800/90 hover:bg-slate-700 border border-white/10 text-blue-300 hover:text-white font-semibold text-xs rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <History size={13} />
+                          <span>Önceki Mesajları Yükle (Toplam {activeConv.messages.length} Mesaj)</span>
+                        </button>
+                      </div>
+                    )}
                     {groupedMessages.map((group, groupIndex) => (
                       <div key={groupIndex} className="space-y-4">
                         {/* Gün Başlığı */}
@@ -1648,16 +2366,64 @@ export default function AdminInbox() {
                                     )}
                                   </div>
                                 )}
-                                {msg.body}
+                                {msg.isTemplate && (
+                                  <div className="mb-1.5 inline-flex items-center gap-1 px-2 py-0.5 bg-black/20 text-emerald-200 text-[10px] font-bold rounded-md border border-white/10">
+                                    <Sparkles size={11} />
+                                    <span>Şablon: {msg.templateName || 'Meta Onaylı'}</span>
+                                  </div>
+                                )}
+                                <div>{msg.body}</div>
+                                {msg.templateButtons && msg.templateButtons.length > 0 && (
+                                  <div className="mt-2.5 pt-2 border-t border-white/15 flex flex-col gap-1.5">
+                                    {msg.templateButtons.map((btn, bIdx) => (
+                                      <a
+                                        key={bIdx}
+                                        href={btn.url || '#'}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="w-full py-1.5 px-3 bg-white/15 hover:bg-white/25 text-white font-bold text-xs rounded-lg flex items-center justify-center gap-1.5 transition-all text-center"
+                                      >
+                                        <span>{btn.text}</span>
+                                        <ExternalLink size={12} />
+                                      </a>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
-                              <span className="text-[10px] text-slate-500 mt-1 px-1 font-mono">
-                                {formattedTime}
-                              </span>
+                              <div className="flex items-center gap-1 text-[10px] text-slate-500 mt-1 px-1 font-mono">
+                                <span>{formattedTime}</span>
+                                {isMe && (
+                                  <span className="ml-1">
+                                    {msg.status === 'read' ? (
+                                      <span className="text-blue-400 font-bold inline-flex items-center gap-0.5" title="Müşteri Okudu">
+                                        <CheckCircle2 size={12} /> Okundu
+                                      </span>
+                                    ) : msg.status === 'delivered' ? (
+                                      <span className="text-emerald-400 font-bold inline-flex items-center gap-0.5" title="Müşteriye İletildi">
+                                        <CheckCircle2 size={12} /> İletildi
+                                      </span>
+                                    ) : msg.status === 'sent' ? (
+                                      <span className="text-slate-300 inline-flex items-center gap-0.5" title="Gönderildi">
+                                        <Check size={12} /> Gönderildi
+                                      </span>
+                                    ) : msg.status === 'failed' || msg.status === 'undelivered' ? (
+                                      <span className="text-rose-400 font-bold inline-flex items-center gap-0.5" title={msg.errorMessage || 'Başarısız'}>
+                                        <AlertCircle size={12} /> Hata
+                                      </span>
+                                    ) : (
+                                      <span className="text-purple-300 font-bold inline-flex items-center gap-0.5" title="Simülasyon">
+                                        ⚡ Simülasyon
+                                      </span>
+                                    )}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           );
                         })}
                       </div>
                     ))}
+                    <div ref={messagesEndRef} />
                   </div>
 
                   {/* Mesaj Yazma Alanı */}
@@ -1670,6 +2436,16 @@ export default function AdminInbox() {
                         <p className="text-xs text-slate-400 leading-relaxed">
                           WhatsApp Business politikaları gereğince, müşterinin son mesajından itibaren 24 saat geçtiğinde serbest yazışma penceresi kapanır. Sadece şablon mesajlar gönderilebilir. Normal sohbet girişi pasiftir.
                         </p>
+                        <div className="pt-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowTemplateModal(true)}
+                            className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-xl transition-all shadow-lg inline-flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Sparkles size={14} />
+                            <span>Onaylı Şablon Mesaj Gönder</span>
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <div className="space-y-2">
@@ -1727,6 +2503,15 @@ export default function AdminInbox() {
                             title="Belge veya Dosya Ekle"
                           >
                             <Paperclip size={18} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowTemplateModal(true)}
+                            disabled={isSending}
+                            className="p-3 bg-purple-950/40 hover:bg-purple-900/60 border border-purple-500/30 text-purple-300 hover:text-purple-100 rounded-xl transition-all flex items-center justify-center shrink-0 cursor-pointer"
+                            title="Meta Onaylı Şablon Mesaj Gönder"
+                          >
+                            <Sparkles size={18} />
                           </button>
                           <input
                             type="text"
@@ -1897,6 +2682,154 @@ export default function AdminInbox() {
               </div>
             )
           )}
+        </div>
+      )}
+
+      {/* Onaylı WhatsApp Şablonu Gönderme Modalı */}
+      {showTemplateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-purple-500/30 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-white/5 pb-4">
+              <div className="flex items-center gap-2 text-purple-400">
+                <Sparkles size={20} />
+                <h3 className="text-base font-bold text-white">Meta Onaylı WhatsApp Şablon Mesajı</h3>
+              </div>
+              <button
+                onClick={() => setShowTemplateModal(false)}
+                className="p-1 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Alıcı Telefon Numarası
+                </label>
+                <input
+                  type="text"
+                  value={selectedPhone}
+                  onChange={(e) => setSelectedPhone(e.target.value)}
+                  placeholder="+905xxxxxxxxx"
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Şablon Seçin
+                </label>
+                <select
+                  value={selectedTemplateForSend}
+                  onChange={(e) => setSelectedTemplateForSend(e.target.value as any)}
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-purple-500 font-semibold"
+                >
+                  <option value="haftalik_veli_raporu_v1">📊 Haftalık Veli & Öğrenci Raporu</option>
+                  <option value="focuson_otp_code">🔑 Doğrulama & Giriş Kodu (OTP)</option>
+                  <option value="randevu_hatirlatma">📅 Randevu & Ders Hatırlatma</option>
+                  <option value="kocluk_bilgilendirme">📚 Eğitim Koçluğu & Görev Tanımlama</option>
+                </select>
+              </div>
+
+              {selectedTemplateForSend === 'haftalik_veli_raporu_v1' && (
+                <div className="space-y-3 bg-slate-950/60 p-3.5 rounded-xl border border-purple-500/20">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      Öğrenci Adı Soyadı (Şablon Değişkeni {"{{1}}"})
+                    </label>
+                    <input
+                      type="text"
+                      value={templateCustomName}
+                      onChange={(e) => setTemplateCustomName(e.target.value)}
+                      placeholder="Örn: Ahmet Yılmaz"
+                      className="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      PDF / Rapor Linki (Buton Bağlantısı)
+                    </label>
+                    <input
+                      type="text"
+                      value={templateCustomLink}
+                      onChange={(e) => setTemplateCustomLink(e.target.value)}
+                      placeholder="https://omernasuhakademi.com/veli-girisi"
+                      className="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white font-mono outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedTemplateForSend === 'focuson_otp_code' && (
+                <div className="bg-slate-950/60 p-3.5 rounded-xl border border-purple-500/20">
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Doğrulama Kodu (OTP {"{{1}}"})
+                  </label>
+                  <input
+                    type="text"
+                    value={templateCustomName}
+                    onChange={(e) => setTemplateCustomName(e.target.value)}
+                    placeholder="Örn: 849201"
+                    className="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white font-mono outline-none focus:border-purple-500"
+                  />
+                </div>
+              )}
+
+              {(selectedTemplateForSend === 'randevu_hatirlatma' || selectedTemplateForSend === 'kocluk_bilgilendirme') && (
+                <div className="bg-slate-950/60 p-3.5 rounded-xl border border-purple-500/20">
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Detay Metni / Tarih ({"{{1}}"})
+                  </label>
+                  <input
+                    type="text"
+                    value={templateCustomName}
+                    onChange={(e) => setTemplateCustomName(e.target.value)}
+                    placeholder={selectedTemplateForSend === 'randevu_hatirlatma' ? 'Yarın saat 16:30' : 'Haftalık LGS Matematik Denemesi'}
+                    className="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-purple-500"
+                  />
+                </div>
+              )}
+
+              {/* Canlı Şablon Önizlemesi */}
+              <div className="bg-slate-950 p-3 rounded-xl border border-white/5 space-y-1.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Gönderilecek Şablon Görünümü</span>
+                <p className="text-xs text-emerald-300 bg-emerald-950/30 p-2.5 rounded-lg border border-emerald-500/20 leading-relaxed font-sans whitespace-pre-wrap">
+                  {selectedTemplateForSend === 'haftalik_veli_raporu_v1'
+                    ? `Sayın Velimiz,\n\n${templateCustomName.trim() || 'Değerli Öğrencimiz'} isimli öğrencimizin haftalık gelişim ve koçluk değerlendirme raporu oluşturulmuştur.\n\n📄 Haftalık PDF Raporu:\n${templateCustomLink.trim() || 'https://omernasuhakademi.com/veli-girisi'}\n\nFocusON Akademi Rehberlik Birimi`
+                    : selectedTemplateForSend === 'focuson_otp_code'
+                      ? `FocusON Akademi doğrulama ve giriş kodunuz: ${templateCustomName.trim() || '123456'}`
+                      : selectedTemplateForSend === 'randevu_hatirlatma'
+                        ? `Sayın Velimiz / Öğrencimiz,\n\nFocusON Akademi randevunuz/dersiniz ${templateCustomName.trim() || 'Yarın saat 15:00'} olarak planlanmıştır. Katılımınızı bekliyoruz.`
+                        : `Merhaba,\n\nEğitim koçunuz yeni ödev ve görev tanımlamıştır: ${templateCustomName.trim() || 'Haftalık Soru Hedefi Görevi'}. Başarılar dileriz!`}
+                </p>
+                <div className="flex items-center gap-1.5 pt-1">
+                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 text-[10px] font-bold rounded">
+                    🔘 [Buton] Portal/Rapor Bağlantısı
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/5">
+              <button
+                type="button"
+                onClick={() => setShowTemplateModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl transition-all cursor-pointer"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={handleSendTemplateMessage}
+                disabled={isSendingTemplateMsg || !selectedPhone}
+                className="px-5 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-purple-600/20"
+              >
+                {isSendingTemplateMsg ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
+                <span>{isSendingTemplateMsg ? 'Şablon Gönderiliyor...' : 'Şablon Mesajı Gönder'}</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

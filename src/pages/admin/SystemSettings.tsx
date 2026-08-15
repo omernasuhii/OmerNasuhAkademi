@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { doc, getDoc, setDoc, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { Settings, Save, Shield, MessageSquare, Send, Smartphone, Clock, User, RefreshCw, CreditCard, Sparkles, Check, Activity, Terminal, AlertTriangle, CheckCircle2, XCircle, Play, ChevronDown, ChevronUp, FileText } from 'lucide-react';
+import { Settings, Save, Shield, MessageSquare, Send, Smartphone, Clock, User, RefreshCw, CreditCard, Sparkles, Check, Activity, Terminal, AlertTriangle, CheckCircle2, XCircle, Play, ChevronDown, ChevronUp, FileText, Bell } from 'lucide-react';
 import { paytrService } from '../../services/paytrService';
 
 export default function SystemSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [bypassVerification, setBypassVerification] = useState(false);
+  const [subscriptionRemindersEnabled, setSubscriptionRemindersEnabled] = useState(true);
   const [message, setMessage] = useState('');
   
   // PayTR Sanal POS States
@@ -77,7 +78,9 @@ export default function SystemSettings() {
     try {
       const snap = await getDoc(doc(db, 'settings', 'system'));
       if (snap.exists()) {
-        setBypassVerification(snap.data().bypassVerification || snap.data().bypassInternalVerification || false);
+        const data = snap.data();
+        setBypassVerification(data.bypassVerification || data.bypassInternalVerification || false);
+        setSubscriptionRemindersEnabled(data.subscriptionRemindersEnabled ?? true);
       }
       
       const paytr = await paytrService.getSettings();
@@ -121,7 +124,8 @@ export default function SystemSettings() {
     setMessage('');
     try {
       await setDoc(doc(db, 'settings', 'system'), {
-        bypassVerification
+        bypassVerification,
+        subscriptionRemindersEnabled
       }, { merge: true });
       setMessage('Ayarlar başarıyla kaydedildi.');
       setTimeout(() => setMessage(''), 3000);
@@ -206,6 +210,27 @@ export default function SystemSettings() {
                 onChange={e => setBypassVerification(e.target.checked)}
               />
               <div className="w-14 h-7 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-500"></div>
+            </label>
+          </div>
+          
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl gap-4">
+            <div>
+              <h3 className="text-white font-bold text-sm mb-1 flex items-center gap-2">
+                <Bell size={16} className="text-emerald-400" />
+                Abonelik Yenileme Hatırlatmaları (WhatsApp)
+              </h3>
+              <p className="text-slate-400 text-xs">
+                Öğrencilerin abonelik bitişine 5 ve 1 gün kala bakiyesi yetersizse veliye (WhatsApp üzerinden) otomatik hatırlatma mesajı gönderilir.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer ml-4 shrink-0">
+              <input 
+                type="checkbox" 
+                className="sr-only peer"
+                checked={subscriptionRemindersEnabled}
+                onChange={e => setSubscriptionRemindersEnabled(e.target.checked)}
+              />
+              <div className="w-14 h-7 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-500"></div>
             </label>
           </div>
         </div>

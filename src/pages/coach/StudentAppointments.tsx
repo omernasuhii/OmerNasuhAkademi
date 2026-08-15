@@ -6,6 +6,7 @@ import { tourService } from '../../services/tourService';
 import AppointmentList from '../../components/appointments/AppointmentList';
 import { Calendar, Sparkles } from 'lucide-react';
 import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
+import NoStudentSelected from '../../components/NoStudentSelected';
 import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
 
 export default function StudentAppointments() {
@@ -48,6 +49,10 @@ export default function StudentAppointments() {
       position: 'top'
     }
   ];
+
+  if (!activeStudent) {
+    return <NoStudentSelected />;
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">

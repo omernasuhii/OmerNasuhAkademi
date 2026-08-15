@@ -10,6 +10,7 @@ import { Bot, User, UserSquare2, MessageSquare, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
+import NoStudentSelected from '../../components/NoStudentSelected';
 import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
 
 interface Message {
@@ -146,7 +147,7 @@ export default function StudentAIChats() {
           sLastViewed = await studentDataService.getCoachAIChatViewCount(user.uid, activeStudent.uid);
         }
 
-        if (sMessages.length === 0) {
+        if (sMessages.length === 0 && isTourOpen) {
           sMessages = DEMO_STUDENT_MESSAGES;
         }
         
@@ -178,7 +179,7 @@ export default function StudentAIChats() {
           }
         }
 
-        if (pMessages.length === 0) {
+        if (pMessages.length === 0 && isTourOpen) {
           pMessages = DEMO_PARENT_MESSAGES;
           hasParent = true;
         }
@@ -193,9 +194,11 @@ export default function StudentAIChats() {
 
       } catch (err) {
         console.error('Error loading AI chats:', err);
-        setStudentMessages(DEMO_STUDENT_MESSAGES);
-        setParentMessages(DEMO_PARENT_MESSAGES);
-        setParentExists(true);
+        if (isTourOpen) {
+          setStudentMessages(DEMO_STUDENT_MESSAGES);
+          setParentMessages(DEMO_PARENT_MESSAGES);
+          setParentExists(true);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -268,6 +271,10 @@ export default function StudentAIChats() {
         <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
       </div>
     );
+  }
+
+  if (!activeStudent) {
+    return <NoStudentSelected />;
   }
 
   return (

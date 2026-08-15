@@ -68,9 +68,7 @@ export default function NotificationsList() {
       } catch (e) { }
     }
     
-    if (notification.link) {
-      navigate(notification.link);
-    }
+    window.dispatchEvent(new CustomEvent('open-notification-modal', { detail: notification }));
   };
 
   const getIcon = (type: Notification['type']) => {

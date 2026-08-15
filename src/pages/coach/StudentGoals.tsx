@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useCurriculum } from '../../lib/CurriculumContext';
 import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
+import NoStudentSelected from '../../components/NoStudentSelected';
 import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
 
 interface TopicGoal {
@@ -159,7 +160,7 @@ export default function StudentGoals() {
         setTopicGoals(goalData.topicGoals || []);
         setBookGoals(goalData.bookGoals || []);
         setCoachNote(goalData.coachNote || '');
-      } else if (location.state?.startTour || location.state?.isDemo || !selectedStudent) {
+      } else if (location.state?.startTour || location.state?.isDemo) {
         setTopicGoals(DEMO_TOPIC_GOALS);
         setBookGoals(DEMO_BOOK_GOALS);
         setCoachNote(DEMO_COACH_NOTE);
@@ -170,7 +171,7 @@ export default function StudentGoals() {
       }
     } catch (error) {
       console.error('Error loading goals:', error);
-      if (location.state?.startTour || location.state?.isDemo || !selectedStudent) {
+      if (location.state?.startTour || location.state?.isDemo) {
         setTopicGoals(DEMO_TOPIC_GOALS);
         setBookGoals(DEMO_BOOK_GOALS);
         setCoachNote(DEMO_COACH_NOTE);
@@ -359,12 +360,7 @@ export default function StudentGoals() {
   }, [currentMonth]);
 
   if (!activeStudent) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] text-slate-500">
-        <AlertCircle size={48} className="mb-4 opacity-20" />
-        <p>Lütfen bir öğrenci seçin.</p>
-      </div>
-    );
+    return <NoStudentSelected />;
   }
 
   return (

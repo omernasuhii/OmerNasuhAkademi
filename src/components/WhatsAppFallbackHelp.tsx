@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { MessageCircle, QrCode, Send, RefreshCw, CheckCircle2, ChevronDown, ChevronUp, Copy, Check, ShieldCheck } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { MessageCircle, QrCode, Send, RefreshCw, ChevronDown, ChevronUp, Copy, Check, ShieldCheck } from "lucide-react";
 
 interface WhatsAppFallbackHelpProps {
   phone: string;
@@ -11,14 +11,27 @@ export const WhatsAppFallbackHelp: React.FC<WhatsAppFallbackHelpProps> = ({ phon
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [targetWaNumber, setTargetWaNumber] = useState<string>("14155238886");
+
+  useEffect(() => {
+    fetch("/api/whatsapp-status")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.whatsappNumber) {
+          const cleaned = data.whatsappNumber.replace(/\D/g, "");
+          if (cleaned) setTargetWaNumber(cleaned);
+        }
+      })
+      .catch((err) => console.log("Failed to fetch WhatsApp status in fallback help:", err));
+  }, []);
 
   // Format clean phone for identifier
   const cleanPhone = phone.replace(/\D/g, "");
   const formattedPhoneForId = cleanPhone.length >= 10 ? cleanPhone : phone;
   const uniqueUserCode = `FO-${formattedPhoneForId.slice(-8)}`;
 
-  const destinationNumber = "15554881868";
-  const displayDestination = "+1 555 488 1868";
+  const destinationNumber = targetWaNumber;
+  const displayDestination = destinationNumber.startsWith("+") ? destinationNumber : `+${destinationNumber}`;
 
   const prefilledMessage = `FocusON Akademi Doğrulama Kodu İsteği: ${uniqueUserCode}`;
   const whatsappUrl = `https://wa.me/${destinationNumber}?text=${encodeURIComponent(prefilledMessage)}`;

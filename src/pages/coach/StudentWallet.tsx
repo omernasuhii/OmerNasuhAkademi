@@ -8,6 +8,7 @@ import { studentDataService } from '../../services/studentDataService';
 import { isSubscriptionActive, checkAndRenewSubscription } from '../../services/subscriptionService';
 import { motion, AnimatePresence } from 'motion/react';
 import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
+import NoStudentSelected from '../../components/NoStudentSelected';
 import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
 
 const DEMO_TRANSACTIONS = [
@@ -111,14 +112,14 @@ export default function StudentWallet() {
       const txs = await studentDataService.getWalletTransactions(activeStudent.uid);
       if (txs && txs.length > 0) {
         setTransactions(txs);
-      } else if (location.state?.startTour || location.state?.isDemo || !selectedStudent) {
+      } else if (location.state?.startTour || location.state?.isDemo) {
         setTransactions(DEMO_TRANSACTIONS);
       } else {
         setTransactions([]);
       }
     } catch (err) {
       console.error(err);
-      if (location.state?.startTour || location.state?.isDemo || !selectedStudent) {
+      if (location.state?.startTour || location.state?.isDemo) {
         setTransactions(DEMO_TRANSACTIONS);
       }
     }
@@ -163,11 +164,7 @@ export default function StudentWallet() {
   };
 
   if (!activeStudent) {
-    return (
-      <div className="flex items-center justify-center h-64 text-slate-500 text-sm italic">
-        Lütfen önce bir öğrenci seçin.
-      </div>
-    );
+    return <NoStudentSelected />;
   }
 
   const currentBalance = activeStudent.walletBalance ?? 750;
