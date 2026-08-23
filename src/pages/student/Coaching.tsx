@@ -8,7 +8,8 @@ import BookTrackingDetail from './BookTrackingDetail';
 import { CheckCircle2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Target, Flame, Sparkles, Plus, X, StickyNote, Info, Youtube, Play } from 'lucide-react';
 
 export default function Coaching() {
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
+  const currentUid = userData?.uid || user?.uid;
   const [centerDate, setCenterDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [dailyPrograms, setDailyPrograms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,7 +30,7 @@ export default function Coaching() {
     if (bookId.startsWith('virtual-')) {
       const isSecond = bookId.endsWith('-2');
       const index = isSecond ? 1 : 2;
-      const subjectBooks = books
+      const subjectBooks = (books || [])
         .filter(b => b.subject === subject && (b.resourceType === 'soru' || !b.resourceType))
         .sort((a,b) => {
             const orderA = a.order !== undefined ? a.order : Number.MAX_SAFE_INTEGER;
@@ -38,7 +39,7 @@ export default function Coaching() {
         });
       return subjectBooks[index] || null;
     }
-    return books.find(b => b.id === bookId) || null;
+    return (books || []).find(b => b.id === bookId) || null;
   };
 
   const centerDateObj = new Date(centerDate);
@@ -56,21 +57,20 @@ export default function Coaching() {
 
   useEffect(() => {
     fetchData();
-  }, [centerDate]);
+  }, [centerDate, currentUid]);
 
   const fetchData = async () => {
-    const user = auth.currentUser;
-    if (!user) return;
+    if (!currentUid) return;
     setLoading(true);
 
     const dateStrs = days.map(d => d.date);
 
     const [programsArray, trackerData, globalBooksData, routinesData, userExams] = await Promise.all([
-      studentDataService.getDailyPrograms(user.uid, dateStrs),
-      studentDataService.getBookTracking(user.uid),
+      studentDataService.getDailyPrograms(currentUid, dateStrs),
+      studentDataService.getBookTracking(currentUid),
       studentDataService.getGlobalBooks(),
-      studentDataService.getRoutines(user.uid),
-      studentDataService.getExamResults(user.uid)
+      studentDataService.getRoutines(currentUid),
+      studentDataService.getExamResults(currentUid)
     ]);
     
     const mergedBooks = trackerData.map((tb: any) => {
@@ -91,22 +91,24 @@ export default function Coaching() {
         let dp = updatedProgramsArray.find(p => p.date === dateStr);
         if (!dp) {
              dp = {
-                 studentId: user.uid,
+                 studentId: currentUid,
                  date: dateStr,
                  tasks: []
              };
              updatedProgramsArray.push(dp);
+        } else if (!dp.tasks) {
+             dp.tasks = [];
         }
 
         // Sync deneme results with tasks on dateStr sequentially
-        if (userExams) {
-            const dateExams = userExams.filter((e: any) => e.date === dateStr || (e.examType === 'YKS' && e.aytDate === dateStr));
+        if (userExams && Array.isArray(userExams)) {
+            const dateExams = userExams.filter((e: any) => e && (e.date === dateStr || (e.examType === 'YKS' && e.aytDate === dateStr)));
 
             const isDenemeTask = (t: any) => 
                 t.topic?.includes('Deneme') || t.subject?.includes('Genel') || t.subject?.includes('YDT') || t.branch === 'Denemeler' || t.type === 'Deneme';
 
-            const assignedDenemeTasks = dp.tasks.filter((t: any) => isDenemeTask(t) && !t.id?.startsWith('exam-sync-'));
-            const nonDenemeTasks = dp.tasks.filter((t: any) => !isDenemeTask(t));
+            const assignedDenemeTasks = (dp.tasks || []).filter((t: any) => isDenemeTask(t) && !t.id?.startsWith('exam-sync-'));
+            const nonDenemeTasks = (dp.tasks || []).filter((t: any) => !isDenemeTask(t));
 
             const updatedDenemeTasks: any[] = [];
 
@@ -217,7 +219,7 @@ export default function Coaching() {
             return { ...p, studentNote };
         });
         if (!found) {
-            mapped.push({ date, studentId: auth.currentUser!.uid, tasks: [], studentNote });
+            mapped.push({ date, studentId: currentUid!, tasks: [], studentNote });
         }
         return mapped;
     });
@@ -242,9 +244,8 @@ export default function Coaching() {
         const isDeneme = targetTask.topic?.includes('Deneme') || targetTask.subject?.includes('Genel') || targetTask.subject?.includes('YDT') || targetTask.branch === 'Denemeler' || targetTask.type === 'Deneme';
         if (isDeneme) {
             try {
-                const user = auth.currentUser;
-                if (user) {
-                    const exams = await studentDataService.getExamResults(user.uid);
+                if (currentUid) {
+                    const exams = await studentDataService.getExamResults(currentUid);
                     // Check if there is an exam result on this day
                     const hasExam = exams.some((e: any) => e.date === date);
                     if (!hasExam) {
@@ -287,9 +288,9 @@ export default function Coaching() {
     }
 
     // Otomatik Aylık Konu Hedefi İşaretleme
-    if (auth.currentUser && targetTask && targetTask.subject && targetTask.topic) {
+    if (currentUid && targetTask && targetTask.subject && targetTask.topic) {
         await studentDataService.autoCompleteMonthlyTopicGoal(
-            auth.currentUser.uid, 
+            currentUid, 
             targetTask.subject, 
             targetTask.topic, 
             date, 
@@ -313,20 +314,20 @@ export default function Coaching() {
     };
 
     if (!currentDone) {
-      if (auth.currentUser) {
-        await await studentDataService.awardXP(auth.currentUser.uid, getTaskXP(updatedTasks.find((t:any) => t.id === taskId)?.type), 'Görev Tamamlandı');
+      if (currentUid) {
+        await studentDataService.awardXP(currentUid, getTaskXP(updatedTasks.find((t:any) => t.id === taskId)?.type), 'Görev Tamamlandı');
       }
     } else {
-      if (auth.currentUser) {
-        await await studentDataService.awardXP(auth.currentUser.uid, -getTaskXP(updatedTasks.find((t:any) => t.id === taskId)?.type), 'Görev İptal Edildi');
+      if (currentUid) {
+        await studentDataService.awardXP(currentUid, -getTaskXP(updatedTasks.find((t:any) => t.id === taskId)?.type), 'Görev İptal Edildi');
       }
     }
 
     // If we just marked a task as done, check if ALL tasks are now done
     if (!currentDone && updatedTasks.length > 0 && updatedTasks.every((t: any) => t.isDone)) {
       try {
-        if (auth.currentUser) {
-          await notificationService.addNotification(auth.currentUser.uid, {
+        if (currentUid) {
+          await notificationService.addNotification(currentUid, {
             title: 'Günlük Hedef Tamamlandı',
             message: 'Harika! Bugünkü tüm görevlerini başarıyla tamamladın. 🚀',
             type: 'success',
@@ -369,12 +370,12 @@ export default function Coaching() {
       }
     };
     if (!currentWaiting) {
-      if (auth.currentUser) {
-        await studentDataService.awardXP(auth.currentUser.uid, getTaskXP(targetTask.type), 'Görev Tamamlandı');
+      if (currentUid) {
+        await studentDataService.awardXP(currentUid, getTaskXP(targetTask.type), 'Görev Tamamlandı');
       }
     } else {
-      if (auth.currentUser) {
-        await studentDataService.awardXP(auth.currentUser.uid, -getTaskXP(targetTask.type), 'Görev İptal Edildi');
+      if (currentUid) {
+        await studentDataService.awardXP(currentUid, -getTaskXP(targetTask.type), 'Görev İptal Edildi');
       }
     }
   };
@@ -409,8 +410,8 @@ export default function Coaching() {
                    return 10;
                }
              };
-             if (auth.currentUser) {
-                 await await studentDataService.awardXP(auth.currentUser.uid, t.isDone ? getTaskXP(t.type) : -getTaskXP(t.type), t.isDone ? 'Görev Tamamlandı' : 'Görev İptal Edildi');
+             if (currentUid) {
+                 await studentDataService.awardXP(currentUid, t.isDone ? getTaskXP(t.type) : -getTaskXP(t.type), t.isDone ? 'Görev Tamamlandı' : 'Görev İptal Edildi');
              }
              
              // Otomatik Kitap Takibi İşaretleme
@@ -418,9 +419,9 @@ export default function Coaching() {
                  const book = resolveVirtualBook(t.bookId, t.subject);
 
                  // Otomatik Aylık Konu Hedefi İşaretleme
-                 if (auth.currentUser && t.subject && t.topic) {
+                 if (currentUid && t.subject && t.topic) {
                      studentDataService.autoCompleteMonthlyTopicGoal(
-                         auth.currentUser.uid,
+                         currentUid,
                          t.subject,
                          t.topic,
                          date,
@@ -448,8 +449,8 @@ export default function Coaching() {
              
              // check if all are done to send notification
              if (t.isDone && dayProgram.tasks.every((task:any) => task.isDone)) {
-                 if (auth.currentUser) {
-                     notificationService.addNotification(auth.currentUser.uid, {
+                 if (currentUid) {
+                     notificationService.addNotification(currentUid, {
                          title: 'Günlük Hedef Tamamlandı',
                          message: 'Harika! Bugünkü tüm görevlerini başarıyla tamamladın. 🚀',
                          type: 'success',
@@ -486,7 +487,9 @@ export default function Coaching() {
       targetCount: Number(extraTask.targetCount) || (extraTask.type === 'Soru Çözümü' ? 50 : 0),
       completedCount: Number(extraTask.targetCount) || (extraTask.type === 'Soru Çözümü' ? 50 : 0),
       isDone: true,
-      isExtra: true
+      isExtra: true,
+      addedBy: 'student',
+      isStudentAdded: true
     };
 
     const updatedProgram = { ...dayProgram, tasks: [...(dayProgram.tasks || []), newTask] };
@@ -494,7 +497,7 @@ export default function Coaching() {
     setDailyPrograms(prev => prev.map(p => p.date === selectedExtraDate ? updatedProgram : p));
     await studentDataService.saveDailyProgram(updatedProgram);
     
-    if (auth.currentUser) {
+    if (currentUid) {
         const getTaskXP = (type: string) => {
           switch (type) {
             case 'YouTube Video': return 2;
@@ -504,12 +507,12 @@ export default function Coaching() {
               return 10;
           }
         };
-        await await studentDataService.awardXP(auth.currentUser.uid, getTaskXP(newTask.type), 'Ekstra Görev Tamamlandı');
+        await studentDataService.awardXP(currentUid, getTaskXP(newTask.type), 'Ekstra Görev Tamamlandı');
     }
     
     try {
-      if (auth.currentUser) {
-        await notificationService.addNotification(auth.currentUser.uid, {
+      if (currentUid) {
+        await notificationService.addNotification(currentUid, {
           title: 'Ekstra Efor Tebriği',
           message: 'Harika bir çaba! Kendim Çalıştım diyerek ekstra görev ekledin ve çözdün. 🌟',
           type: 'success',
@@ -713,9 +716,9 @@ export default function Coaching() {
                                       }[tColor] || 'bg-indigo-500/10 text-white border-transparent hover:border-indigo-500/30';
 
                                       return (
-                                          <div key={task.id} className={`p-4 rounded-xl border transition-all ${task.isWaitingResult ? (isWaitingExpired ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-amber-500/10 border-amber-500/30 text-amber-400') : (task.isDone ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : bgClasses)}`}>
-                                             <div className="flex items-start justify-between gap-2">
-                                                <div>
+                                          <div key={task.id} className={`p-3.5 sm:p-4 rounded-xl border transition-all overflow-hidden ${task.isWaitingResult ? (isWaitingExpired ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-amber-500/10 border-amber-500/30 text-amber-400') : (task.isDone ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : bgClasses)}`}>
+                                              <div className="flex items-start justify-between gap-2 min-w-0">
+                                                 <div className="flex-1 min-w-0 pr-1">
                                                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                                                        <span className={`text-xs font-black uppercase opacity-80 flex items-center gap-1 ${task.type === 'YouTube Video' ? 'text-red-400' : task.isDone && !isWaitingExpired ? 'text-emerald-400' : isWaitingExpired ? 'text-red-400' : ''}`}>
                                                           {task.type === 'YouTube Video' && <Youtube size={12} className="text-red-400" />}
@@ -744,21 +747,7 @@ export default function Coaching() {
                                                            <StickyNote size={12} />
                                                        </button>
                                                     </div>
-                                                    <p className="text-sm font-black leading-tight mb-1">{task.subject}</p>
-                                                    <div className="flex items-center gap-2 mt-1">
-                                                       {task.topic && <p className="text-xs font-medium opacity-80 max-w-[200px] truncate" title={task.topic}>{task.topic}</p>}
-                                                       {task.videoUrl && (
-                                                          <a 
-                                                             href={task.videoUrl} 
-                                                             target="_blank" 
-                                                             rel="noreferrer" 
-                                                             className="text-[10px] text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0 font-bold transition-colors"
-                                                             title="YouTube'da İzle"
-                                                          >
-                                                             <Play size={8} fill="currentColor" /> İzle
-                                                          </a>
-                                                       )}
-                                                    </div>
+                                                   <p className="text-xs sm:text-sm font-black leading-snug break-words">{task.subject}</p>
                                                 </div>
                                                 {(() => {
                                                     const isDeneme = task.topic?.includes('Deneme') || task.subject?.includes('Genel') || task.subject?.includes('YDT') || task.branch === 'Denemeler' || task.type === 'Deneme';
@@ -861,15 +850,26 @@ export default function Coaching() {
                                                     
                                                     if (task.type === 'Soru Çözümü' || task.type === 'Konu Çalışması' || task.type === 'YouTube Video') {
                                                         return (
-                                                            <div className="flex items-center gap-2 shrink-0">
+                                                            <div className="flex flex-col items-center gap-1.5 shrink-0 ml-auto self-start">
                                                                 <input
                                                                   type="number"
                                                                   value={task.completedCount ?? ''}
                                                                   onChange={(e) => handleCompletedCountChange(day.date, task.id, e.target.value)}
                                                                   onBlur={() => saveTaskUpdate(day.date, task.id)}
                                                                   placeholder={task.type === 'YouTube Video' ? 'Video' : task.type === 'Konu Çalışması' ? 'Sayfa' : 'Soru'}
-                                                                  className="w-16 h-10 bg-black/20 border border-white/10 rounded-xl text-center text-white text-xs font-bold focus:outline-none focus:border-emerald-500 transition-colors"
+                                                                  className="w-14 sm:w-16 h-9 sm:h-10 bg-black/20 border border-white/10 rounded-xl text-center text-white text-xs font-black focus:outline-none focus:border-emerald-500 transition-colors shrink-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                                 />
+                                                                {task.type === 'YouTube Video' && task.videoUrl && (
+                                                                    <a 
+                                                                       href={task.videoUrl} 
+                                                                       target="_blank" 
+                                                                       rel="noreferrer" 
+                                                                       className="w-full text-[10px] text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 py-1 px-1.5 rounded-lg flex items-center justify-center gap-1 font-bold transition-colors border border-red-500/20 shadow-sm"
+                                                                       title="YouTube'da İzle"
+                                                                    >
+                                                                       <Play size={10} fill="currentColor" /> İzle
+                                                                    </a>
+                                                                )}
                                                             </div>
                                                         );
                                                     }
@@ -884,6 +884,14 @@ export default function Coaching() {
                                                     );
                                                 })()}
                                              </div>
+                                             
+                                             {task.topic && (
+                                                 <div className="mt-2 pt-2 border-t border-white/5 w-full">
+                                                     <p className="text-xs font-medium opacity-85 leading-snug break-words" title={task.topic}>
+                                                         {task.topic}
+                                                     </p>
+                                                 </div>
+                                             )}
                                              
                                              {openNotes[`task-${task.id}`] && (
                                                  <div className="mt-3 space-y-2">
@@ -949,6 +957,15 @@ export default function Coaching() {
                 <X size={20} />
               </button>
             </div>
+
+            {/* Bilgilendirme Notu */}
+            <div className="mx-4 mt-4 p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl flex items-start gap-2.5">
+              <Info className="text-indigo-400 shrink-0 mt-0.5" size={16} />
+              <p className="text-xs text-indigo-200/90 leading-relaxed">
+                <strong>Bilgi:</strong> Kendi başına bir deneme sınavı çözdüysen sonucunu <strong className="text-indigo-300">Deneme Girişi</strong> menüsünden sisteme kaydedebilirsin. Buradan ise ekstra soru çözümü, konu çalışması veya video izleme görevlerini ekleyebilirsin.
+              </p>
+            </div>
+
             <form onSubmit={handleAddExtraTask} className="p-4 space-y-4">
                <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Görev Tipi</label>
@@ -960,7 +977,6 @@ export default function Coaching() {
                      <option value="Soru Çözümü">Soru Çözümü</option>
                      <option value="Konu Çalışması">Konu Çalışması</option>
                      <option value="YouTube Video">YouTube Video</option>
-                     <option value="Deneme">Deneme</option>
                   </select>
                </div>
                <div>
@@ -1042,26 +1058,6 @@ export default function Coaching() {
                         <option value="Fransızca (YDT)">Fransızca (YDT)</option>
                         <option value="Arapça (YDT)">Arapça (YDT)</option>
                         <option value="Rusça (YDT)">Rusça (YDT)</option>
-                     </optgroup>
-                     
-                     <optgroup label="Denemeler">
-                        <option value="TYT Genel">TYT Genel</option>
-                        <option value="AYT Genel">AYT Genel</option>
-                        {userData?.grade === '9. Sınıf' && <option value="9. Sınıf Genel Denemesi">9. Sınıf Genel Denemesi</option>}
-                        {userData?.grade === '10. Sınıf' && <option value="10. Sınıf Genel Denemesi">10. Sınıf Genel Denemesi</option>}
-                        {userData?.grade === '11. Sınıf' && <option value="11. Sınıf Genel Denemesi">11. Sınıf Genel Denemesi</option>}
-                        <option value="TYT Matematik Denemesi">TYT Matematik Denemesi</option>
-                        <option value="TYT Türkçe Denemesi">TYT Türkçe Denemesi</option>
-
-                        <option value="TYT Fen Denemesi">TYT Fen Denemesi</option>
-                        <option value="TYT Sosyal Denemesi">TYT Sosyal Denemesi</option>
-                        <option value="AYT Matematik Denemesi">AYT Matematik Denemesi</option>
-                        <option value="AYT Fen Denemesi">AYT Fen Denemesi</option>
-                        <option value="AYT Edebiyat/Sosyal-1 Denemesi">AYT Edebiyat/Sosyal-1 Denemesi</option>
-                        <option value="AYT Sosyal-2 Denemesi">AYT Sosyal-2 Denemesi</option>
-                        <option value="YDT Denemesi">YDT Denemesi</option>
-                        <option value="Paragraf Denemesi">Paragraf Denemesi</option>
-                        <option value="Problem Denemesi">Problem Denemesi</option>
                      </optgroup>
                   </select>
                </div>

@@ -141,8 +141,8 @@ export function NotificationListener() {
       const now = Date.now();
       
       // Sadece yeni gelen ve okunmamış bildirimleri filtrele
-      const newNotifications = notifications.filter(
-        notif => !notif.isRead && new Date(notif.createdAt).getTime() > lastNotificationTime.current
+      const newNotifications = (notifications || []).filter(
+        notif => notif && !notif.isRead && new Date(notif.createdAt).getTime() > lastNotificationTime.current
       );
 
       if (newNotifications.length > 0) {

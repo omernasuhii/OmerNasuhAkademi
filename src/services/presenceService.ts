@@ -10,13 +10,26 @@ export interface UserPresenceData {
 
 let heartbeatInterval: any = null;
 let currentUserId: string | null = null;
+let lastSentStatus: boolean | null = null;
+let lastSentTime: number = 0;
+const THROTTLE_MS = 60000; // Only send presence updates at most once every 60 seconds while active
 
 export const presenceService = {
   /**
-   * Send presence update to Firestore
+   * Send presence update to Firestore with intelligent throttling
    */
-  updatePresence: async (userId: string, isOnline: boolean) => {
+  updatePresence: async (userId: string, isOnline: boolean, force: boolean = false) => {
     if (!userId) return;
+
+    const now = Date.now();
+    // If setting to same online state and within throttle window, skip redundant write
+    if (!force && lastSentStatus === isOnline && (now - lastSentTime < THROTTLE_MS)) {
+      return;
+    }
+
+    lastSentStatus = isOnline;
+    lastSentTime = now;
+
     try {
       await setDoc(
         doc(db, 'users', userId),
@@ -44,32 +57,34 @@ export const presenceService = {
     }
 
     currentUserId = userId;
+    lastSentStatus = null;
+    lastSentTime = 0;
 
-    // Send immediate online signal
-    presenceService.updatePresence(userId, true);
+    // Send initial online signal (forced once on login/mount)
+    presenceService.updatePresence(userId, true, true);
 
-    // Heartbeat every 30 seconds while page is active
+    // Steady heartbeat every 60 seconds while page is active
     heartbeatInterval = setInterval(() => {
       if (document.visibilityState === 'visible') {
-        presenceService.updatePresence(userId, true);
+        presenceService.updatePresence(userId, true, true);
       }
-    }, 30000);
+    }, 60000);
 
-    // Event handlers for tab focus/blur/visibility change
+    // Event handlers for tab focus/visibility change - throttled to prevent spam
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        presenceService.updatePresence(userId, true);
+        presenceService.updatePresence(userId, true, false);
       } else {
-        presenceService.updatePresence(userId, false);
+        presenceService.updatePresence(userId, false, true);
       }
     };
 
     const handleFocus = () => {
-      presenceService.updatePresence(userId, true);
+      presenceService.updatePresence(userId, true, false);
     };
 
     const handlePageHide = () => {
-      presenceService.updatePresence(userId, false);
+      presenceService.updatePresence(userId, false, true);
     };
 
     window.addEventListener('visibilitychange', handleVisibilityChange);
@@ -88,7 +103,7 @@ export const presenceService = {
       window.removeEventListener('pagehide', handlePageHide);
 
       if (currentUserId) {
-        presenceService.updatePresence(currentUserId, false);
+        presenceService.updatePresence(currentUserId, false, true);
         currentUserId = null;
       }
     };
@@ -96,7 +111,7 @@ export const presenceService = {
 
   /**
    * Evaluates whether a user is online in real time.
-   * Considers explicit isOnline flag AND freshness of lastSeenAt / lastLoginAt (within 2.5 mins).
+   * Considers explicit isOnline flag AND freshness of lastSeenAt / lastLoginAt (within 3.5 mins).
    */
   isOnline: (user: UserPresenceData | null | undefined): boolean => {
     if (!user) return false;
@@ -119,8 +134,8 @@ export const presenceService = {
     if (!timeMs || isNaN(timeMs)) return false;
 
     const diffSeconds = (Date.now() - timeMs) / 1000;
-    // Active if last update was within 150 seconds (2.5 mins)
-    return diffSeconds >= 0 && diffSeconds <= 150;
+    // Active if last update was within 210 seconds (3.5 mins to comfortably cover 60s heartbeats)
+    return diffSeconds >= 0 && diffSeconds <= 210;
   },
 
   /**

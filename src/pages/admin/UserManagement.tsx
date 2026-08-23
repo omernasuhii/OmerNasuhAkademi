@@ -17,16 +17,20 @@ import {
   Clock,
   X,
   LogOut,
-  LogIn
+  LogIn,
+  ExternalLink,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, getDocs, doc, updateDoc, deleteDoc, query, orderBy, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
 import { presenceService } from '../../services/presenceService';
+import { useNavigate, Link } from 'react-router-dom';
 
 export default function UserManagement() {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, setImpersonatedStudent } = useAuth();
+  const navigate = useNavigate();
   const [users, setUsers] = useState<any[]>([]);
   const [coaches, setCoaches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -168,6 +172,12 @@ export default function UserManagement() {
           <p className="text-slate-500 text-sm mt-1 font-medium italic">Tüm öğrenci, koç ve velilerin listesi ve hesap yönetimi.</p>
         </div>
         <div className="flex items-center gap-3">
+          <Link
+            to="/panel/ogrenci?teshis=true"
+            className="bg-red-600/20 border border-red-500/30 text-red-300 hover:text-white px-5 py-2.5 rounded-xl text-xs font-bold hover:bg-red-600 transition-all flex items-center gap-2 shadow-lg shadow-red-600/10"
+          >
+             <Sparkles size={16} /> Öğrenci Paneli İncele (Teşhis)
+          </Link>
           <button className="bg-slate-900 border border-white/10 text-white px-5 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-800 transition-all flex items-center gap-2">
              <Download size={16} /> Listeyi Dışa Aktar
           </button>
@@ -325,6 +335,18 @@ export default function UserManagement() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {user.role === 'student' && (
+                          <button
+                            onClick={() => {
+                              setImpersonatedStudent(user);
+                              navigate('/panel/ogrenci');
+                            }}
+                            className="bg-red-600/20 hover:bg-red-600 p-2 rounded-lg transition-all border border-red-500/30 text-red-300 hover:text-white"
+                            title="Bu Öğrencinin Paneline Git (Hata Ayıklama & İnceleme)"
+                          >
+                            <Sparkles size={16} />
+                          </button>
+                        )}
                         {user.role !== 'parent' && user.role !== 'admin' && (
                           <button 
                             onClick={() => handleToggleRole(user.id, user.role)}
@@ -491,6 +513,19 @@ export default function UserManagement() {
                 </div>
 
                 <div className="flex items-center justify-end gap-2 border-t border-white/5 pt-3">
+                  {user.role === 'student' && (
+                    <button
+                      onClick={() => {
+                        setImpersonatedStudent(user);
+                        navigate('/panel/ogrenci');
+                      }}
+                      className="bg-red-600/20 hover:bg-red-600 p-2 rounded-lg transition-all border border-red-500/30 text-red-300 hover:text-white flex items-center gap-1.5 text-xs font-bold"
+                      title="Bu Öğrencinin Paneline Git (Hata Ayıklama & İnceleme)"
+                    >
+                      <Sparkles size={14} />
+                      <span>Paneli Aç</span>
+                    </button>
+                  )}
                   {user.role !== 'parent' && user.role !== 'admin' && (
                     <button 
                       onClick={() => handleToggleRole(user.id, user.role)}

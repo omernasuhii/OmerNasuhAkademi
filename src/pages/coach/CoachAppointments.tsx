@@ -4,7 +4,7 @@ import { useAuth } from '../../lib/AuthContext';
 import { tourService } from '../../services/tourService';
 import AppointmentList from '../../components/appointments/AppointmentList';
 import CoachScheduleManager from '../../components/appointments/CoachScheduleManager';
-import { Calendar, Download, Sparkles, Settings, ListFilter, PlusCircle } from 'lucide-react';
+import { Calendar, Download, Sparkles, Settings, ListFilter, PlusCircle, Link2, Copy, Check } from 'lucide-react';
 import CoachBookingModal from '../../components/appointments/CoachBookingModal';
 import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
 
@@ -16,6 +16,16 @@ export default function CoachAppointments() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isTourOpen, setIsTourOpen] = useState(false);
+  const [showIcalModal, setShowIcalModal] = useState(false);
+  const [copiedIcal, setCopiedIcal] = useState(false);
+
+  const icalUrl = `${window.location.origin}/api/calendar/coach/${user?.uid}.ics`;
+
+  const copyIcalLink = () => {
+    navigator.clipboard.writeText(icalUrl);
+    setCopiedIcal(true);
+    setTimeout(() => setCopiedIcal(false), 2000);
+  };
 
   useEffect(() => {
     if (tourService.shouldAutoStartTour('coach_appointments', userData, location.state?.startTour)) {
@@ -89,6 +99,16 @@ export default function CoachAppointments() {
         </div>
 
         <div className="flex items-center gap-3">
+           <button
+             onClick={() => setActiveTab('settings')}
+             className={`font-bold py-3 px-5 rounded-2xl transition-all flex items-center gap-2 border ${
+               activeTab === 'settings'
+                 ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-600/20'
+                 : 'bg-slate-800 hover:bg-slate-700 text-white border-white/10'
+             }`}
+           >
+              <Link2 size={18} /> iCal Senkronizasyonu
+           </button>
            <button 
              id="tour-appointments-add"
              onClick={() => setIsModalOpen(true)}

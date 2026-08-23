@@ -43,7 +43,6 @@ export interface FirestoreErrorInfo {
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   if (!auth.currentUser) {
-    console.warn('Ignored Firestore error because user is not authenticated:', error);
     return;
   }
 
@@ -159,6 +158,16 @@ export interface CoachSchedule {
   weeklyHours: WeeklySchedule;
   manualBusySlots?: { date: string, start: string, end: string }[];
   blockedDates?: BlockedDate[];
+}
+
+export function calculateEndTime(startTime: string, durationMinutes: number = 45): string {
+  if (!startTime || !startTime.includes(':')) return startTime;
+  const [h, m] = startTime.split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return startTime;
+  const totalMin = h * 60 + m + durationMinutes;
+  const endH = Math.floor(totalMin / 60) % 24;
+  const endM = totalMin % 60;
+  return `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
 }
 
 export const appointmentService = {
@@ -317,8 +326,10 @@ export const appointmentService = {
   async bookAppointment(data: Omit<Booking, 'id' | 'createdAt' | 'updatedAt'>) {
     try {
       const colRef = collection(db, 'appointments');
+      const calculatedEndTime = data.endTime || (data.startTime ? calculateEndTime(data.startTime, 45) : undefined);
       const docRef = await addDoc(colRef, {
         ...data,
+        endTime: calculatedEndTime,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
@@ -456,6 +467,12 @@ export const appointmentService = {
       const { id: _, ...cleanData } = data as any;
       const docRef = doc(db, 'appointments', appointmentId);
       const appSnap = await getDoc(docRef);
+      
+      // Always ensure endTime is updated to 45 mins if startTime is provided or changed
+      if (cleanData.startTime) {
+        cleanData.endTime = cleanData.endTime || calculateEndTime(cleanData.startTime, 45);
+      }
+
       await updateDoc(docRef, {
         ...cleanData,
         updatedAt: serverTimestamp()

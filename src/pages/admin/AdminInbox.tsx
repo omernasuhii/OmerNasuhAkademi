@@ -193,7 +193,7 @@ export default function AdminInbox() {
           studentId: singleTestStudentId,
           parentPhone: singleTestPhone.trim() || selectedStudentObj?.phone || undefined,
           studentName,
-          force: true
+          forceSingle: true
       };
       
       let endpoint = '/api/send-weekly-reports';
@@ -234,11 +234,12 @@ export default function AdminInbox() {
       const res = await fetch('/api/send-weekly-reports', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force: true })
+        body: JSON.stringify({ force: false })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        setWeeklyReportLogMessage(`✅ ${data.message} (Toplam İşlenen Öğrenci: ${data.totalStudents || 0})`);
+        const coachSuffix = data.coachCount ? ` ve ${data.coachCount} koça toplu rapor özeti iletildi` : '';
+        setWeeklyReportLogMessage(`✅ ${data.message || 'Haftalık raporlar gönderildi'} (${data.totalStudents || 0} öğrenci velisine gönderildi${coachSuffix})`);
       } else {
         setWeeklyReportLogMessage(`⚠️ Hata: ${data.error || 'Rapor oluşturulamadı.'}`);
       }
@@ -282,9 +283,11 @@ export default function AdminInbox() {
     try {
       setIsSyncingStatuses(true);
       const res = await fetch('/api/whatsapp-sync-statuses', { method: 'POST' });
-      const data = await res.json();
-      if (data.success && data.updatedCount > 0) {
-        fetchWhatsAppMessages(false);
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && data.success && data.updatedCount > 0) {
+          fetchWhatsAppMessages(false);
+        }
       }
     } catch (err) {
       console.error("WhatsApp status sync error:", err);
@@ -472,10 +475,13 @@ export default function AdminInbox() {
     try {
       const res = await fetch('/api/whatsapp-settings');
       if (res.ok) {
-        const data = await res.json();
-        setTwilioAccountSid(data.accountSid || '');
-        setTwilioWhatsappNumber(data.whatsappNumber || '');
-        setTwilioStatus(data);
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await res.json();
+          setTwilioAccountSid(data.accountSid || '');
+          setTwilioWhatsappNumber(data.whatsappNumber || '');
+          setTwilioStatus(data);
+        }
       }
     } catch (err) {
       console.error('Twilio settings fetch error:', err);
@@ -497,12 +503,12 @@ export default function AdminInbox() {
           whatsappNumber: twilioWhatsappNumber.trim()
         })
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         alert('Twilio WhatsApp ayarları başarıyla kaydedildi!');
         fetchTwilioSettings();
       } else {
-        const err = await res.json();
-        alert('Hata: ' + (err.error || 'Ayarlar kaydedilemedi.'));
+        alert('Hata: ' + (data.error || 'Ayarlar kaydedilemedi.'));
       }
     } catch (err: any) {
       alert('Ayarlar kaydedilirken hata oluştu: ' + err.message);

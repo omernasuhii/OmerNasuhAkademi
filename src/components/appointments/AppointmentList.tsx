@@ -17,7 +17,7 @@ import {
   Edit2,
   X
 } from 'lucide-react';
-import { appointmentService, Booking } from '../../services/appointmentService';
+import { appointmentService, Booking, calculateEndTime } from '../../services/appointmentService';
 import { useAuth } from '../../lib/AuthContext';
 
 interface AppointmentListProps {
@@ -128,13 +128,17 @@ export default function AppointmentList({ role, studentId, studentIds, targetUse
     e.preventDefault();
     if (!editingAppointment) return;
 
+    const calculatedEndTime = calculateEndTime(editingAppointment.startTime, 45);
+    const updatePayload = {
+      date: editingAppointment.date,
+      startTime: editingAppointment.startTime,
+      endTime: calculatedEndTime,
+      status: editingAppointment.status
+    };
+
     try {
-      await appointmentService.updateAppointment(editingAppointment.id!, {
-        date: editingAppointment.date,
-        startTime: editingAppointment.startTime,
-        status: editingAppointment.status
-      });
-      setAppointments(prev => prev.map(app => app.id === editingAppointment.id ? editingAppointment : app));
+      await appointmentService.updateAppointment(editingAppointment.id!, updatePayload);
+      setAppointments(prev => prev.map(app => app.id === editingAppointment.id ? { ...app, ...updatePayload } : app));
       setEditingAppointment(null);
     } catch (err) {
       alert("Randevu güncellenirken bir hata oluştu.");
@@ -496,14 +500,28 @@ export default function AppointmentList({ role, studentId, studentIds, targetUse
               </div>
 
               <div>
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest ml-1 mb-2">Saat</label>
+                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest ml-1 mb-2">Başlangıç Saati</label>
                 <input 
                   type="time" 
                   value={editingAppointment.startTime}
-                  onChange={e => setEditingAppointment({...editingAppointment, startTime: e.target.value})}
+                  onChange={e => {
+                    const newStart = e.target.value;
+                    const newEnd = calculateEndTime(newStart, 45);
+                    setEditingAppointment({
+                      ...editingAppointment, 
+                      startTime: newStart,
+                      endTime: newEnd
+                    });
+                  }}
                   className="w-full bg-slate-950 border border-white/5 rounded-2xl p-4 text-white font-bold outline-none"
                   required
                 />
+                <div className="flex items-center justify-between text-xs text-slate-400 mt-2 px-1">
+                  <span>Bitiş Saati (45 dk):</span>
+                  <span className="font-mono font-bold text-blue-400">
+                    {calculateEndTime(editingAppointment.startTime, 45)}
+                  </span>
+                </div>
               </div>
 
               <div>

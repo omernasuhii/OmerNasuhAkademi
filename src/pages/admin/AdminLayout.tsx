@@ -37,6 +37,8 @@ import {
   PanelLeftOpen,
   Target,
   Megaphone,
+  Sparkles,
+  Share2,
   X
 } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
@@ -151,6 +153,7 @@ export default function AdminLayout() {
       group: 'Kullanıcılar & Personel',
       items: [
         { title: 'Kullanıcı Yönetimi', path: 'kullanicilar', icon: Users },
+        { title: 'Öğrenci Paneli İnceleme', path: '/panel/ogrenci?teshis=true', icon: Sparkles, badge: 'Teşhis' },
         { title: 'Koç Onayları', path: 'koc-onaylari', icon: UserCheck },
         { title: 'Bursluluk (ÇABA)', path: 'bursluluk', icon: GraduationCap },
       ]
@@ -243,6 +246,7 @@ export default function AdminLayout() {
     {
       group: 'Pazarlama & CRM',
       items: [
+        { title: 'AI Reklam & Medya Ajansı', path: 'sosyal-medya-ajansi', icon: Sparkles, badge: 'Flow AI' },
         { 
           title: 'CRM', 
           icon: Star,

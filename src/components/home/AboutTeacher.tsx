@@ -7,32 +7,32 @@ export default function AboutTeacher() {
     {
       icon: <User className="text-blue-400" size={20} />,
       title: "Bireysel Danışmanlık ve Koçluk",
-      desc: "YKS öğrencilerine özel programlarla kişiye uygun çalışma planı ve motivasyon desteği sunuyorum."
+      desc: "YKS ve ara sınıf öğrencilerine özel programlarla kişiye uygun çalışma planı ve koçlarımızla birebir motivasyon desteği sunuyoruz."
     },
     {
       icon: <Activity className="text-emerald-400" size={20} />,
       title: "Deneme Analizi ve Sınav Takibi",
-      desc: "Öğrencilerin yaptığı deneme sınavlarını detaylı analiz ederek eksikleri ortaya çıkarıyor, düzenli raporlamalarla ilerlemelerini takip ediyorum."
+      desc: "Öğrencilerimizin yaptığı deneme sınavlarını detaylı analiz ederek eksikleri ortaya çıkarıyor, düzenli raporlamalarla ilerlemelerini takip ediyoruz."
     },
     {
       icon: <Target className="text-indigo-400" size={20} />,
       title: "Hedef Belirleme & Motivasyon Çalışmaları",
-      desc: "Öğrencilerin uzun vadeli hedeflerini belirlemelerine yardımcı oluyor, süreç içinde motivasyonlarını korumalarını sağlıyorum."
+      desc: "Öğrencilerimizin uzun vadeli hedeflerini belirlemelerine yardımcı oluyor, süreç içinde motivasyonlarını korumalarını sağlıyoruz."
     },
     {
       icon: <Users className="text-purple-400" size={20} />,
       title: "Veli Bilgilendirme ve Takip",
-      desc: "Velilere düzenli bilgilendirme yaparak öğrencinin gelişim sürecine şeffaf şekilde katkıda bulunuyorum."
+      desc: "Velilerimize düzenli bilgilendirme ve şeffaf takip sistemi sunarak öğrencinin gelişim sürecine birlikte katkıda bulunuyoruz."
     },
     {
       icon: <Focus className="text-blue-400" size={20} />,
       title: "Odak ve Disiplin Çalışmaları",
-      desc: "Ders dışındaki dikkat ve çalışma alışkanlıklarını geliştirici özel teknikler uyguluyorum."
+      desc: "Ders dışındaki dikkat ve çalışma alışkanlıklarını geliştirici özel koçluk teknikleri ve takip mekanizmaları uyguluyoruz."
     },
     {
       icon: <Lightbulb className="text-amber-400" size={20} />,
       title: "Psikolojik Destek ve Sınav Stratejisi",
-      desc: "Sınav kaygısını yönetme ve doğru stratejilerle zihinsel dayanıklılığı artırarak potansiyeli maksimuma taşıyorum."
+      desc: "Sınav kaygısını yönetme ve doğru stratejilerle zihinsel dayanıklılığı artırarak öğrencinin potansiyelini maksimuma taşıyoruz."
     }
   ];
 
@@ -61,8 +61,8 @@ export default function AboutTeacher() {
                      <Trophy size={20} className="md:w-6 md:h-6" />
                    </div>
                    <div>
-                     <div className="text-white font-bold text-xs md:text-sm tracking-widest uppercase">Eğitim Koçu</div>
-                     <div className="text-slate-400 text-[10px] md:text-xs">PDR Uzmanı</div>
+                     <div className="text-white font-bold text-xs md:text-sm tracking-widest uppercase">Kurucu & PDR Uzmanı</div>
+                     <div className="text-slate-400 text-[10px] md:text-xs">FocusON Akademi</div>
                    </div>
                  </div>
               </div>
@@ -79,10 +79,10 @@ export default function AboutTeacher() {
                 <h2 className="text-2xl md:text-4xl lg:text-5xl font-extrabold tracking-tight mb-4 md:mb-6 text-center lg:text-left">Ömer Nasuh <span className="text-blue-400">AĞIR</span> Kimdir?</h2>
                 <div className="space-y-4 text-slate-400 leading-relaxed text-sm md:text-lg text-center lg:text-left">
                   <p>
-                    Ben Ömer Nasuh Ağır. Psikolojik Danışmanlık ve Rehberlik alanında eğitim aldım ve uzun süredir öğrencilere akademik ve kişisel gelişim alanında rehberlik ediyorum. Öğrencilerimin yalnızca ders başarısını değil; motivasyonlarını, özgüvenlerini ve zaman yönetimlerini de güçlendirmeyi önemsiyorum.
+                    Ben Ömer Nasuh Ağır. Psikolojik Danışmanlık ve Rehberlik (PDR) alanındaki uzmanlığım ve uzun yıllara dayanan rehberlik tecrübemle, öğrencilerin sınav hazırlık süreçlerini daha verimli, planlı ve profesyonel kılmak amacıyla bu koçluk ve takip sistemini hazırladım.
                   </p>
                   <p>
-                    FocusON Akademi ile amacım; öğrencilerin potansiyellerini keşfetmelerine, hedeflerine emin adımlarla ilerlemelerine ve hayata daha donanımlı bireyler olarak hazırlanmalarına katkı sağlamaktır. Veliler için şeffaf ve güvenilir bir takip sistemi, öğrenciler için ise motive edici bir yol arkadaşlığı sunuyorum.
+                    FocusON Akademi çatısı altında, alanında uzman eğitim koçlarımızla birlikte öğrencilerimizin yalnızca ders başarısını değil; motivasyonlarını, özgüvenlerini ve zaman yönetimlerini de güçlendiriyoruz. Geliştirdiğimiz bu yenilikçi sistem ve uzman koç kadromuzla; her öğrencimize özel çalışma rotaları çiziyor, velilerimize şeffaf ve güvenilir bir takip imkânı sunuyor ve başarıya giden yolda öğrencilerimizle birlikte yürüyoruz.
                   </p>
                 </div>
               </div>

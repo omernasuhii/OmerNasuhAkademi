@@ -257,7 +257,14 @@ export default function ParentDashboard() {
               </h1>
               <p className="text-slate-400 font-medium text-sm md:text-base mt-2 flex items-center gap-2">
                 <Target size={16} className="text-indigo-400" />
-                Hedef: <span className="text-white font-bold">{studentProfile?.targetUniversity || 'Üniversite Belirtilmedi'} - {studentProfile?.targetDepartment || 'Bölüm'}</span>
+                Hedef: <span className="text-white font-bold">{(() => {
+                  const uni = (studentProfile?.targetUniversity || studentProfile?.universityTarget || "").trim();
+                  const dep = (studentProfile?.targetDepartment || studentProfile?.departmentTarget || studentProfile?.targetFaculty || "").trim();
+                  if (uni && dep) return `${uni} - ${dep}`;
+                  if (uni) return uni;
+                  if (dep) return dep;
+                  return "Belirtilmedi";
+                })()}</span>
               </p>
             </div>
           </div>

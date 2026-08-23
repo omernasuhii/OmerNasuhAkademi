@@ -13,9 +13,13 @@ import {
   PieChart as PieChartIcon,
   TrendingUp,
   AlertCircle,
+  Layers,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useCurriculum } from "../../lib/CurriculumContext";
+import { SUBTOPICS as DEFAULT_SUBTOPICS } from "../../constants/subtopics";
 import {
   PieChart,
   Pie,
@@ -341,27 +345,27 @@ const SAMPLE_ANALYSES = [
     examId: 'deep-demo-1',
     data: {
       'Türkçe': [
-        { questionNo: 4, topic: 'Paragrafta Anlam', errorType: 'dikkat' },
-        { questionNo: 12, topic: 'Yazım Kuralları', errorType: 'bilgi' },
-        { questionNo: 14, topic: 'Yazım Kuralları', errorType: 'kalip' },
-        { questionNo: 18, topic: 'Noktalama İşaretleri', errorType: 'kalip' },
-        { questionNo: 29, topic: 'Paragrafta Yapı', errorType: 'zaman' },
-        { questionNo: 35, topic: 'Cümlede Anlam', errorType: 'dikkat' }
+        { questionNo: 4, topic: 'Paragrafta Anlam', subtopic: 'Paragrafta Ana Düşünce', errorType: 'dikkat' },
+        { questionNo: 12, topic: 'Yazım Kuralları', subtopic: 'Büyük Harflerin Kullanımı', errorType: 'bilgi' },
+        { questionNo: 14, topic: 'Yazım Kuralları', subtopic: 'De ve Ki Yazımı', errorType: 'kalip' },
+        { questionNo: 18, topic: 'Noktalama İşaretleri', subtopic: 'Noktalı Virgül ve İki Nokta', errorType: 'kalip' },
+        { questionNo: 29, topic: 'Paragrafta Yapı', subtopic: 'Paragrafı İkiye Bölme', errorType: 'zaman' },
+        { questionNo: 35, topic: 'Cümlede Anlam', subtopic: 'Örtülü Anlam', errorType: 'dikkat' }
       ],
       'Temel Matematik': [
-        { questionNo: 8, topic: 'Üslü Sayılar', errorType: 'dikkat' },
-        { questionNo: 15, topic: 'Problemler (Hız)', errorType: 'zaman' },
-        { questionNo: 22, topic: 'Fonksiyonlar', errorType: 'bilgi' },
-        { questionNo: 31, topic: 'Üçgende Açılar', errorType: 'kalip' }
+        { questionNo: 8, topic: 'Üslü Sayılar', subtopic: 'Üslü Denklemler', errorType: 'dikkat' },
+        { questionNo: 15, topic: 'Problemler (Hız)', subtopic: 'Zıt Yönlü Hareket', errorType: 'zaman' },
+        { questionNo: 22, topic: 'Fonksiyonlar', subtopic: 'Bileşke Fonksiyon', errorType: 'bilgi' },
+        { questionNo: 31, topic: 'Üçgende Açılar', subtopic: 'Açıortay Bağıntıları', errorType: 'kalip' }
       ],
       'Sosyal Bilimler': [
-        { questionNo: 3, topic: 'Osmanlı Kuruluş Dönemi', errorType: 'bilgi' },
-        { questionNo: 9, topic: 'İklim Bilgisi', errorType: 'kalip' },
-        { questionNo: 14, topic: 'Ahlak Felsefesi', errorType: 'dikkat' }
+        { questionNo: 3, topic: 'Osmanlı Kuruluş Dönemi', subtopic: 'İskan ve Tımar Sistemi', errorType: 'bilgi' },
+        { questionNo: 9, topic: 'İklim Bilgisi', subtopic: 'Basınç ve Rüzgarlar', errorType: 'kalip' },
+        { questionNo: 14, topic: 'Ahlak Felsefesi', subtopic: 'Evrensel Ahlak İlkeleri', errorType: 'dikkat' }
       ],
       'Fen Bilimleri': [
-        { questionNo: 2, topic: 'Kuvvet ve Hareket', errorType: 'kalip' },
-        { questionNo: 11, topic: 'Asitler ve Bazlar', errorType: 'bilgi' }
+        { questionNo: 2, topic: 'Kuvvet ve Hareket', subtopic: 'Newton Hareket Yasaları', errorType: 'kalip' },
+        { questionNo: 11, topic: 'Asitler ve Bazlar', subtopic: 'pH ve Nötralleşme', errorType: 'bilgi' }
       ]
     }
   },
@@ -369,15 +373,15 @@ const SAMPLE_ANALYSES = [
     examId: 'deep-demo-2',
     data: {
       'Türkçe': [
-        { questionNo: 8, topic: 'Paragrafta Anlam', errorType: 'dikkat' },
-        { questionNo: 11, topic: 'Yazım Kuralları', errorType: 'dikkat' },
-        { questionNo: 15, topic: 'Ses Bilgisi', errorType: 'bilgi' },
-        { questionNo: 31, topic: 'Paragrafta Yardımçı Düşünce', errorType: 'zaman' }
+        { questionNo: 8, topic: 'Paragrafta Anlam', subtopic: 'Paragrafta Yardımcı Düşünce', errorType: 'dikkat' },
+        { questionNo: 11, topic: 'Yazım Kuralları', subtopic: 'Bitişik ve Ayrı Yazılan Kelimeler', errorType: 'dikkat' },
+        { questionNo: 15, topic: 'Ses Bilgisi', subtopic: 'Ünlü Daralması ve Düşmesi', errorType: 'bilgi' },
+        { questionNo: 31, topic: 'Paragrafta Yardımçı Düşünce', subtopic: 'Değinilmemiştir Soruları', errorType: 'zaman' }
       ],
       'Temel Matematik': [
-        { questionNo: 12, topic: 'Problemler (Yüzde)', errorType: 'zaman' },
-        { questionNo: 19, topic: 'Polinomlar', errorType: 'bilgi' },
-        { questionNo: 33, topic: 'Çember ve Daire', errorType: 'kalip' }
+        { questionNo: 12, topic: 'Problemler (Yüzde)', subtopic: 'Kar-Zarar Problemleri', errorType: 'zaman' },
+        { questionNo: 19, topic: 'Polinomlar', subtopic: 'Kalan Teoremi', errorType: 'bilgi' },
+        { questionNo: 33, topic: 'Çember ve Daire', subtopic: 'Çemberde Açı ve Teğet', errorType: 'kalip' }
       ]
     }
   }
@@ -387,13 +391,14 @@ export default function DeepAnalysis() {
   const { user, userData } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const { curriculum } = useCurriculum();
+  const { curriculum, subtopics: curriculumSubtopics } = useCurriculum();
   const { selectedStudent, setSelectedStudent } = useStudent();
   const [selectedExamType, setSelectedExamType] = useState("TYT");
   const [selectedCategory, setSelectedCategory] = useState("Genel");
   const [selectedSubCategory, setSelectedSubCategory] = useState("Genel");
   const [includeBranchExams, setIncludeBranchExams] = useState(false);
   const [filterDateRange, setFilterDateRange] = useState("Tüm Zamanlar");
+  const [filterKademe, setFilterKademe] = useState<"all" | "level1" | "level2">("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
@@ -711,7 +716,20 @@ export default function DeepAnalysis() {
     {
       total: number;
       examIds: Set<string>;
-      topics: Record<string, Record<string, number>>;
+      topics: Record<
+        string,
+        {
+          types: Record<string, number>;
+          total: number;
+          subtopics: Record<
+            string,
+            {
+              types: Record<string, number>;
+              total: number;
+            }
+          >;
+        }
+      >;
     }
   > = {};
   let totalErrorsCount = 0;
@@ -810,9 +828,12 @@ export default function DeepAnalysis() {
     branchesToLookAt.forEach((branch) => {
       if (analysis.data[branch]) {
         analysis.data[branch].forEach((q: any) => {
+          const mainTopic = (q.topic || "Belirtilmedi").trim();
+          const subTopic = (q.subtopic || "").trim();
+
           // Determine lesson even if no error, to count exam
           const lesson = getLessonByContext(
-            q.topic,
+            mainTopic,
             q.questionNo,
             branch,
             isAyt,
@@ -827,7 +848,7 @@ export default function DeepAnalysis() {
           }
 
           // If we are filtering by SubCategory topics, and this topic doesn't match, we might not count it
-          if (useTopicFilter && !validTopicsSet.has(q.topic)) return;
+          if (useTopicFilter && !validTopicsSet.has(mainTopic)) return;
 
           // Count this exam for this lesson
           lessonAggregates[lesson].examIds.add(analysis.examId);
@@ -839,12 +860,32 @@ export default function DeepAnalysis() {
 
             examHasErrors = true;
 
-            if (!lessonAggregates[lesson].topics[q.topic]) {
-              lessonAggregates[lesson].topics[q.topic] = {};
+            if (!lessonAggregates[lesson].topics[mainTopic]) {
+              lessonAggregates[lesson].topics[mainTopic] = {
+                types: {},
+                total: 0,
+                subtopics: {},
+              };
             }
 
-            lessonAggregates[lesson].topics[q.topic][q.errorType] =
-              (lessonAggregates[lesson].topics[q.topic][q.errorType] || 0) + 1;
+            const currentTopic = lessonAggregates[lesson].topics[mainTopic];
+            currentTopic.types[q.errorType] =
+              (currentTopic.types[q.errorType] || 0) + 1;
+            currentTopic.total = (currentTopic.total || 0) + 1;
+
+            if (subTopic) {
+              if (!currentTopic.subtopics[subTopic]) {
+                currentTopic.subtopics[subTopic] = {
+                  types: {},
+                  total: 0,
+                };
+              }
+              currentTopic.subtopics[subTopic].types[q.errorType] =
+                (currentTopic.subtopics[subTopic].types[q.errorType] || 0) + 1;
+              currentTopic.subtopics[subTopic].total =
+                (currentTopic.subtopics[subTopic].total || 0) + 1;
+            }
+
             lessonAggregates[lesson].total++;
             totalErrorsCount++;
           }
@@ -865,9 +906,21 @@ export default function DeepAnalysis() {
 
       const topics = Object.keys(rawTopics)
         .map((topic) => {
-          const types = rawTopics[topic];
-          const topicTotal = Object.values(types).reduce((a, b) => a + b, 0);
-          return { topic, types, total: topicTotal };
+          const topicObj = rawTopics[topic];
+          const subtopicsList = Object.keys(topicObj.subtopics || {})
+            .map((stName) => ({
+              subtopic: stName,
+              total: topicObj.subtopics[stName].total,
+              types: topicObj.subtopics[stName].types,
+            }))
+            .sort((a, b) => b.total - a.total);
+
+          return {
+            topic,
+            types: topicObj.types,
+            total: topicObj.total,
+            subtopics: subtopicsList,
+          };
         })
         .sort((a, b) => b.total - a.total);
 
@@ -875,8 +928,28 @@ export default function DeepAnalysis() {
     })
     .sort((a, b) => b.total - a.total);
 
-  // Simpler to just map through errorAggregates directly. Let's rebuild a flat list from valid filtered analyses for Genel
-  const errorAggregates: Record<string, Record<string, number>> = {};
+  // Simpler to just map through errorAggregates directly. Let's rebuild a hierarchical list from valid filtered analyses for Genel
+  const errorAggregates: Record<
+    string,
+    {
+      types: Record<string, number>;
+      total: number;
+      lesson: string;
+      subtopics: Record<string, { types: Record<string, number>; total: number }>;
+    }
+  > = {};
+
+  const allSubtopicsAggregates: Record<
+    string,
+    {
+      subtopic: string;
+      parentTopic: string;
+      lesson: string;
+      types: Record<string, number>;
+      total: number;
+    }
+  > = {};
+
   filteredAnalyses.forEach((analysis) => {
     if (!analysis.data) return;
 
@@ -891,15 +964,58 @@ export default function DeepAnalysis() {
       if (analysis.data[branch]) {
         analysis.data[branch].forEach((q: any) => {
           if (q.errorType && q.errorType !== "none") {
+            const mainTopic = (q.topic || "Belirtilmedi").trim();
+            const subTopic = (q.subtopic || "").trim();
+
             if (filterErrorType !== "Tümü" && q.errorType !== filterErrorType)
               return;
-            if (useTopicFilter && !validTopicsSet.has(q.topic)) return;
+            if (useTopicFilter && !validTopicsSet.has(mainTopic)) return;
 
-            if (!errorAggregates[q.topic]) {
-              errorAggregates[q.topic] = {};
+            const lesson = getLessonByContext(
+              mainTopic,
+              q.questionNo,
+              branch,
+              isAyt,
+              isYdt,
+            );
+
+            if (!errorAggregates[mainTopic]) {
+              errorAggregates[mainTopic] = {
+                types: {},
+                total: 0,
+                lesson,
+                subtopics: {},
+              };
             }
-            errorAggregates[q.topic][q.errorType] =
-              (errorAggregates[q.topic][q.errorType] || 0) + 1;
+            errorAggregates[mainTopic].types[q.errorType] =
+              (errorAggregates[mainTopic].types[q.errorType] || 0) + 1;
+            errorAggregates[mainTopic].total++;
+
+            if (subTopic) {
+              if (!errorAggregates[mainTopic].subtopics[subTopic]) {
+                errorAggregates[mainTopic].subtopics[subTopic] = {
+                  types: {},
+                  total: 0,
+                };
+              }
+              errorAggregates[mainTopic].subtopics[subTopic].types[q.errorType] =
+                (errorAggregates[mainTopic].subtopics[subTopic].types[q.errorType] || 0) + 1;
+              errorAggregates[mainTopic].subtopics[subTopic].total++;
+
+              const subKey = `${mainTopic}___${subTopic}`;
+              if (!allSubtopicsAggregates[subKey]) {
+                allSubtopicsAggregates[subKey] = {
+                  subtopic: subTopic,
+                  parentTopic: mainTopic,
+                  lesson,
+                  types: {},
+                  total: 0,
+                };
+              }
+              allSubtopicsAggregates[subKey].types[q.errorType] =
+                (allSubtopicsAggregates[subKey].types[q.errorType] || 0) + 1;
+              allSubtopicsAggregates[subKey].total++;
+            }
           }
         });
       }
@@ -908,11 +1024,28 @@ export default function DeepAnalysis() {
 
   const topicsSummary = Object.keys(errorAggregates)
     .map((topic) => {
-      const types = errorAggregates[topic];
-      const total = Object.values(types).reduce((a, b) => a + b, 0);
-      return { topic, types, total };
+      const item = errorAggregates[topic];
+      const subtopicsList = Object.keys(item.subtopics || {})
+        .map((st) => ({
+          subtopic: st,
+          total: item.subtopics[st].total,
+          types: item.subtopics[st].types,
+        }))
+        .sort((a, b) => b.total - a.total);
+
+      return {
+        topic,
+        types: item.types,
+        total: item.total,
+        lesson: item.lesson,
+        subtopics: subtopicsList,
+      };
     })
     .sort((a, b) => b.total - a.total);
+
+  const subtopicsRankSummary = Object.values(allSubtopicsAggregates).sort(
+    (a, b) => b.total - a.total,
+  );
 
   // Data for Charts
   const errorTypeChartData = useMemo(() => {
@@ -1187,6 +1320,7 @@ export default function DeepAnalysis() {
                   lesson: branch.replace(" (TYT)", "").replace(" (AYT)", ""),
                   questionNo: q.questionNo,
                   topic: q.topic || "Belirtilmedi",
+                  subtopic: q.subtopic || "-",
                   errorType: q.errorType,
                 });
               }
@@ -1416,6 +1550,49 @@ export default function DeepAnalysis() {
                   Zaman Yetmezliği
                 </option>
               </select>
+
+              {/* Kademe Filter Switcher */}
+              <div className="flex items-center bg-slate-900 border border-white/10 p-1 rounded-xl h-10">
+                <button
+                  type="button"
+                  onClick={() => setFilterKademe("all")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                    filterKademe === "all"
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                  title="Hem 1. Kademe Ana Konuları hem de alt başlık kırılımlarını gösterir"
+                >
+                  <Layers size={13} />
+                  <span>Tüm Kademeler</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterKademe("level1")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                    filterKademe === "level1"
+                      ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                  title="Yalnızca 1. Kademe (Ana Konu) bazında göster"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
+                  <span>1. Kademe (Ana Konu)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterKademe("level2")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                    filterKademe === "level2"
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                  title="Yalnızca 2. Kademe (Alt Başlık) bazında göster"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  <span>2. Kademe (Alt Başlık)</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1765,12 +1942,17 @@ export default function DeepAnalysis() {
 
                     {/* Chart 6: Kaçıncı Soru Neden Eksik Kaldı Tablosu */}
                     <div className="bg-white/5 border border-white/10 rounded-3xl p-6 lg:col-span-2 overflow-hidden flex flex-col">
-                      <h3 className="text-white font-bold mb-6 flex items-center gap-2 shrink-0">
-                        <Info size={18} className="text-amber-500" />
-                        Hata Detay Tablosu
-                      </h3>
+                      <div className="flex items-center justify-between mb-6 shrink-0 flex-wrap gap-2">
+                        <h3 className="text-white font-bold flex items-center gap-2">
+                          <Info size={18} className="text-amber-500" />
+                          Hata Detay Tablosu
+                        </h3>
+                        <span className="text-xs text-slate-400 font-medium">
+                          1. Kademe (Ana Konu) & 2. Kademe (Alt Başlık) Detayları
+                        </span>
+                      </div>
                       <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse min-w-[700px]">
+                        <table className="w-full text-left border-collapse min-w-[760px]">
                           <thead>
                             <tr className="border-b border-white/10">
                               <th className="text-xs font-semibold text-slate-400 p-3 pb-4">
@@ -1786,7 +1968,10 @@ export default function DeepAnalysis() {
                                 Soru No
                               </th>
                               <th className="text-xs font-semibold text-slate-400 p-3 pb-4">
-                                Konu
+                                1. Kademe (Ana Konu)
+                              </th>
+                              <th className="text-xs font-semibold text-slate-400 p-3 pb-4">
+                                2. Kademe (Alt Başlık)
                               </th>
                               <th className="text-xs font-semibold text-slate-400 p-3 pb-4">
                                 Hata Türü
@@ -1828,8 +2013,17 @@ export default function DeepAnalysis() {
                                   <td className="p-3 text-sm text-slate-300 font-mono">
                                     {row.questionNo}
                                   </td>
-                                  <td className="p-3 text-sm text-slate-300">
+                                  <td className="p-3 text-sm text-slate-200 font-medium">
                                     {row.topic}
+                                  </td>
+                                  <td className="p-3 text-sm text-emerald-400/90 font-medium">
+                                    {row.subtopic && row.subtopic !== "-" ? (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs">
+                                        {row.subtopic}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-500 text-xs">-</span>
+                                    )}
                                   </td>
                                   <td
                                     className={`p-3 text-sm font-medium ${errColor}`}
@@ -1842,7 +2036,7 @@ export default function DeepAnalysis() {
                             {questionErrorTableData.length === 0 && (
                               <tr>
                                 <td
-                                  colSpan={6}
+                                  colSpan={7}
                                   className="p-8 text-center text-slate-500"
                                 >
                                   Hata kaydı bulunamadı.
@@ -1854,50 +2048,170 @@ export default function DeepAnalysis() {
                       </div>
                     </div>
                   </div>
-                ) : selectedCategory === "Genel" ||
-                  selectedSubCategory === "Genel" ? (
+                ) : filterKademe === "level2" ? (
+                  /* 2. Kademe (Alt Başlıklar) Bağımsız Sıralama Görünümü */
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+                      <span>2. Kademe Alt Başlık Hata Sıralaması ({subtopicsRankSummary.length} Alt Başlık)</span>
+                    </div>
+                    {subtopicsRankSummary.length === 0 ? (
+                      <div className="bg-white/5 border border-white/10 rounded-2xl p-8 text-center text-slate-400">
+                        Bu filtrelere ait alt başlık hata kaydı bulunamadı.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {subtopicsRankSummary.map((item) => (
+                          <div
+                            key={`${item.parentTopic}___${item.subtopic}`}
+                            className="bg-white/5 border border-emerald-500/20 rounded-2xl p-5 hover:bg-emerald-500/5 transition-all outline outline-1 outline-transparent hover:outline-emerald-500/30 flex flex-col justify-between"
+                          >
+                            <div>
+                              <div className="flex items-center justify-between gap-2 mb-2">
+                                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 uppercase tracking-wider">
+                                  2. Kademe • Alt Başlık
+                                </span>
+                                <span className="text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 rounded-full text-xs font-bold shrink-0">
+                                  {item.total} Hata
+                                </span>
+                              </div>
+
+                              <h4 className="text-white font-bold text-base mb-1 line-clamp-2" title={item.subtopic}>
+                                {item.subtopic}
+                              </h4>
+
+                              <div className="flex flex-wrap items-center gap-1.5 mb-4 text-[11px] text-slate-400">
+                                <span className="text-indigo-300 font-medium">{item.lesson}</span>
+                                <span>•</span>
+                                <span className="text-slate-300 truncate max-w-[200px]" title={item.parentTopic}>
+                                  {item.parentTopic}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="space-y-1.5 pt-3 border-t border-white/5">
+                              {Object.entries(item.types)
+                                .sort((a, b) => b[1] - a[1])
+                                .map(([type, count]) => {
+                                  let readableType = type;
+                                  if (type === "bilgi") readableType = "Bilgi Eksikliği";
+                                  else if (type === "kalip") readableType = "Soru Kalıp Eksikliği";
+                                  else if (type === "dikkat") readableType = "Dikkat Hatası";
+                                  else if (type === "zaman") readableType = "Zaman Yetmezliği";
+                                  return (
+                                    <div
+                                      key={type}
+                                      className="flex justify-between items-center text-xs"
+                                    >
+                                      <span className="text-slate-400">{readableType}</span>
+                                      <span className="text-emerald-400 font-medium bg-emerald-500/10 px-2 py-0.5 rounded text-xs">
+                                        {count as React.ReactNode}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : selectedCategory === "Genel" || selectedSubCategory === "Genel" ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {topicsSummary.map((item) => (
                       <div
                         key={item.topic}
-                        className="bg-white/5 border border-emerald-500/10 rounded-2xl p-5 hover:bg-emerald-500/5 transition-all outline outline-1 outline-transparent hover:outline-emerald-500/20"
+                        className="bg-white/5 border border-emerald-500/10 rounded-2xl p-5 hover:bg-emerald-500/5 transition-all outline outline-1 outline-transparent hover:outline-emerald-500/20 flex flex-col justify-between"
                       >
-                        <h4 className="text-white font-bold mb-4 line-clamp-1 flex justify-between items-center gap-2">
-                          <span className="truncate" title={item.topic}>
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 uppercase tracking-wider">
+                              1. Kademe • Ana Konu
+                            </span>
+                            <span className="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full text-xs font-bold shrink-0">
+                              {item.total} Hata
+                            </span>
+                          </div>
+                          <h4 className="text-white font-bold mb-3 text-sm line-clamp-1" title={item.topic}>
                             {item.topic}
-                          </span>
-                          <span className="text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded text-xs shrink-0">
-                            {item.total} Hata
-                          </span>
-                        </h4>
-                        <div className="space-y-2">
-                          {Object.entries(item.types)
-                            .sort((a, b) => b[1] - a[1])
-                            .map(([type, count]) => {
-                              let readableType = type;
-                              if (type === "bilgi")
-                                readableType = "Bilgi Eksikliği";
-                              else if (type === "kalip")
-                                readableType = "Soru Kalıp Eksikliği";
-                              else if (type === "dikkat")
-                                readableType = "Dikkat Hatası";
-                              else if (type === "zaman")
-                                readableType = "Zaman Yetmezliği";
-                              return (
-                                <div
-                                  key={type}
-                                  className="flex justify-between items-center text-xs"
-                                >
-                                  <span className="text-slate-400">
-                                    {readableType}
-                                  </span>
-                                  <span className="text-emerald-400 font-medium bg-emerald-500/10 px-2 py-1 rounded w-8 text-center">
-                                    {count as React.ReactNode}
-                                  </span>
-                                </div>
-                              );
-                            })}
+                          </h4>
+
+                          <div className="space-y-1.5 mb-4">
+                            {Object.entries(item.types)
+                              .sort((a, b) => b[1] - a[1])
+                              .map(([type, count]) => {
+                                let readableType = type;
+                                if (type === "bilgi")
+                                  readableType = "Bilgi Eksikliği";
+                                else if (type === "kalip")
+                                  readableType = "Soru Kalıp Eksikliği";
+                                else if (type === "dikkat")
+                                  readableType = "Dikkat Hatası";
+                                else if (type === "zaman")
+                                  readableType = "Zaman Yetmezliği";
+                                return (
+                                  <div
+                                    key={type}
+                                    className="flex justify-between items-center text-xs"
+                                  >
+                                    <span className="text-slate-400">
+                                      {readableType}
+                                    </span>
+                                    <span className="text-emerald-400 font-medium bg-emerald-500/10 px-2 py-0.5 rounded text-xs">
+                                      {count as React.ReactNode}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                          </div>
                         </div>
+
+                        {/* 2. Kademe (Alt Başlıklar) Nested Breakdown (Shown when filterKademe === "all") */}
+                        {filterKademe === "all" && item.subtopics && item.subtopics.length > 0 && (
+                          <div className="pt-3 border-t border-white/10 space-y-2 mt-2">
+                            <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400">
+                              <span className="flex items-center gap-1 text-emerald-400">
+                                <Layers size={11} /> 2. Kademe Alt Başlıklar
+                              </span>
+                              <span className="text-[10px] text-slate-500">
+                                {item.subtopics.length} alt başlık
+                              </span>
+                            </div>
+                            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                              {item.subtopics.map((st) => (
+                                <div
+                                  key={st.subtopic}
+                                  className="bg-black/20 border border-white/5 rounded-lg p-2 text-xs flex flex-col gap-1"
+                                >
+                                  <div className="flex justify-between items-center gap-2">
+                                    <span className="text-slate-200 font-medium truncate" title={st.subtopic}>
+                                      {st.subtopic}
+                                    </span>
+                                    <span className="text-emerald-400 font-bold shrink-0 text-[11px]">
+                                      {st.total} Hata
+                                    </span>
+                                  </div>
+                                  <div className="flex flex-wrap gap-1 text-[10px]">
+                                    {Object.entries(st.types).map(([errT, c]) => (
+                                      <span
+                                        key={errT}
+                                        className="text-slate-400 bg-white/5 px-1.5 py-0.5 rounded"
+                                      >
+                                        {errT === "bilgi"
+                                          ? "Bilgi"
+                                          : errT === "kalip"
+                                          ? "Kalıp"
+                                          : errT === "dikkat"
+                                          ? "Dikkat"
+                                          : "Zaman"}
+                                        : {String(c)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1912,44 +2226,98 @@ export default function DeepAnalysis() {
                           {lessonInfo.topics.map((item) => (
                             <div
                               key={item.topic}
-                              className="bg-white/5 border border-emerald-500/10 rounded-2xl p-5 hover:bg-emerald-500/5 transition-all outline outline-1 outline-transparent hover:outline-emerald-500/20"
+                              className="bg-white/5 border border-emerald-500/10 rounded-2xl p-5 hover:bg-emerald-500/5 transition-all outline outline-1 outline-transparent hover:outline-emerald-500/20 flex flex-col justify-between"
                             >
-                              <h4 className="text-white font-bold mb-4 line-clamp-1 flex justify-between items-center gap-2">
-                                <span className="truncate" title={item.topic}>
+                              <div>
+                                <div className="flex items-center justify-between gap-2 mb-2">
+                                  <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 uppercase tracking-wider">
+                                    1. Kademe • Ana Konu
+                                  </span>
+                                  <span className="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full text-xs font-bold shrink-0">
+                                    {item.total} Hata
+                                  </span>
+                                </div>
+                                <h4 className="text-white font-bold mb-3 text-sm line-clamp-1" title={item.topic}>
                                   {item.topic}
-                                </span>
-                                <span className="text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded text-xs shrink-0">
-                                  {item.total} Hata
-                                </span>
-                              </h4>
-                              <div className="space-y-2">
-                                {Object.entries(item.types)
-                                  .sort((a, b) => b[1] - a[1])
-                                  .map(([type, count]) => {
-                                    let readableType = type;
-                                    if (type === "bilgi")
-                                      readableType = "Bilgi Eksikliği";
-                                    else if (type === "kalip")
-                                      readableType = "Soru Kalıp Eksikliği";
-                                    else if (type === "dikkat")
-                                      readableType = "Dikkat Hatası";
-                                    else if (type === "zaman")
-                                      readableType = "Zaman Yetmezliği";
-                                    return (
-                                      <div
-                                        key={type}
-                                        className="flex justify-between items-center text-xs"
-                                      >
-                                        <span className="text-slate-400">
-                                          {readableType}
-                                        </span>
-                                        <span className="text-emerald-400 font-medium bg-emerald-500/10 px-2 py-1 rounded w-8 text-center">
-                                          {count as React.ReactNode}
-                                        </span>
-                                      </div>
-                                    );
-                                  })}
+                                </h4>
+
+                                <div className="space-y-1.5 mb-4">
+                                  {Object.entries(item.types)
+                                    .sort((a, b) => b[1] - a[1])
+                                    .map(([type, count]) => {
+                                      let readableType = type;
+                                      if (type === "bilgi")
+                                        readableType = "Bilgi Eksikliği";
+                                      else if (type === "kalip")
+                                        readableType = "Soru Kalıp Eksikliği";
+                                      else if (type === "dikkat")
+                                        readableType = "Dikkat Hatası";
+                                      else if (type === "zaman")
+                                        readableType = "Zaman Yetmezliği";
+                                      return (
+                                        <div
+                                          key={type}
+                                          className="flex justify-between items-center text-xs"
+                                        >
+                                          <span className="text-slate-400">
+                                            {readableType}
+                                          </span>
+                                          <span className="text-emerald-400 font-medium bg-emerald-500/10 px-2 py-0.5 rounded text-xs">
+                                            {count as React.ReactNode}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
                               </div>
+
+                              {/* 2. Kademe (Alt Başlıklar) Nested Breakdown (Shown when filterKademe === "all") */}
+                              {filterKademe === "all" && item.subtopics && item.subtopics.length > 0 && (
+                                <div className="pt-3 border-t border-white/10 space-y-2 mt-2">
+                                  <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400">
+                                    <span className="flex items-center gap-1 text-emerald-400">
+                                      <Layers size={11} /> 2. Kademe Alt Başlıklar
+                                    </span>
+                                    <span className="text-[10px] text-slate-500">
+                                      {item.subtopics.length} alt başlık
+                                    </span>
+                                  </div>
+                                  <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                                    {item.subtopics.map((st) => (
+                                      <div
+                                        key={st.subtopic}
+                                        className="bg-black/20 border border-white/5 rounded-lg p-2 text-xs flex flex-col gap-1"
+                                      >
+                                        <div className="flex justify-between items-center gap-2">
+                                          <span className="text-slate-200 font-medium truncate" title={st.subtopic}>
+                                            {st.subtopic}
+                                          </span>
+                                          <span className="text-emerald-400 font-bold shrink-0 text-[11px]">
+                                            {st.total} Hata
+                                          </span>
+                                        </div>
+                                        <div className="flex flex-wrap gap-1 text-[10px]">
+                                          {Object.entries(st.types).map(([errT, c]) => (
+                                            <span
+                                              key={errT}
+                                              className="text-slate-400 bg-white/5 px-1.5 py-0.5 rounded"
+                                            >
+                                              {errT === "bilgi"
+                                                ? "Bilgi"
+                                                : errT === "kalip"
+                                                ? "Kalıp"
+                                                : errT === "dikkat"
+                                                ? "Dikkat"
+                                                : "Zaman"}
+                                              : {String(c)}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>

@@ -20,8 +20,6 @@ import {
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 import Markdown from 'react-markdown';
 
 const LIKERT_QUESTIONS = [

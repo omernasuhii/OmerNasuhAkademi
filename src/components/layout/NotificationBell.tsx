@@ -9,13 +9,13 @@ interface NotificationBellProps {
   notifications: Notification[];
 }
 
-export default function NotificationBell({ notifications }: NotificationBellProps) {
+export default function NotificationBell({ notifications = [] }: NotificationBellProps) {
   const [isOpen, setIsOpen] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
 
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const unreadCount = notifications.filter(n => !n.isRead).length;
+  const unreadCount = (notifications || []).filter(n => !n?.isRead).length;
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {

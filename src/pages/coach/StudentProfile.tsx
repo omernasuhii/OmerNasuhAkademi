@@ -5,6 +5,7 @@ import { useAuth } from '../../lib/AuthContext';
 import { tourService } from '../../services/tourService';
 import { BrainCircuit, Star, Zap, User, Target, Sparkles, Save, Loader2, GraduationCap, Info, AlertCircle } from 'lucide-react';
 import { studentDataService } from '../../services/studentDataService';
+import { isSubscriptionActive } from '../../services/subscriptionService';
 import { calculateSubjectMultipliers, TASK_WEIGHTS } from '../../lib/programCalculations';
 import { serverTimestamp } from 'firebase/firestore';
 import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
@@ -239,8 +240,19 @@ export default function StudentProfile() {
                  <p className="text-lg font-black text-white italic uppercase leading-tight mb-1">{academicInfo.targetUniversity || 'Üniversite Girilmedi'}</p>
                  <p className="text-sm font-bold text-slate-300 uppercase leading-tight">{academicInfo.targetDepartment || 'Bölüm Girilmedi'}</p>
               </div>
-              <div className="bg-indigo-500/10 border border-indigo-500/20 p-4 rounded-2xl">
-                 <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Mevcut Abonelik</p>
+              <div className={`p-4 rounded-2xl border ${
+                 isSubscriptionActive(activeStudent)
+                   ? 'bg-indigo-500/10 border-indigo-500/20'
+                   : 'bg-rose-500/10 border-rose-500/20'
+              }`}>
+                 <div className="flex items-center justify-between mb-1">
+                   <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Mevcut Abonelik</p>
+                   <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase ${
+                     isSubscriptionActive(activeStudent) ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                   }`}>
+                     {isSubscriptionActive(activeStudent) ? 'Aktif' : (activeStudent?.subscriptionPlan ? 'Süresi Doldu' : 'Yok')}
+                   </span>
+                 </div>
                  <p className="text-lg font-black text-white italic uppercase leading-tight">
                     {activeStudent?.subscriptionPlan || 'Abonelik Seçilmedi'}
                  </p>

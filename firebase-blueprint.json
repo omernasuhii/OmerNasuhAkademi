@@ -283,6 +283,32 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["title", "content"]
+    },
+    "social_media_ai_chat": {
+      "title": "Social Media AI Chat Session",
+      "description": "Logged AI chat history in admin social media workspace",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "messages": { "type": "array" },
+        "topic": { "type": "string" },
+        "adminEmail": { "type": "string" }
+      },
+      "required": ["title", "messages"]
+    },
+    "social_media_saved_item": {
+      "title": "Social Media Saved Item",
+      "description": "Saved posts, designs, or video scripts",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["post", "design", "video_script", "strategy"] },
+        "title": { "type": "string" },
+        "data": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "title", "data"]
     }
   },
   "firestore": {
@@ -361,6 +387,14 @@
     "/ai_solver_state/{userId}": {
       "schema": "ai_solver_state",
       "description": "AI Assistant solver state for student"
+    },
+    "/social_media_ai_chats/{chatId}": {
+      "schema": "social_media_ai_chat",
+      "description": "Logged AI chats and strategy brainstorming sessions in Admin Social Media panel"
+    },
+    "/social_media_saved_items/{itemId}": {
+      "schema": "social_media_saved_item",
+      "description": "Saved posts, designs, and video scripts generated in social media studio"
     }
   }
 }

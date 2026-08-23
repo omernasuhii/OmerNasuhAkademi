@@ -564,9 +564,9 @@ export default function ParentExams() {
         });
       }
 
-      const branchData = analysis.data[branch] || [];
+      const branchData = (analysis?.data && analysis.data[branch]) || [];
       const noneCount = branchData.filter(
-        (q: any) => q.errorType === "none",
+        (q: any) => q && q.errorType === "none",
       ).length;
 
       if (branchData.length > 0) anyCompleteOrTouched = true;

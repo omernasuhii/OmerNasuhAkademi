@@ -6,11 +6,15 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Phase 3: Primitives
+    // Phase 3: Primitives & Auth Helpers
     function isSignedIn() { return request.auth != null; }
     
     function isSystemAdmin() {
-      return isSignedIn() && request.auth.token.get('email', '') == 'destek@omernasuhakademi.com';
+      return isSignedIn() && (
+        request.auth.token.get('email', '') == 'destek@omernasuhakademi.com' ||
+        request.auth.token.get('email', '') == 'omernasuhagir2@gmail.com' ||
+        request.auth.token.get('email', '') == 'omernasuhagir@gmail.com'
+      );
     }
 
     function isVerified() { 
@@ -33,7 +37,7 @@ service cloud.firestore {
       ) || (
         isSignedIn() && 
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin'
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['admin', 'superadmin']
       );
     }
 
@@ -60,7 +64,8 @@ service cloud.firestore {
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('studentIds', []) is list && 
          studentId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('studentIds', [])) ||
-        isCoach()
+        isCoach() ||
+        isAdmin()
       );
     }
 
@@ -73,14 +78,15 @@ service cloud.firestore {
         // Option 2: The parent's own user document contains the studentId as 'studentId'
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('studentId', '') == studentId) ||
-         
+          
         // Option 3: The parent's own user document contains the studentId inside a 'studentIds' list
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('studentIds', []) is list && 
          studentId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('studentIds', [])) ||
-         
-        // Option 4: Fallback if the user is registered as a parent
-        isParent()
+          
+        // Option 4: Fallback if the user is registered as a parent or admin
+        isParent() ||
+        isAdmin()
       );
     }
 
@@ -137,38 +143,28 @@ service cloud.firestore {
     // 1. Users Collection
     match /users/{userId} {
       allow read: if true;
-      allow create: if isOwner(userId);
-      allow update: if isAdmin() || (
-        (isOwner(userId) || isCoachOf(userId) || isParentOf(userId)) &&
-        (!('role' in incoming()) || existing().get('role', '') == '' || incoming().role == existing().role)
-      ) || (
-        isStudentOf(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['systemBalance', 'updatedAt'])
-      ) || (
-        isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['referralCount', 'referralEarnings', 'walletBalance'])
-      ) || (
-        request.auth == null && incoming().diff(existing()).affectedKeys().hasOnly(['phoneVerified', 'verificationDeferred', 'updatedAt'])
-      );
-      allow delete: if isAdmin();
+      allow create: if isSignedIn() || request.auth == null;
+      allow update: if isSignedIn() || request.auth == null;
+      allow delete: if isAdmin() || isOwner(userId);
       
       match /ai_chat_views/{targetId} {
-        allow read, write: if isOwner(userId) || isAdmin();
+        allow read, write: if isSignedIn();
       }
 
       match /solved_questions/{qId} {
-        allow read, write: if isOwner(userId) || isAdmin() || isCoachOf(userId) || isParentOf(userId);
+        allow read, write: if isSignedIn();
       }
     }
 
     // 1.5 Bolumler Collection
     match /bolumler/{bolumId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isSignedIn();
     }
-    // 2. Weekly Reports (Legacy but keep for now)
+
+    // 2. Weekly Reports
     match /weekly_reports/{reportId} {
-      allow get: if isSignedIn() && (resource == null || isAdmin() || isOwner(resource.data.studentId) || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId));
-      allow list: if isSignedIn() && (isOwner(resource.data.studentId) || isAdmin() || isCoach() || isParent());
-      allow write: if isAdmin() || isCoach();
+      allow read, write: if true;
     }
 
     match /weekly_pdf_reports/{reportId} {
@@ -181,425 +177,225 @@ service cloud.firestore {
 
     // 3. Exam Results
     match /exam_results/{resultId} {
-      function isValidResult(data) {
-        return isValidId(data.get('studentId', '')) && 
-               data.get('examName', '') is string &&
-               data.get('examType', '') in ['TYT', 'AYT', 'MSÜ', 'LGS', 'YDT', 'YKS', 'BRANŞ', '9. Sınıf', '10. Sınıf', '11. Sınıf'];
-      }
-
-      allow get: if isSignedIn() && (resource == null || isOwner(resource.data.studentId) || isAdmin() || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId));
-      allow list: if isSignedIn() && (isOwner(resource.data.studentId) || isAdmin() || isCoach() || isParent());
-      allow create: if isSignedIn() && (isOwner(incoming().get('studentId', '')) || isAdmin() || isCoach()) && isValidResult(incoming());
-      allow update: if isSignedIn() && (isOwner(existing().get('studentId', '')) || isAdmin() || isCoachOf(existing().get('studentId', ''))) && 
-                    isValidResult(incoming()) &&
-                    incoming().get('studentId', '') == existing().get('studentId', '');
-      allow delete: if isSignedIn() && (resource == null || isOwner(resource.data.studentId) || isAdmin() || isCoachOf(resource.data.studentId));
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
     }
 
     // 3.5 Exam Analyses
     match /exam_analyses/{analysisId} {
-      allow get: if isSignedIn() && (resource == null || isOwner(resource.data.studentId) || isAdmin() || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId));
-      allow list: if isSignedIn() && (isOwner(resource.data.studentId) || isAdmin() || isCoach() || isParent());
-      allow create: if isVerified() && (isOwner(incoming().get('studentId', '')) || isAdmin() || isCoach());
-      allow update: if isVerified() && (isOwner(existing().get('studentId', '')) || isAdmin() || isCoachOf(existing().get('studentId', ''))) && 
-                    incoming().get('studentId', '') == existing().get('studentId', '') &&
-                    incoming().get('examId', '') == existing().get('examId', '');
-      allow delete: if isSignedIn() && (resource == null || isOwner(resource.data.studentId) || isAdmin() || isCoachOf(resource.data.studentId));
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
     }
 
     // 4. Book Tracking
     match /book_tracking/{trackId} {
-      function isValidTrack(data) {
-        return isValidId(data.get('studentId', '')) && 
-               data.get('subject', '') is string && 
-               data.get('bookName', '') is string;
-      }
-
-      allow get: if isSignedIn() && (resource == null || isOwner(resource.data.studentId) || isAdmin() || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId));
-      allow list: if isSignedIn() && (isOwner(resource.data.studentId) || isAdmin() || isCoach() || isParent());
-      allow create: if isSignedIn() && (isOwner(incoming().get('studentId', '')) || isAdmin() || isCoach()) && isValidTrack(incoming());
-      allow update: if isSignedIn() && (isOwner(existing().get('studentId', '')) || isAdmin() || isCoachOf(existing().get('studentId', ''))) && 
-                    isValidTrack(incoming()) &&
-                    incoming().get('studentId', '') == existing().get('studentId', '');
-      allow delete: if isSignedIn() && (resource == null || isOwner(resource.data.studentId) || isAdmin() || isCoachOf(resource.data.studentId));
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
     }
 
     // 5. Weekly Programs
     match /weekly_programs/{programId} {
-      function isValidProgram(data) {
-        return isValidId(data.get('studentId', '')) && 
-               (data.get('coachId', '') == '' || isValidId(data.get('coachId', '')));
-      }
-
-      allow get: if isSignedIn() && (resource == null || isAdmin() || isOwner(resource.data.studentId) || isOwner(resource.data.coachId) || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId));
-      allow list: if isSignedIn() && (isOwner(resource.data.studentId) || isAdmin() || isCoach() || isParent());
-      allow create: if isSignedIn() && (isAdmin() || isCoach() || isOwner(incoming().get("studentId", ""))) && isValidProgram(incoming());
-      allow update: if isSignedIn() && (isAdmin() || isCoachOf(existing().studentId) || isOwner(existing().coachId) || isOwner(existing().studentId)) && 
-                    isValidProgram(incoming()) &&
-                    incoming().get("studentId", "") == existing().studentId &&
-                    (isAdmin() || incoming().coachId == existing().coachId);
-      allow delete: if isAdmin() || (resource == null || isCoachOf(resource.data.studentId));
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
     }
 
     // 5.5 AI Chat History
     match /ai_chat_history/{userId} {
-      allow read, write: if isSignedIn() && (isOwner(userId) || isAdmin() || isCoachOf(userId));
+      allow read, write: if isSignedIn();
     }
     match /ai_solver_state/{userId} {
-      allow read, write: if isSignedIn() && (isOwner(userId) || isAdmin() || isCoachOf(userId));
+      allow read, write: if isSignedIn();
     }
     match /parent_ai_chat_history/{userId} {
-      allow read, write: if isSignedIn() && (
-        isOwner(userId) || 
-        isAdmin() || 
-        (exists(/databases/$(database)/documents/users/$(userId)) && isCoachOf(get(/databases/$(database)/documents/users/$(userId)).data.get('studentUid', '')))
-      );
+      allow read, write: if isSignedIn();
     }
 
     // 6. Appointments
     match /appointments/{appointmentId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     // 7. Coach Schedules
     match /coach_schedules/{coachId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin() || isOwner(coachId);
+      allow read: if true;
+      allow write: if isSignedIn();
     }
 
     // 8. Services
     match /services/{serviceId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow read: if true;
+      allow write: if isSignedIn();
     }
 
     // 9. Rooms
     match /rooms/{roomId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow read: if true;
+      allow write: if isSignedIn();
     }
 
-    // 10. Global Books
+    // 10. Global Books & Curriculum
     match /global_books/{bookId} {
-      function isValidGlobalBook(data) {
-        return data.get('name', '') is string &&
-               data.get('subject', '') is string &&
-               data.get('type', '') is string;
-      }
-      
-      allow read: if isSignedIn();
-      allow write: if isAdmin() || isCoach();
+      allow read: if true;
+      allow write: if isSignedIn();
     }
 
     match /curriculum/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin() || isCoach();
+      allow read: if true;
+      allow write: if isSignedIn();
     }
     
     match /global_questions/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin() || isCoach();
+      allow read: if true;
+      allow write: if isSignedIn();
     }
 
     match /global_academic_exams/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin() || isCoach();
+      allow read: if true;
+      allow write: if isSignedIn();
     }
 
     // 11. Daily Programs
     match /daily_programs/{programId} {
-      function isValidDaily(data) {
-        return isValidId(data.get('studentId', '')) && 
-               data.get('date', '') is string;
-      }
-
       allow read: if true;
-      allow create: if isSignedIn() && (isAdmin() || isCoach() || isOwner(incoming().get("studentId", ""))) && isValidDaily(incoming());
-      allow update: if isSignedIn() && (isAdmin() || isCoachOf(existing().studentId) || isOwner(existing().studentId)) && 
-                    isValidDaily(incoming()) &&
-                    incoming().get("studentId", "") == existing().studentId;
-      allow delete: if isAdmin() || (resource == null || isCoachOf(resource.data.studentId));
+      allow create, update, delete: if isSignedIn();
     }
 
     // 11.5 Coach Chats
     match /coach_chats/{coachId} {
-      allow read, write: if isSignedIn() && (isAdmin() || request.auth.uid == coachId);
+      allow read, write: if isSignedIn();
     }
 
     // 12. Routines
     match /routines/{studentId} {
-      allow read: if isSignedIn() && (isAdmin() || isOwner(studentId) || isCoachOf(studentId) || isParentOf(studentId));
-      allow write: if isSignedIn() && (isAdmin() || isCoach() || isOwner(studentId));
+      allow read: if true;
+      allow write: if isSignedIn();
     }
 
     // 12.5 Weekly Evaluations
     match /weeklyEvaluations/{evalId} {
-      allow get: if isSignedIn() && (resource == null || isAdmin() || isOwner(resource.data.studentId) || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId));
-      allow list: if isSignedIn() && (isAdmin() || isOwner(resource.data.studentId) || isCoach() || isParent());
-      allow write: if isSignedIn() && (isAdmin() || isOwner(incoming().get('studentId', '')) || isCoachOf(incoming().get('studentId', '')) || isParentOf(incoming().get('studentId', '')) || (resource != null && (isOwner(resource.data.studentId) || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId))));
+      allow read, write: if true;
     }
 
     // 13. Monthly Goals
     match /monthly_goals/{goalId} {
-      function isValidGoal(data) {
-        return isValidId(data.get('studentId', '')) && 
-               data.get('month', '') is string;
-      }
-
-      allow get: if isSignedIn() && (resource == null || isOwner(resource.data.studentId) || isAdmin() || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId));
-      allow list: if isSignedIn() && (isOwner(resource.data.studentId) || isAdmin() || isCoach() || isParent());
-      allow create: if isSignedIn() && (isOwner(incoming().get('studentId', '')) || isAdmin() || isCoachOf(incoming().get('studentId', ''))) && isValidGoal(incoming());
-      allow update: if isSignedIn() && (isOwner(existing().get('studentId', '')) || isAdmin() || isCoachOf(existing().get('studentId', ''))) && 
-                    isValidGoal(incoming()) &&
-                    incoming().get('studentId', '') == existing().get('studentId', '') &&
-                    incoming().get('month', '') == existing().get('month', '');
-      allow delete: if isAdmin() || isCoachOf(resource.data.studentId);
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
     }
 
     // 14. Wallet Transactions
     match /wallet_transactions/{transactionId} {
-      function isValidTransaction(data) {
-        return (isValidId(data.get('studentId', '')) || isValidId(data.get('coachId', ''))) &&
-               data.get('amount', 0) is number &&
-               data.get('type', '') in ['DEPOSIT', 'WITHDRAWAL', 'SYSTEM_DEPOSIT'];
-      }
-
-      allow get: if isSignedIn() && (resource == null || isOwner(resource.data.studentId) || isAdmin() || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId) || resource.data.coachId == request.auth.uid);
-      allow list: if isSignedIn() && (isOwner(resource.data.studentId) || isAdmin() || isCoach() || isParent() || resource.data.coachId == request.auth.uid);
-      allow create: if isSignedIn() && (isAdmin() || (isCoachOf(incoming().get("studentId", "")) && incoming().type == 'DEPOSIT') || (isOwner(incoming().get("studentId", "")) && incoming().type == 'WITHDRAWAL') || (request.auth.uid == incoming().coachId && incoming().type == 'WITHDRAWAL')) && isValidTransaction(incoming());
-      allow update, delete: if isAdmin();
-      // Withdrawal is limited to admin for now? Or automatic? 
-      // For now, let's allow coach to deposit.
+      allow read, write: if isSignedIn();
     }
 
     // 15. User Analyses
     match /user_analyses/{analysisId} {
-      function isValidAnalysis(data) {
-        return isValidId(data.get('userId', '')) &&
-               data.get('analysisType', '') is string;
-      }
-      allow get: if isSignedIn() && (
-        resource == null ||
-        isOwner(resource.data.userId) || 
-        isAdmin() || 
-        isCoachOf(resource.data.userId) || 
-        isParentOf(resource.data.userId)
-      );
-      allow list: if isSignedIn() && (
-        isOwner(resource.data.userId) || 
-        isAdmin() || 
-        isCoach() || 
-        isParent()
-      );
-      allow create: if isSignedIn() && (
-        isOwner(incoming().get('userId', '')) || 
-        isAdmin() || 
-        isCoach() || 
-        isParent() ||
-        isCoachOf(incoming().get('userId', '')) || 
-        isParentOf(incoming().get('userId', ''))
-      ) && isValidAnalysis(incoming());
-      allow update: if isSignedIn() && (
-        isOwner(resource.data.userId) || 
-        isAdmin() || 
-        isCoach() || 
-        isParent() ||
-        isCoachOf(resource.data.userId) || 
-        isParentOf(resource.data.userId)
-      ) && (
-        incoming().diff(existing()).affectedKeys().hasOnly(['aiInsight', 'data'])
-      );
-      allow delete: if isAdmin();
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
     }
 
     // 16. Chocolate Bank Status
     match /chocolate_bank_status/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin() || isCoachOf(userId));
-      allow write: if isSignedIn() && (request.auth.uid == userId || isAdmin() || isCoachOf(userId));
+      allow read, write: if isSignedIn();
     }
 
     // 17. Chocolate Bank Transactions
     match /chocolate_bank_transactions/{transactionId} {
-      allow get: if isSignedIn() && (
-        (resource != null && resource.data.userId == request.auth.uid) || 
-        isAdmin() || 
-        (resource != null && isCoachOf(resource.data.userId))
-      );
-      allow list: if isSignedIn() && (
-        isOwner(resource.data.userId) || 
-        isAdmin() || 
-        isCoach() || 
-        isParent()
-      );
-      allow create: if isSignedIn() && (
-        incoming().userId == request.auth.uid || 
-        isAdmin() || 
-        isCoachOf(incoming().userId)
-      );
-      allow update, delete: if isAdmin();
+      allow read, write: if isSignedIn();
     }
 
     // 18. Programs
     match /programs/{programId} {
-      allow read: if isSignedIn();
-      allow create, delete: if isAdmin();
-      allow update: if isAdmin() || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['enrolledCount']));
+      allow read: if true;
+      allow write: if isSignedIn();
     }
 
     // 19. Program Enrollments
     match /program_enrollments/{enrollmentId} {
-      allow get: if isSignedIn() && (
-        resource == null || 
-        isOwner(resource.data.studentId) || 
-        isAdmin() || 
-        isCoachOf(resource.data.studentId)
-      );
-      allow list: if isSignedIn() && (
-        isOwner(resource.data.studentId) || 
-        isAdmin() || 
-        isCoach() || 
-        isParent()
-      );
-      allow create: if isSignedIn() && (
-        isOwner(incoming().get("studentId", "")) || 
-        isAdmin() || 
-        isCoachOf(incoming().get("studentId", ""))
-      );
-      allow update: if isSignedIn() && (
-        isOwner(resource.data.studentId) || 
-        isAdmin() || 
-        isCoachOf(resource.data.studentId)
-      );
-      allow delete: if isAdmin();
+      allow read, write: if isSignedIn();
     }
 
     // 20. Events
     match /event_categories/{categoryId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow read: if true;
+      allow write: if isSignedIn();
     }
     match /events/{eventId} {
-      allow read: if isSignedIn();
-      allow create, delete: if isAdmin();
-      allow update: if isAdmin() || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['tickets']));
+      allow read: if true;
+      allow write: if isSignedIn();
     }
     match /event_rsvps/{rsvpId} {
-      allow read: if isSignedIn();
-      allow create, update: if isSignedIn() && isOwner(incoming().get("studentId", ""));
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
     match /ticket_orders/{orderId} {
-      allow read: if isSignedIn() && (resource == null || isOwner(resource.data.studentId) || isAdmin());
-      allow create: if isSignedIn() && isOwner(incoming().get("studentId", ""));
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
+
     // 21. Products
     match /products/{productId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow read: if true;
+      allow write: if isSignedIn();
     }
 
     // 22. Purchases
     match /purchases/{purchaseId} {
-      allow get: if isSignedIn() && (resource == null || isOwner(resource.data.get('studentId', '')) || isAdmin() || isCoachOf(resource.data.get('studentId', '')));
-      allow list: if isSignedIn() && (isOwner(resource.data.get('studentId', '')) || isAdmin() || isCoach() || isParent());
-      allow create: if isSignedIn() && (isOwner(incoming().get("studentId", "")) || isAdmin());
-      allow update, delete: if isAdmin();
+      allow read, write: if isSignedIn();
     }
 
-    // 23. Settings
+    // 23. Coupons & Settings
     match /coupons/{couponId} {
-      allow read: if isSignedIn();
-      allow create: if isAdmin() || (isSignedIn() && incoming().get('generatedFrom', '') == 'referral');
-      allow update: if isSignedIn() && (isAdmin() || resource.data.ownerId == request.auth.uid || resource.data.refereeId == request.auth.uid);
-      allow delete: if isAdmin();
-    }
-
-    match /settings/{docId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isSignedIn();
     }
 
     match /subscription_history/{historyId} {
-      allow read: if isSignedIn() && (resource == null || isOwner(resource.data.studentId) || isAdmin());
-      allow create: if isSignedIn();
-      allow update, delete: if isAdmin();
+      allow read, write: if isSignedIn();
     }
 
     match /carts/{userId} {
-      allow read: if isSignedIn() && (isOwner(userId) || isAdmin());
-      allow write: if isSignedIn() && (isOwner(userId) || isAdmin());
+      allow read, write: if true;
     }
 
     match /referral_history/{historyId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if isSignedIn();
     }
+
     // 25. Notifications
     match /notifications/{notificationId} {
-      allow read: if isSignedIn() && (
-        resource == null ||
-        isOwner(resource.data.userId) || 
-        isAdmin() || 
-        isCoachOf(resource.data.userId) || 
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'parent')
-      );
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && (isOwner(resource.data.userId) || isAdmin());
-      allow delete: if isSignedIn() && (isOwner(resource.data.userId) || isAdmin());
+      allow read, write: if true;
     }
-    // 26. User Sessions
+
+    // 26. User Sessions & Study Sessions
     match /study_sessions/{sessionId} {
-      allow get: if isSignedIn() && (resource == null || resource.data.studentId == request.auth.uid || isAdmin() || isCoachOf(resource.data.studentId) || isParentOf(resource.data.studentId));
-      allow list: if isSignedIn() && (resource.data.studentId == request.auth.uid || isAdmin() || isCoach() || isParent());
-      allow create: if isSignedIn() && (incoming().studentId == request.auth.uid || isAdmin());
-      allow update, delete: if isSignedIn() && (resource.data.studentId == request.auth.uid || isAdmin());
+      allow read: if true;
+      allow write: if isSignedIn();
     }
 
     match /user_sessions/{sessionId} {
-      allow read: if isAdmin() || (isSignedIn() && (resource == null || isOwner(resource.data.userId)));
-      allow create: if isSignedIn() && isOwner(incoming().userId);
-      allow update, delete: if isAdmin();
+      allow read, write: if true;
     }
+
     // 27. CABA Tests
     match /caba_tests/{testId} {
-      allow read: if isSignedIn() && (isOwner(testId) || isAdmin() || isCoachOf(testId) || isParentOf(testId));
-      allow create: if isSignedIn() && (isOwner(testId) || isAdmin() || isCoachOf(testId));
-      allow update: if isSignedIn() && (isOwner(testId) || isAdmin() || isCoachOf(testId));
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
 
     // 28. Chats
     match /chats/{chatId} {
-      allow read: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.participants);
-      allow create: if isSignedIn() && (isAdmin() || request.auth.uid in incoming().participants);
-      allow update: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.participants);
-      allow delete: if isAdmin();
+      allow read, write: if isSignedIn();
       
       match /messages/{messageId} {
-        allow read: if isSignedIn() && (isAdmin() || request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants);
-        allow create: if isSignedIn() && (isAdmin() || request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants) && incoming().senderId == request.auth.uid;
-        allow update: if false;
-        allow delete: if false;
+        allow read, write: if isSignedIn();
       }
     }
 
     // 29. User Tokens
     match /userTokens/{userId} {
-      function isValidUserToken(data) {
-        return data.get('token', '') is string && data.get('token', '').size() <= 512 &&
-               (data.get('updatedAt', '') is string && data.get('updatedAt', '').size() <= 128);
-      }
-
-      allow read: if isSignedIn() && (isOwner(userId) || isAdmin() || isCoachOf(userId) || isParentOf(userId));
-      allow create, update: if isSignedIn() && isOwner(userId) && isValidUserToken(incoming());
-      allow delete: if isAdmin() || isOwner(userId);
+      allow read, write: if isSignedIn();
     }
 
     // 30. Academic Calendar
     match /academic_calendar/{calendarId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if isSignedIn();
     }
 
@@ -607,6 +403,15 @@ service cloud.firestore {
     match /announcements/{announcementId} {
       allow read: if true;
       allow write: if isSignedIn();
+    }
+
+    // 32. Social Media AI Chats & Saved Items
+    match /social_media_ai_chats/{chatId} {
+      allow read, write: if true;
+    }
+
+    match /social_media_saved_items/{itemId} {
+      allow read, write: if true;
     }
   }
 }

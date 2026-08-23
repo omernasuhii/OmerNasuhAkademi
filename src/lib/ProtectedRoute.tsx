@@ -12,7 +12,7 @@ export default function ProtectedRoute({
   allowedRoles,
 }: ProtectedRouteProps) {
   const location = useLocation();
-  const { user, userData, systemSettings, loading } = useAuth();
+  const { user, userData, realUserData, isAdmin, systemSettings, loading } = useAuth();
 
   if (loading) {
     return (
@@ -24,6 +24,11 @@ export default function ProtectedRoute({
 
   if (!user) {
     return <Navigate to="/giris" replace />;
+  }
+
+  // If real user is admin, allow full access to all panels and bypass registration/verification blocks
+  if (isAdmin || realUserData?.role === "admin") {
+    return children;
   }
 
   // If the user profile (userData) is null/missing or uninitialized, they must register or log in.

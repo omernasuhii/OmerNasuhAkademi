@@ -40,7 +40,8 @@ const safeFormatDate = (dateVal: any) => {
 
 export default function Exams() {
   const navigate = useNavigate();
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
+  const currentUid = userData?.uid || user?.uid;
   const plan = userData?.subscriptionPlan || "";
   const isBronze = plan.includes("Bronz");
   const isSilver = plan.includes("Gümüş");
@@ -446,8 +447,9 @@ export default function Exams() {
   };
 
   const getDisplayExams = () => {
-    return exams
+    return (exams || [])
       .filter((e) => {
+        if (!e) return false;
         if (activeTab === "BRANŞ") return e.examType === "BRANŞ";
         return (
           e.examType === activeTab ||
@@ -473,20 +475,21 @@ export default function Exams() {
   });
 
   useEffect(() => {
-    fetchExams();
-  }, []);
+    if (currentUid) {
+      fetchExams();
+    }
+  }, [currentUid]);
 
   const [analyses, setAnalyses] = useState<any[]>([]);
 
   const fetchExams = async () => {
-    const user = auth.currentUser;
-    if (!user) return;
+    if (!currentUid) return;
     setLoading(true);
     try {
       const [data, profile, studentAnalyses, gExams] = await Promise.all([
-        studentDataService.getExamResults(user.uid),
-        studentDataService.getStudentProfile(user.uid),
-        studentDataService.getStudentAnalyses(user.uid),
+        studentDataService.getExamResults(currentUid),
+        studentDataService.getStudentProfile(currentUid),
+        studentDataService.getStudentAnalyses(currentUid),
         studentDataService.getGlobalAcademicExams(),
       ]);
       setExams(data || []);
@@ -626,11 +629,11 @@ export default function Exams() {
         branches = [...EXAM_TYPE_BRANCHES["TYT"], ...allowedAyt];
       }
 
-      return branches.filter((b: string) => analyzedBranches.includes(b));
+      return (branches || []).filter((b: string) => (analyzedBranches || []).includes(b));
     };
 
     const targetBranches = getTargetBranches();
-    if (targetBranches.length === 0) return "none"; // No expected fields are touched
+    if (!targetBranches || targetBranches.length === 0) return "none"; // No expected fields are touched
 
     let allComplete = true;
     let anyCompleteOrTouched = false;
@@ -658,9 +661,9 @@ export default function Exams() {
         });
       }
 
-      const branchData = analysis.data[branch] || [];
+      const branchData = (analysis?.data && analysis.data[branch]) || [];
       const noneCount = branchData.filter(
-        (q: any) => q.errorType === "none",
+        (q: any) => q && q.errorType === "none",
       ).length;
 
       if (branchData.length > 0) anyCompleteOrTouched = true;
@@ -749,8 +752,7 @@ export default function Exams() {
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const user = auth.currentUser;
-    if (!user) return;
+    if (!currentUid) return;
 
     const rank = parseInt(newResult.rank) || 0;
     const participants = parseInt(newResult.participantCount) || 0;
@@ -773,7 +775,7 @@ export default function Exams() {
     const totalNet = calculateTotalNet(newResult.scores, newResult.examType);
 
       const payload: any = {
-      studentId: user.uid,
+      studentId: currentUid,
       examName: newResult.examName,
       examType: newResult.examType,
       date: newResult.date,
@@ -819,15 +821,13 @@ export default function Exams() {
       const finalCount = newResult.analyzed ? totalQuestions : totalSolved;
   
       try {
-        const user = auth.currentUser;
-
-        if (user) {
+        if (currentUid) {
             const datesToUpdate = [newResult.date];
             if (newResult.examType === 'YKS' && newResult.aytDate && newResult.aytDate !== newResult.date) {
                 datesToUpdate.push(newResult.aytDate);
             }
 
-            await studentDataService.syncDailyProgramsWithExams(user.uid, datesToUpdate, userData);
+            await studentDataService.syncDailyProgramsWithExams(currentUid, datesToUpdate, userData);
         }
     } catch (e) {
         console.error('Haftalık program güncellenirken hata:', e);
@@ -2028,13 +2028,12 @@ export default function Exams() {
                     const deletedExam = exams.find(e => e.id === examToDelete);
                     await studentDataService.deleteExamResult(examToDelete);
                     
-                    const user = auth.currentUser;
-                    if (user && deletedExam) {
+                    if (currentUid && deletedExam) {
                         const datesToUpdate = [deletedExam.date];
                         if (deletedExam.examType === 'YKS' && deletedExam.aytDate && deletedExam.aytDate !== deletedExam.date) {
                             datesToUpdate.push(deletedExam.aytDate);
                         }
-                        await studentDataService.syncDailyProgramsWithExams(user.uid, datesToUpdate, userData);
+                        await studentDataService.syncDailyProgramsWithExams(currentUid, datesToUpdate, userData);
                     }
 
                     setExamToDelete(null);

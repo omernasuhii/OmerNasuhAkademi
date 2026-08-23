@@ -16,6 +16,7 @@ import {
 import { db, auth } from '../lib/firebase';
 import { OperationType, handleFirestoreError } from './appointmentService';
 import { notificationService } from './notificationService';
+import { generateAllDefaultResources } from '../constants/youtubeChannels';
 
 function sanitizeFirestorePayload(data: any): any {
   if (!data) return data;
@@ -153,22 +154,134 @@ export const studentDataService = {
     const path = 'daily_programs';
     try {
       const sanitized = cleanUndefined(program);
-      if (sanitized.id) {
-        const ref = doc(db, path, sanitized.id);
-        const { id, ...updateData } = sanitized;
-        await updateDoc(ref, { ...updateData, updatedAt: serverTimestamp() });
-        return sanitized.id;
-      } else {
-        // Document ID should ideally be studentId_date if we want uniqueness, 
-        // but we can just use setDoc with a custom ID so we don't accidentally create duplicates.
-        const docId = `${sanitized.studentId}_${sanitized.date}`;
-        const ref = doc(db, path, docId);
-        await setDoc(ref, {
-          ...sanitized,
-          updatedAt: serverTimestamp()
-        });
-        return docId;
+      const docId = sanitized.id || `${sanitized.studentId}_${sanitized.date}`;
+      const ref = doc(db, path, docId);
+      const { id, ...updateData } = sanitized;
+      await setDoc(ref, {
+        ...updateData,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      return docId;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async saveDailyProgramDraft(studentId: string, date: string, draftTasks: any[], draftCoachNote?: string) {
+    const path = 'daily_programs';
+    try {
+      const docId = `${studentId}_${date}`;
+      const ref = doc(db, path, docId);
+      const sanitizedTasks = cleanUndefined(draftTasks || []);
+      const payload: any = {
+        studentId,
+        date,
+        draftTasks: sanitizedTasks,
+        hasDraft: true,
+        draftUpdatedAt: serverTimestamp()
+      };
+      if (draftCoachNote !== undefined) {
+        payload.draftCoachNote = draftCoachNote;
       }
+      await setDoc(ref, payload, { merge: true });
+      return docId;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async saveBatchDailyProgramDrafts(studentId: string, daysDrafts: Array<{ date: string; draftTasks: any[]; draftCoachNote?: string }>) {
+    const path = 'daily_programs';
+    try {
+      const promises = daysDrafts.map(async (d) => {
+        const docId = `${studentId}_${d.date}`;
+        const ref = doc(db, path, docId);
+        const sanitizedTasks = cleanUndefined(d.draftTasks || []);
+        const payload: any = {
+          studentId,
+          date: d.date,
+          draftTasks: sanitizedTasks,
+          hasDraft: true,
+          draftUpdatedAt: serverTimestamp()
+        };
+        if (d.draftCoachNote !== undefined) {
+          payload.draftCoachNote = d.draftCoachNote;
+        }
+        await setDoc(ref, payload, { merge: true });
+      });
+      await Promise.all(promises);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async publishDailyPrograms(studentId: string, daysData: Array<{ date: string; tasks: any[]; coachNote?: string; studentNote?: string }>) {
+    const path = 'daily_programs';
+    try {
+      const promises = daysData.map(async (day) => {
+        const docId = `${studentId}_${day.date}`;
+        const ref = doc(db, path, docId);
+        const sanitizedTasks = cleanUndefined(day.tasks || []);
+
+        let finalTasks = sanitizedTasks;
+        let preservedStudentNote = day.studentNote || '';
+
+        try {
+          const snap = await getDoc(ref);
+          if (snap.exists()) {
+            const existingData = snap.data();
+            const existingTasks = existingData.tasks || [];
+            const currentIds = new Set(sanitizedTasks.map((t: any) => t.id));
+
+            // Sync completion progress if task was already completed by student
+            const existingMap = new Map(existingTasks.map((et: any) => [et.id, et]));
+            finalTasks = finalTasks.map((t: any) => {
+              const existing: any = existingMap.get(t.id);
+              if (existing && existing.isDone !== undefined && t.isDone === undefined) {
+                return {
+                  ...t,
+                  isDone: existing.isDone,
+                  completedCount: existing.completedCount !== undefined ? existing.completedCount : t.completedCount,
+                  isWaitingResult: existing.isWaitingResult !== undefined ? existing.isWaitingResult : t.isWaitingResult,
+                  studentNote: existing.studentNote || t.studentNote || ''
+                };
+              }
+              return t;
+            });
+
+            // Find any student-added extra tasks that are in Firestore but not in the published list
+            const existingStudentTasks = existingTasks.filter((et: any) => {
+              const isStudent = Boolean(et.isExtra || et.addedBy === 'student' || et.isStudentAdded || et.addedByStudent || et.createdBy === 'student');
+              return isStudent && !currentIds.has(et.id);
+            });
+
+            if (existingStudentTasks.length > 0) {
+              finalTasks = [...finalTasks, ...existingStudentTasks];
+            }
+
+            if (!preservedStudentNote && existingData.studentNote) {
+              preservedStudentNote = existingData.studentNote;
+            }
+          }
+        } catch (e) {
+          console.warn("Existing doc check error in publishDailyPrograms:", e);
+        }
+
+        await setDoc(ref, {
+          studentId,
+          date: day.date,
+          tasks: finalTasks,
+          coachNote: day.coachNote || '',
+          studentNote: preservedStudentNote,
+          draftTasks: finalTasks,
+          draftCoachNote: day.coachNote || '',
+          hasDraft: false,
+          isPublished: true,
+          publishedAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      });
+      await Promise.all(promises);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
     }
@@ -578,12 +691,43 @@ export const studentDataService = {
   // Global Books
   async getGlobalBooks() {
     const path = 'global_books';
+    const cleanIsbn = (s: string) => (s || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
     try {
       const snap = await getDocs(collection(db, path));
-      return snap.docs.map(doc => ({ id: doc.id, ...(doc.data() as object) }));
+      const firestoreBooks: any[] = snap.docs.map(doc => {
+        const data = doc.data() as any;
+        // Strip legacy ISBNs from youtube resources or resources with channel titles/videos
+        const isYoutubeResource = data.resourceType === 'youtube' || 
+                                  Boolean(data.channelTitle) || 
+                                  (Array.isArray(data.videos) && data.videos.length > 0) || 
+                                  (data.isbn && data.isbn.startsWith('youtube_'));
+
+        if (isYoutubeResource) {
+          data.isbn = '';
+          data.resourceType = 'youtube';
+        }
+        return { id: doc.id, ...data };
+      });
+      
+      const defaultResources = generateAllDefaultResources();
+      const firestoreKeys = new Set(
+        firestoreBooks.map(b => (b.id || '').toLowerCase())
+      );
+      const firestoreNameSubjects = new Set(
+        firestoreBooks.map(b => `${(b.name || '').trim().toLowerCase()}___${(b.subject || '').trim().toLowerCase()}`)
+      );
+
+      const missingDefaults = defaultResources.filter(d => {
+        if (firestoreKeys.has((d.id || '').toLowerCase())) return false;
+        const key = `${(d.name || '').trim().toLowerCase()}___${(d.subject || '').trim().toLowerCase()}`;
+        if (firestoreNameSubjects.has(key)) return false;
+        return true;
+      });
+
+      return [...firestoreBooks, ...missingDefaults];
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, path);
-      return [];
+      return generateAllDefaultResources();
     }
   },
 
@@ -755,10 +899,10 @@ export const studentDataService = {
       if (bookData.id) {
         const ref = doc(db, path, bookData.id);
         const { id, ...cleanData } = bookData;
-        await updateDoc(ref, {
+        await setDoc(ref, {
           ...cleanData,
           updatedAt: serverTimestamp()
-        });
+        }, { merge: true });
         return bookData.id;
       } else {
         const ref = await addDoc(collection(db, path), {
@@ -772,11 +916,26 @@ export const studentDataService = {
     }
   },
 
-  async updateGlobalBookTopicCounts(bookId: string, counts: Record<string, number>) {
+  async updateGlobalBookTopicCounts(bookId: string, counts: Record<string, number>, fallbackBookData?: any) {
     const path = 'global_books';
     try {
       const ref = doc(db, path, bookId);
-      await updateDoc(ref, { topicQuestionCounts: counts, updatedAt: serverTimestamp() });
+      const dataToSave: any = {
+        topicQuestionCounts: counts,
+        updatedAt: serverTimestamp()
+      };
+      if (fallbackBookData) {
+        if (fallbackBookData.name || fallbackBookData.bookName) {
+          dataToSave.name = fallbackBookData.name || fallbackBookData.bookName;
+        }
+        if (fallbackBookData.subject) {
+          dataToSave.subject = fallbackBookData.subject;
+        }
+        if (fallbackBookData.type || fallbackBookData.resourceType) {
+          dataToSave.type = fallbackBookData.type || fallbackBookData.resourceType;
+        }
+      }
+      await setDoc(ref, dataToSave, { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
     }
@@ -819,10 +978,10 @@ export const studentDataService = {
     try {
       if (trackId) {
         const ref = doc(db, path, trackId);
-        await updateDoc(ref, {
+        await setDoc(ref, {
           ...cleanData,
           updatedAt: serverTimestamp()
-        });
+        }, { merge: true });
         return trackId;
       } else {
         const ref = await addDoc(collection(db, path), {
@@ -837,16 +996,16 @@ export const studentDataService = {
   },
 
   // Exam Analysis
-  async getExamAnalysis(examId: string) {
+  async getExamAnalysis(examId: string, studentId?: string) {
     const path = 'exam_analyses';
     try {
-      const user = auth.currentUser;
-      if (!user) return null;
+      const targetStudentId = studentId || auth.currentUser?.uid;
+      if (!targetStudentId) return null;
       
       const q = query(
         collection(db, path), 
         where('examId', '==', examId),
-        where('studentId', '==', user.uid)
+        where('studentId', '==', targetStudentId)
       );
       const snap = await getDocs(q);
       if (!snap.empty) {

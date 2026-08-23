@@ -85,6 +85,50 @@ export default function ParentReports() {
   const [compCabaTest, setCompCabaTest] = useState<any>(null);
   const [selectedTerm, setSelectedTerm] = useState<"all" | "term1" | "term2">("all");
 
+  // Helper to normalize any date input (YYYY-MM-DD, DD.MM.YYYY, Timestamp, ISO) to "YYYY-MM-DD"
+  const normalizeDateToYYYYMMDD = (raw: any): string => {
+    if (!raw) return "";
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+        return trimmed.substring(0, 10);
+      }
+      if (/^\d{2}\.\d{2}\.\d{4}/.test(trimmed)) {
+        const [d, m, y] = trimmed.substring(0, 10).split(".");
+        return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+      }
+      if (/^\d{2}\/\d{2}\/\d{4}/.test(trimmed)) {
+        const [d, m, y] = trimmed.substring(0, 10).split("/");
+        return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+      }
+      const d = new Date(trimmed);
+      if (!isNaN(d.getTime())) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        return `${y}-${m}-${day}`;
+      }
+    } else if (raw && typeof raw.toDate === "function") {
+      const d = raw.toDate();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    } else if (raw && typeof raw.seconds === "number") {
+      const d = new Date(raw.seconds * 1000);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    } else if (raw instanceof Date && !isNaN(raw.getTime())) {
+      const y = raw.getFullYear();
+      const m = String(raw.getMonth() + 1).padStart(2, "0");
+      const day = String(raw.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
+    return "";
+  };
+
   // Helper to parse "YYYY-MM-DD" as a local Date object (00:00:00)
   const parseDateString = (str: string) => {
     if (!str) return new Date();
@@ -221,8 +265,8 @@ export default function ParentReports() {
         // 2. Fetch exam results
         const allExams = await studentDataService.getExamResults(selectedStudent.uid);
         const filteredExams = (allExams || []).filter((e: any) => {
-          if (!e.date) return false;
-          return e.date >= activeMonth.startDate && e.date <= activeMonth.endDate;
+          const dStr = normalizeDateToYYYYMMDD(e.date);
+          return dStr && dStr >= activeMonth.startDate && dStr <= activeMonth.endDate;
         });
         setMonthlyExams(filteredExams);
 
@@ -301,15 +345,10 @@ export default function ParentReports() {
 
         // Fetch exam results
         const examsData = await studentDataService.getExamResults(selectedStudent.uid);
-        // Filter exams that are taken during this week
-        const start = parseDateString(activeWeek.startDate);
-        const end = parseDateString(activeWeek.endDate);
-        end.setHours(23, 59, 59, 999);
-
+        // Filter exams that are taken during this week (Monday to Sunday)
         const filteredExams = (examsData || []).filter((exam: any) => {
-          if (!exam.date) return false;
-          const examDate = new Date(exam.date);
-          return examDate >= start && examDate <= end;
+          const dStr = normalizeDateToYYYYMMDD(exam.date);
+          return dStr && dStr >= activeWeek.startDate && dStr <= activeWeek.endDate;
         });
         setExams(filteredExams);
 
@@ -971,6 +1010,8 @@ export default function ParentReports() {
       reportText += `Bu hafta program sadakatinde düşüş gözlemlenmiştir. Derslerdeki eksiklerin birikmemesi için çalışma sürelerini artırması ve odaklanmasını zorlaştıran dış etkenleri (teknoloji vb.) azaltması gerekmektedir. Koçumuz bu konuda ek tedbirler alacaktır.`;
     }
 
+    reportText += `\n\nSaygılarımızla,\nFocusON Akademi\nYapay Zekâ Asistanı`;
+
     return reportText;
   };
 
@@ -1145,14 +1186,16 @@ export default function ParentReports() {
                 
                 {/* Print Only Header (Hidden on UI) */}
                 <div className="hidden print:block border-b-2 border-slate-900 pb-4 mb-6">
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between items-start">
                     <div>
-                      <h1 className="text-2xl font-black tracking-tight text-slate-900 uppercase">FocusON Akademi</h1>
-                      <p className="text-xs text-slate-500 font-bold uppercase">Kişiselleştirilmiş Eğitim Koçluğu Portal Raporu</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-slate-900">Haftalık Öğrenci Gelişim Raporu</p>
+                      <p className="text-sm font-bold text-slate-900">Haftalık Öğrenci Gelişim & Veli Bilgilendirme Raporu</p>
                       <p className="text-xs text-slate-500">{weeks[selectedWeekIndex]?.label}</p>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">Kişiselleştirilmiş Eğitim Koçluğu & Rehberlik</p>
+                    </div>
+                    <div className="flex flex-col items-end text-right">
+                      <img src="/images/ON-Logo.png" alt="ON Logo" className="h-9 object-contain mb-1" />
+                      <h1 className="text-lg font-black tracking-tight text-slate-900 uppercase">FocusON Akademi</h1>
+                      <a href="https://www.omernasuhakademi.com" target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 font-semibold hover:underline">www.omernasuhakademi.com</a>
                     </div>
                   </div>
                 </div>
@@ -1175,15 +1218,20 @@ export default function ParentReports() {
                             {studentProfile?.firstName} {studentProfile?.lastName}
                           </h3>
                           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 mt-1 print:text-slate-600">
-                            <span>Sınıf: {studentProfile?.grade || "Girilmemiş"}</span>
+                            <span>Sınıf: {studentProfile?.grade || studentProfile?.classLevel || "Girilmemiş"}</span>
                             <span>•</span>
                             <span>Alan: {studentProfile?.branch || "Girilmemiş"}</span>
-                            {studentProfile?.targetUniversity && (
-                              <>
-                                <span>•</span>
-                                <span className="text-emerald-400 font-medium">Hedef: {studentProfile.targetUniversity} - {studentProfile.targetDepartment}</span>
-                              </>
-                            )}
+                            <span>•</span>
+                            <span className="text-emerald-400 font-medium">
+                              Hedef: {(() => {
+                                const uni = (studentProfile?.targetUniversity || studentProfile?.universityTarget || "").trim();
+                                const dep = (studentProfile?.targetDepartment || studentProfile?.departmentTarget || studentProfile?.targetFaculty || "").trim();
+                                if (uni && dep) return `${uni} - ${dep}`;
+                                if (uni) return uni;
+                                if (dep) return dep;
+                                return "Belirtilmedi";
+                              })()}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -2346,7 +2394,14 @@ export default function ParentReports() {
                       {studentProfile?.name || selectedStudent?.displayName || (selectedStudent as any)?.name || "Öğrenci"}
                     </h2>
                     <p className="text-xs text-slate-400 print:text-slate-600 mt-1">
-                      {studentProfile?.classLevel || "YKS Sayısal / 12. Sınıf"} • Hedef: <strong className="text-emerald-400 print:text-emerald-700">{studentProfile?.targetFaculty || "Tıp & Mühendislik Fakültesi"}</strong>
+                      {studentProfile?.grade ? `${studentProfile.grade}. Sınıf` : studentProfile?.classLevel || "YKS Sayısal / 12. Sınıf"} • Hedef: <strong className="text-emerald-400 print:text-emerald-700">{(() => {
+                        const uni = (studentProfile?.targetUniversity || studentProfile?.universityTarget || "").trim();
+                        const dep = (studentProfile?.targetDepartment || studentProfile?.departmentTarget || studentProfile?.targetFaculty || "").trim();
+                        if (uni && dep) return `${uni} - ${dep}`;
+                        if (uni) return uni;
+                        if (dep) return dep;
+                        return "Belirtilmedi";
+                      })()}</strong>
                     </p>
                   </div>
                 </div>

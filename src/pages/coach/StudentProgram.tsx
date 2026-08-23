@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   DndContext, 
   closestCenter,
@@ -21,7 +21,7 @@ import { useStudent } from '../../lib/StudentContext';
 import { tourService } from '../../services/tourService';
 import { studentDataService } from '../../services/studentDataService';
 import { safeStorage } from '../../lib/localStorage';
-import { Sparkles, Calendar, Clock, CheckCircle2, Plus, Trash2, Save, Target, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Printer, Loader2, Copy, Folder, FolderOpen, ChevronDown, Book, FileText, LayoutList, Youtube, StickyNote, Eye, EyeOff, RotateCcw, Play, Search, X, GripVertical, Check, Layers, ListFilter } from 'lucide-react';
+import { Sparkles, Calendar, Clock, CheckCircle2, Plus, Trash2, Save, Target, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Printer, Loader2, Copy, Folder, FolderOpen, ChevronDown, ChevronUp, Book, FileText, LayoutList, Youtube, StickyNote, Eye, EyeOff, RotateCcw, Play, Search, X, GripVertical, Check, Layers, ListFilter, ClipboardCheck } from 'lucide-react';
 import { useCurriculum } from '../../lib/CurriculumContext';
 import { BRANCH_CONFIG } from '../../constants/branchConfig';
 import { SUBTOPICS } from '../../constants/subtopics';
@@ -135,7 +135,13 @@ const TopicDraggable = (props: any) => {
       updateBookTopicCount, 
       isFirstTopic,
       videoInfo,
-      subtopicsList
+      subtopicsList,
+      hasSubtopics,
+      subtopicsCount,
+      isSubtopicsExpanded,
+      onToggleSubtopics,
+      isSubtopic = false,
+      onQuickAdd
     } = props;
     
     // Alt başlıkların toplam hedef miktarını hesapla
@@ -184,7 +190,7 @@ const TopicDraggable = (props: any) => {
         }
     };
 
-    const finalTargetCount = videoInfo?.durationMinutes || bookData?.topicQuestionCounts?.[topic] || targetCount || (type === 'Konu Çalışması' || type === 'YouTube Video' ? 0 : 100);
+    const finalTargetCount = videoInfo?.durationMinutes || (topicCount !== '' ? Number(topicCount) : undefined) || bookData?.topicQuestionCounts?.[topic] || targetCount || (type === 'Konu Çalışması' || type === 'YouTube Video' ? 0 : 100);
 
     const { attributes, listeners, setNodeRef, isDragging } = useSortable({
         id: `template-${subject}-${topic}-${bookId || 'none'}-${videoInfo?.order || ''}`,
@@ -193,6 +199,7 @@ const TopicDraggable = (props: any) => {
           template: { 
             title: topic, 
             subject, 
+            branch,
             type, 
             bookId, 
             targetCount: finalTargetCount,
@@ -208,13 +215,33 @@ const TopicDraggable = (props: any) => {
     const isVideo = type === 'YouTube Video';
     const isKonu = type === 'Konu Çalışması';
 
+    const handleQuickAddClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        if (onQuickAdd) {
+            onQuickAdd({
+                title: topic,
+                subject,
+                branch,
+                type,
+                bookId,
+                targetCount: finalTargetCount,
+                durationMinutes: videoInfo?.durationMinutes || 0,
+                durationFormatted: videoInfo?.durationFormatted || '',
+                videoId: videoInfo?.videoId || '',
+                videoUrl: videoInfo?.url || '',
+                channelTitle: bookData?.channelTitle || ''
+            });
+        }
+    };
+
     return (
         <div 
           id={isFirstTopic ? "tour-program-draggable-topic" : undefined} 
           ref={setNodeRef} 
           {...attributes} 
           {...listeners} 
-          className={`group relative p-2.5 rounded-xl cursor-grab transition-all select-none border ${
+          className={`group relative ${isSubtopic ? 'p-2' : 'p-2.5'} rounded-xl cursor-grab transition-all select-none border ${
             isDragging ? 'opacity-40 scale-[0.98]' : 'hover:border-white/20 hover:shadow-md'
           } ${
             isCompleted 
@@ -223,7 +250,11 @@ const TopicDraggable = (props: any) => {
                 ? 'bg-red-500/5 text-slate-200 border-red-500/20 hover:bg-red-500/10' 
                 : isKonu 
                   ? 'bg-amber-500/5 text-slate-200 border-amber-500/20 hover:bg-amber-500/10' 
-                  : 'bg-slate-800/60 text-slate-200 border-white/5 hover:bg-slate-800'
+                  : isSubtopic
+                    ? topic.includes('Ünite Değerlendirme')
+                      ? 'bg-purple-950/40 text-purple-200 border-purple-500/30 hover:bg-purple-900/50 hover:border-purple-400/60 shadow-sm shadow-purple-500/5'
+                      : 'bg-slate-900/70 text-slate-300 border-slate-700/50 hover:bg-slate-800/80 hover:border-indigo-500/30'
+                    : 'bg-slate-800/60 text-slate-200 border-white/5 hover:bg-slate-800'
           }`}
         >
            {/* 1. Üst Satır: Tutma Kulpu + İkon / Sıra No + Konu Başlığı */}
@@ -236,6 +267,12 @@ const TopicDraggable = (props: any) => {
                   <Youtube size={14} className="text-red-400 shrink-0 mt-0.5" />
                ) : isKonu ? (
                   <FileText size={14} className="text-amber-400 shrink-0 mt-0.5" />
+               ) : isSubtopic ? (
+                  topic.includes('Ünite Değerlendirme') ? (
+                    <ClipboardCheck size={13} className="text-purple-400 shrink-0 mt-0.5" />
+                  ) : (
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400/80 shrink-0 mt-1.5" />
+                  )
                ) : (
                   <Book size={14} className="text-indigo-400 shrink-0 mt-0.5" />
                )}
@@ -249,51 +286,104 @@ const TopicDraggable = (props: any) => {
                <span className={`text-xs font-bold leading-snug break-words flex-1 ${
                  isCompleted 
                    ? 'text-emerald-300 group-hover:text-emerald-200' 
-                   : 'text-slate-200 group-hover:text-white'
+                   : isSubtopic
+                     ? topic.includes('Ünite Değerlendirme')
+                       ? 'text-purple-200 group-hover:text-purple-100 text-[11.5px] font-semibold'
+                       : 'text-slate-300 group-hover:text-white text-[11.5px] font-medium'
+                     : 'text-slate-200 group-hover:text-white'
                }`} title={topic}>
-                 {topic}
+                 {isSubtopic && topic.includes('Ünite Değerlendirme') ? 'Ünite Değerlendirme' : topic}
                </span>
-           </div>
-           
-           {/* 2. Alt Satır: Soru / Sayfa / Süre Sayısı & Tamamlanma Durumu */}
-           <div className="flex items-center gap-2 mt-2 pl-5 flex-wrap" onPointerDown={e => e.stopPropagation()}>
-               {isCompleted && (
-                 <span className="inline-flex items-center gap-1 text-[9px] font-black text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-500/30 shrink-0">
-                   <Check size={10} className="stroke-[3]" /> Tamamlandı
+
+               {isSubtopic && topic.includes('Ünite Değerlendirme') && (
+                 <span className="text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 shrink-0">
+                   Değerlendirme
                  </span>
                )}
 
-               {isVideo && videoInfo ? (
-                   <div className="flex items-center gap-1.5 shrink-0">
-                     <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-300 bg-red-500/15 px-2 py-0.5 rounded-md border border-red-500/30">
-                        <Clock size={11} className="text-red-400" />
-                        {videoInfo.durationFormatted || `${videoInfo.durationMinutes} dk`}
+               {hasSubtopics && (
+                 <button
+                   type="button"
+                   onClick={(e) => {
+                     e.stopPropagation();
+                     e.preventDefault();
+                     onToggleSubtopics?.();
+                   }}
+                   onPointerDown={(e) => e.stopPropagation()}
+                   className={`inline-flex items-center gap-1 text-[9.5px] font-bold px-1.5 py-0.5 rounded-md border transition-all cursor-pointer shrink-0 ${
+                     isSubtopicsExpanded
+                       ? 'bg-indigo-500/25 text-indigo-300 border-indigo-500/40 shadow-sm'
+                       : 'bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 border-white/10'
+                   }`}
+                   title={isSubtopicsExpanded ? "Alt başlıkları kapat" : "Alt başlıkları göster ve seç"}
+                 >
+                   <Layers size={10} className={isSubtopicsExpanded ? "text-indigo-400" : "text-slate-400"} />
+                   <span>{isSubtopicsExpanded ? 'Kapat' : `${subtopicsCount}`}</span>
+                   {isSubtopicsExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                 </button>
+               )}
+           </div>
+           
+           {/* 2. Alt Satır: Soru / Sayfa / Süre Sayısı & Tamamlanma Durumu & Haftanın İlk Gününe Hızlı Ekleme Butonu */}
+           <div className="flex items-center justify-between gap-2 mt-2 pl-5 flex-wrap" onPointerDown={e => e.stopPropagation()}>
+               <div className="flex items-center gap-2 flex-wrap">
+                   {isCompleted && (
+                     <span className="inline-flex items-center gap-1 text-[9px] font-black text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-500/30 shrink-0">
+                       <Check size={10} className="stroke-[3]" /> Tamamlandı
                      </span>
-                     {bookData?.channelTitle && (
-                        <span className="text-[9.5px] text-slate-500 truncate max-w-[120px]">{bookData.channelTitle}</span>
-                     )}
-                   </div>
-               ) : (
-                   <div className="flex items-center gap-1.5 shrink-0">
-                     <span className={`text-[10px] font-bold ${isCompleted ? 'text-emerald-400/80' : 'text-slate-400'}`}>Hedef:</span>
-                     <input 
-                        id={isFirstTopic ? "tour-program-global-target" : undefined}
-                        type="number"
-                        value={topicCount}
-                        onChange={e => setTopicCount(e.target.value)}
-                        onBlur={handleSaveTopicCount}
-                        onPointerDown={e => e.stopPropagation()}
-                        onKeyDown={e => e.stopPropagation()}
-                        className={`w-14 bg-slate-950 text-slate-100 border focus:border-indigo-500 rounded-md text-[10.5px] py-0.5 px-1.5 text-center font-extrabold outline-none ring-0 placeholder-slate-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
-                          isCompleted ? 'border-emerald-500/30 text-emerald-300' : 'border-slate-700/80'
-                        }`}
-                        placeholder={isKonu ? 'Sayfa' : 'Soru'} 
-                        title={isKonu ? 'Varsayılan Sayfa Hedefi' : 'Varsayılan Soru Hedefi'}
-                     />
-                     <span className={`text-[10px] font-bold ${isCompleted ? 'text-emerald-400/80' : 'text-slate-400'}`}>
-                       {isKonu ? 'sayfa' : 'soru'}
-                     </span>
-                   </div>
+                   )}
+
+                   {isVideo && videoInfo ? (
+                       <div className="flex items-center gap-1.5 shrink-0">
+                         <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-300 bg-red-500/15 px-2 py-0.5 rounded-md border border-red-500/30">
+                            <Clock size={11} className="text-red-400" />
+                            {videoInfo.durationFormatted || `${videoInfo.durationMinutes} dk`}
+                         </span>
+                         {bookData?.channelTitle && (
+                            <span className="text-[9.5px] text-slate-500 truncate max-w-[120px]">{bookData.channelTitle}</span>
+                         )}
+                       </div>
+                   ) : (
+                       <div className="flex items-center gap-1.5 shrink-0">
+                         <span className={`text-[10px] font-bold ${isCompleted ? 'text-emerald-400/80' : 'text-slate-400'}`}>Hedef:</span>
+                         <input 
+                            id={isFirstTopic ? "tour-program-global-target" : undefined}
+                            type="number"
+                            value={topicCount}
+                            onChange={e => setTopicCount(e.target.value)}
+                            onBlur={handleSaveTopicCount}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                handleSaveTopicCount();
+                                (e.target as HTMLInputElement).blur();
+                              }
+                              e.stopPropagation();
+                            }}
+                            onPointerDown={e => e.stopPropagation()}
+                            className={`w-14 bg-slate-950 text-slate-100 border focus:border-indigo-500 rounded-md text-[10.5px] py-0.5 px-1.5 text-center font-extrabold outline-none ring-0 placeholder-slate-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                              isCompleted ? 'border-emerald-500/30 text-emerald-300' : 'border-slate-700/80'
+                            }`}
+                            placeholder={isKonu ? 'Sayfa' : 'Soru'} 
+                            title={isKonu ? 'Varsayılan Sayfa Hedefi' : 'Varsayılan Soru Hedefi'}
+                         />
+                         <span className={`text-[10px] font-bold ${isCompleted ? 'text-emerald-400/80' : 'text-slate-400'}`}>
+                           {isKonu ? 'sayfa' : 'soru'}
+                         </span>
+                       </div>
+                   )}
+               </div>
+
+               {/* Haftanın İlk Gününe Hızlı Ekleme Butonu (+) */}
+               {onQuickAdd && (
+                   <button
+                       type="button"
+                       onClick={handleQuickAddClick}
+                       onPointerDown={e => e.stopPropagation()}
+                       className="inline-flex items-center justify-center w-5 h-5 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white rounded-md border border-indigo-500/30 hover:border-indigo-500 transition-all shadow-sm active:scale-90 cursor-pointer shrink-0 ml-auto"
+                       title="Bu görevi haftanın ilk gününe ekle (+)"
+                   >
+                       <Plus size={13} className="stroke-[3]" />
+                   </button>
                )}
            </div>
         </div>
@@ -316,7 +406,8 @@ const SidebarHierarchy = ({
     studentBranch, 
     studentGrade,
     isTourOpen = false,
-    currentTourTargetId = null
+    currentTourTargetId = null,
+    onQuickAdd
 }: { 
     CURRICULUM: any, 
     tytSubjects: string[], 
@@ -326,7 +417,8 @@ const SidebarHierarchy = ({
     studentBranch: string, 
     studentGrade: string,
     isTourOpen?: boolean,
-    currentTourTargetId?: string | null
+    currentTourTargetId?: string | null,
+    onQuickAdd?: (template: any) => void
 }) => {
     const { curriculum: contextCurriculum, subtopics: contextSubtopics } = useCurriculum();
     const activeCurriculum = contextCurriculum && Object.keys(contextCurriculum).length > 0 ? contextCurriculum : CURRICULUM;
@@ -338,6 +430,20 @@ const SidebarHierarchy = ({
     const [selectedBook, setSelectedBook] = useState<string>('demo-biyotik-1');
     const [searchQuery, setSearchQuery] = useState<string>('');
     const [showGlobalLibrary, setShowGlobalLibrary] = useState<boolean>(false);
+    const [expandedTopics, setExpandedTopics] = useState<Record<string, boolean>>({});
+    const [hideCompletedTopics, setHideCompletedTopics] = useState<boolean>(false);
+
+    const toggleTopicExpand = (topicKey: string) => {
+        setExpandedTopics(prev => ({ ...prev, [topicKey]: !prev[topicKey] }));
+    };
+
+    const toggleAllTopicsExpand = (expand: boolean) => {
+        const updates: Record<string, boolean> = {};
+        filteredCurriculumTopics.forEach((t: string) => {
+            updates[`${selectedBook}-${t}`] = expand;
+        });
+        setExpandedTopics(prev => ({ ...prev, ...updates }));
+    };
 
     const isAraSinif = ['9. Sınıf', '10. Sınıf', '11. Sınıf'].includes(studentGrade);
     const dynamicBranches = isAraSinif 
@@ -394,25 +500,25 @@ const SidebarHierarchy = ({
         return true;
     }).sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
 
-    // When type, branch, or subject changes, ensure selectedBook aligns with student's resources
+    // When type, branch, or subject changes, ensure selectedBook aligns with student or global resources
     useEffect(() => {
         if (selectedBranch === 'Denemeler') {
             setSelectedBook('none');
             return;
         }
 
-        if (studentBooks.length > 0) {
-            // If current selectedBook is not in student's books and not explicitly 'none', default to first student book
-            if (!studentBooks.some(b => b.id === selectedBook) && selectedBook !== 'none') {
+        const isCurrentBookInStudentBooks = studentBooks.some(b => b.id === selectedBook);
+        const isCurrentBookInGlobalBooks = globalOtherBooks.some(b => b.id === selectedBook);
+        const isCurrentBookValid = selectedBook === 'none' || isCurrentBookInStudentBooks || isCurrentBookInGlobalBooks;
+
+        if (!isCurrentBookValid) {
+            if (studentBooks.length > 0) {
                 setSelectedBook(studentBooks[0].id);
-            }
-        } else {
-            // No student books for this subject/type, default to 'none' (Müfredat) unless coach selected a global book
-            if (!globalOtherBooks.some(b => b.id === selectedBook)) {
+            } else {
                 setSelectedBook('none');
             }
         }
-    }, [selectedSubject, selectedType, selectedBranch, studentBooks, globalOtherBooks]);
+    }, [selectedSubject, selectedType, selectedBranch, books]);
 
     useEffect(() => {
         if (isTourOpen) {
@@ -434,12 +540,22 @@ const SidebarHierarchy = ({
 
     const q = searchQuery.trim().toLowerCase();
 
+    // Haftalık program sayfasına özel her konunun altına "Ünite Değerlendirme" alt başlığı ekleme
+    const getTopicSubtopics = (topicName: string): string[] => {
+        const base = activeSubtopics[topicName] || [];
+        const evalTitle = `${topicName} - Ünite Değerlendirme`;
+        if (base.some((s: string) => s.toLowerCase().includes('ünite değerlendirme'))) {
+            return base;
+        }
+        return [...base, evalTitle];
+    };
+
     // Filter curriculum topics based on search
     const rawCurriculumTopics: string[] = activeCurriculum[selectedSubject] || [];
     const filteredCurriculumTopics = rawCurriculumTopics.filter(topic => {
         if (!q) return true;
         if (topic.toLowerCase().includes(q)) return true;
-        const subtopics = activeSubtopics[topic] || [];
+        const subtopics = getTopicSubtopics(topic);
         return subtopics.some(sub => sub.toLowerCase().includes(q));
     });
 
@@ -729,20 +845,53 @@ const SidebarHierarchy = ({
 
             {/* 5. Konu & Video Listesi (Clean, 100% Full-Width, Non-Cascading!) */}
             <div className="space-y-1 pt-1">
-                <div className="flex items-center justify-between pl-1">
+                <div className="flex items-center justify-between pl-1 flex-wrap gap-1">
                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
                         {selectedBranch === 'Denemeler' ? 'Deneme Başlıkları' : selectedType === 'YouTube Video' && activeBookData?.videos?.length ? 'Video Listesi' : 'Konu Başlıkları'}
                     </p>
-                    <span className="text-[9px] text-slate-500">
-                        {selectedBranch === 'Denemeler' 
-                            ? `${DENEME_TYPES.filter(d => d.subject === selectedSubject).length || 1} Deneme`
-                            : selectedType === 'YouTube Video' && activeBookData?.videos?.length 
-                                ? `${activeBookData.videos.length} Video (${activeBookData.totalDurationFormatted || `${activeBookData.totalDurationMinutes || 0} dk`})`
-                                : `${filteredCurriculumTopics.length} Konu`}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                        {/* Biten Konuları Gizle / Göster Butonu */}
+                        {selectedBranch !== 'Denemeler' && (
+                            <button
+                                type="button"
+                                onClick={() => setHideCompletedTopics(!hideCompletedTopics)}
+                                className={`text-[9px] font-bold transition-all flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${
+                                    hideCompletedTopics
+                                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                        : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border-white/10'
+                                }`}
+                                title={hideCompletedTopics ? "Biten konuları listeye geri getir" : "Tamamlanmış konuları gizle"}
+                            >
+                                {hideCompletedTopics ? <EyeOff size={10} className="text-emerald-400" /> : <Eye size={10} />}
+                                <span>{hideCompletedTopics ? 'Bitenler Gizli' : 'Bitenleri Gizle'}</span>
+                            </button>
+                        )}
+
+                        {filteredCurriculumTopics.some((t: string) => getTopicSubtopics(t).length > 0) && selectedBranch !== 'Denemeler' && !(selectedType === 'YouTube Video' && activeBookData?.videos?.length) && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const anyOpen = filteredCurriculumTopics.some((t: string) => expandedTopics[`${selectedBook}-${t}`]);
+                                    toggleAllTopicsExpand(!anyOpen);
+                                }}
+                                className="text-[9px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1 bg-indigo-500/10 hover:bg-indigo-500/20 px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-pointer"
+                                title="Tüm alt konuları aç / kapat"
+                            >
+                                <Layers size={10} />
+                                <span>{filteredCurriculumTopics.some((t: string) => expandedTopics[`${selectedBook}-${t}`]) ? 'Alt Konuları Kapat' : 'Tüm Alt Konuları Aç'}</span>
+                            </button>
+                        )}
+                        <span className="text-[9px] text-slate-500">
+                            {selectedBranch === 'Denemeler' 
+                                ? `${DENEME_TYPES.filter(d => d.subject === selectedSubject).length || 1} Deneme`
+                                : selectedType === 'YouTube Video' && activeBookData?.videos?.length 
+                                    ? `${activeBookData.videos.length} Video (${activeBookData.totalDurationFormatted || `${activeBookData.totalDurationMinutes || 0} dk`})`
+                                    : `${filteredCurriculumTopics.length} Konu`}
+                        </span>
+                    </div>
                 </div>
 
-                <div className="space-y-1.5 max-h-[440px] overflow-y-auto custom-scrollbar pr-1">
+                <div className="space-y-1.5">
                     {/* Denemeler List */}
                     {selectedBranch === 'Denemeler' && (
                         <div className="space-y-1">
@@ -757,6 +906,7 @@ const SidebarHierarchy = ({
                                     isCompleted={false} 
                                     targetCount={d.questionCount} 
                                     isFirstTopic={false}
+                                    onQuickAdd={onQuickAdd}
                                 />
                             ))}
                             {DENEME_TYPES.filter(d => d.subject === selectedSubject).length === 0 && (
@@ -768,6 +918,7 @@ const SidebarHierarchy = ({
                                     bookId={null} 
                                     isCompleted={false} 
                                     isFirstTopic={false}
+                                    onQuickAdd={onQuickAdd}
                                 />
                             )}
                         </div>
@@ -778,6 +929,11 @@ const SidebarHierarchy = ({
                         <div className="space-y-1">
                             {activeBookData.videos
                                 .filter((vid: any) => !q || vid.title.toLowerCase().includes(q))
+                                .filter((vid: any) => {
+                                    if (!hideCompletedTopics) return true;
+                                    const isCompleted = (activeBookData?.completedTopics || []).includes(vid.title);
+                                    return !isCompleted;
+                                })
                                 .map((vid: any, vidIdx: number) => {
                                     const isCompleted = (activeBookData?.completedTopics || []).includes(vid.title);
                                     return (
@@ -794,6 +950,7 @@ const SidebarHierarchy = ({
                                             updateBookTopicCount={updateBookTopicCount} 
                                             isFirstTopic={vidIdx === 0}
                                             videoInfo={vid}
+                                            onQuickAdd={onQuickAdd}
                                         />
                                     );
                                 })}
@@ -804,7 +961,7 @@ const SidebarHierarchy = ({
                     {selectedBranch !== 'Denemeler' && !(selectedType === 'YouTube Video' && activeBookData?.videos?.length) && (
                         <div className="space-y-1.5">
                             {/* Quick General Review Card */}
-                            {!q && (
+                            {!q && !hideCompletedTopics && (
                                 <TopicDraggable 
                                     key={`${selectedBook}-Genel Tekrar`} 
                                     topic="Genel Tekrar / Çalışma" 
@@ -816,20 +973,36 @@ const SidebarHierarchy = ({
                                     bookData={activeBookData} 
                                     updateBookTopicCount={updateBookTopicCount} 
                                     isFirstTopic={false} 
+                                    onQuickAdd={onQuickAdd}
                                 />
                             )}
 
                             {filteredCurriculumTopics.map((topic: string, topicIdx: number) => {
                                 let isCompleted = (activeBookData?.completedTopics || []).includes(topic);
-                                const subtopics = activeSubtopics[topic] || [];
+                                const subtopics = getTopicSubtopics(topic);
                                 if (!isCompleted && subtopics.length > 0) {
                                     isCompleted = subtopics.every(sub => (activeBookData?.completedTopics || []).includes(sub));
                                 }
+
+                                if (hideCompletedTopics && isCompleted) {
+                                    return null;
+                                }
+
                                 const isTargetTopic = (selectedSubject === 'Biyoloji' && topicIdx === 0);
-                                const matchingSubtopics = subtopics.filter(sub => !q || sub.toLowerCase().includes(q) || topic.toLowerCase().includes(q));
+                                const topicKey = `${selectedBook}-${topic}`;
+                                const isExpanded = !!expandedTopics[topicKey];
+                                const matchingSubtopics = subtopics
+                                    .filter(sub => !q || sub.toLowerCase().includes(q) || topic.toLowerCase().includes(q))
+                                    .filter(sub => {
+                                        if (!hideCompletedTopics) return true;
+                                        const subIsCompleted = (activeBookData?.completedTopics || []).includes(sub);
+                                        return !subIsCompleted;
+                                    });
+
+                                const shouldShowSubtopics = (isExpanded || (q.length > 0 && subtopics.some(sub => sub.toLowerCase().includes(q)))) && matchingSubtopics.length > 0;
 
                                 return (
-                                    <div key={`${selectedBook}-${topic}`} className="space-y-1">
+                                    <div key={topicKey} className="space-y-1">
                                         <TopicDraggable 
                                             topic={topic} 
                                             subject={selectedSubject} 
@@ -841,11 +1014,16 @@ const SidebarHierarchy = ({
                                             updateBookTopicCount={updateBookTopicCount} 
                                             isFirstTopic={isTargetTopic} 
                                             subtopicsList={subtopics}
+                                            hasSubtopics={subtopics.length > 0}
+                                            subtopicsCount={subtopics.length}
+                                            isSubtopicsExpanded={isExpanded}
+                                            onToggleSubtopics={() => toggleTopicExpand(topicKey)}
+                                            onQuickAdd={onQuickAdd}
                                         />
                                         
                                         {/* Subtopics directly underneath with clear 1-level accent border without sliding right */}
-                                        {matchingSubtopics.length > 0 && (
-                                            <div className="pl-3 ml-1 border-l-2 border-indigo-500/20 space-y-1">
+                                        {shouldShowSubtopics && (
+                                            <div className="pl-2.5 ml-2 border-l-2 border-indigo-500/30 space-y-1 my-1">
                                                 {matchingSubtopics.map(subtopic => {
                                                     const subIsCompleted = isCompleted || (activeBookData?.completedTopics || []).includes(subtopic);
                                                     return (
@@ -859,6 +1037,8 @@ const SidebarHierarchy = ({
                                                             isCompleted={subIsCompleted} 
                                                             bookData={activeBookData} 
                                                             updateBookTopicCount={updateBookTopicCount} 
+                                                            isSubtopic={true}
+                                                            onQuickAdd={onQuickAdd}
                                                         />
                                                     );
                                                 })}
@@ -1125,10 +1305,10 @@ const SortableTask = (props: any) => {
           ))}
         </select>
 
-        <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-white/5">
-           <div className="flex flex-col gap-1 w-full relative">
-              <div className="flex items-center gap-1 w-full">
-                  <Target size={14} className={styles.icon} />
+        <div className="flex items-center justify-between gap-1.5 mt-2 pt-2 border-t border-white/5 min-w-0">
+           <div className="flex flex-col gap-1 flex-1 min-w-0">
+              <div className="flex items-center gap-1 w-full min-w-0">
+                  <Target size={14} className={`${styles.icon} shrink-0`} />
                   <input 
                     type="number"
                     value={task.targetCount || ''}
@@ -1136,14 +1316,15 @@ const SortableTask = (props: any) => {
                     onChange={(e) => updateTask(task.id, 'targetCount', parseInt(e.target.value) || 0)}
                     onPointerDown={(e) => e.stopPropagation()}
                     onKeyDown={(e) => e.stopPropagation()}
-                    className={`w-full bg-white/5 border border-white/10 rounded py-1 px-2 text-xs font-black text-white outline-none focus:${styles.border}/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
+                    className={`w-full min-w-0 bg-white/5 border border-white/10 rounded py-1 px-1.5 text-xs font-black text-white outline-none focus:${styles.border}/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
                   />
-                  {task.completedCount !== undefined && task.completedCount > 0 && (
-                     <span className="text-[10px] font-bold text-emerald-400 whitespace-nowrap ml-1 shrink-0">
-                        / {task.completedCount} {task.type === 'YouTube Video' ? 'İzlendi' : task.type === 'Konu Çalışması' ? 'Okundu' : 'Çözüldü'}
-                     </span>
-                  )}
               </div>
+              {task.completedCount !== undefined && task.completedCount > 0 && (
+                 <div className="text-[9.5px] font-bold text-emerald-400 truncate pl-4 flex items-center gap-1 min-w-0" title={`${task.completedCount} ${task.type === 'YouTube Video' ? 'İzlendi' : task.type === 'Konu Çalışması' ? 'Okundu' : 'Çözüldü'}`}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
+                    <span className="truncate">{task.completedCount} {task.type === 'YouTube Video' ? 'İzlendi' : task.type === 'Konu Çalışması' ? 'Okundu' : 'Çözüldü'}</span>
+                 </div>
+              )}
            </div>
            <button 
              onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); updateTask(task.id, 'isDone', !task.isDone); }}
@@ -1254,6 +1435,165 @@ export default function StudentProgram() {
     }
   }, [selectedStudent, setSelectedStudent, location.state, userData]);
 
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [dailyCoachNotes, setDailyCoachNotes] = useState<Record<string, string>>({});
+  const [dailyStudentNotes, setDailyStudentNotes] = useState<Record<string, string>>({});
+  const [savingRoutines, setSavingRoutines] = useState(false);
+  const [routines, setRoutines] = useState<any>({ paragraf: 40, problem: 20 });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved' | 'published'>('idle');
+  const isInitialLoadDone = useRef(false);
+  const autoSaveTimerRef = useRef<any>(null);
+  const lastSavedSnapshotRef = useRef<string>('');
+  const [books, setBooks] = useState<any[]>([]);
+  const booksRef = useRef<any[]>([]);
+  const globalBooksRef = useRef<any[]>([]);
+  const [multipliers, setMultipliers] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    booksRef.current = books;
+  }, [books]);
+
+  // Auto-save draft effect: Any changes made in the coach weekly program are automatically persisted as draft
+  useEffect(() => {
+    if (!isInitialLoadDone.current || !selectedStudent || loading || isTourOpen || selectedStudent?.isDemo) {
+      return;
+    }
+
+    const currentSnapshot = JSON.stringify({
+      tasks,
+      notes: dailyCoachNotes
+    });
+
+    if (currentSnapshot === lastSavedSnapshotRef.current) {
+      return;
+    }
+
+    setDraftStatus('saving');
+
+    // Immediate localStorage save to guarantee no data loss even on instant refresh/crash
+    const draftKey = `weekly_program_draft_${selectedStudent.uid}_${startDate}`;
+    safeStorage.setItem(draftKey, JSON.stringify({
+      tasks,
+      notes: dailyCoachNotes,
+      timestamp: Date.now()
+    }));
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = setTimeout(async () => {
+      try {
+        const tasksByDate = tasks.reduce((acc: any, t: any) => {
+          acc[t.date] = acc[t.date] || [];
+          acc[t.date].push(t);
+          return acc;
+        }, {});
+
+        const start = new Date(startDate);
+        const daysDrafts = [];
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(start);
+          d.setDate(start.getDate() + i);
+          const dateStr = d.toISOString().split('T')[0];
+          daysDrafts.push({
+            date: dateStr,
+            draftTasks: tasksByDate[dateStr] || [],
+            draftCoachNote: dailyCoachNotes[dateStr] || ''
+          });
+        }
+
+        await studentDataService.saveBatchDailyProgramDrafts(selectedStudent.uid, daysDrafts);
+        lastSavedSnapshotRef.current = currentSnapshot;
+        setDraftStatus('saved');
+      } catch (err) {
+        console.error("Auto-save draft error:", err);
+      }
+    }, 600);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [tasks, dailyCoachNotes, startDate, selectedStudent, loading, isTourOpen]);
+
+  useEffect(() => {
+    if (isTourOpen) {
+      setTasks(prev => {
+        const hasSample = prev.some(t => t.id === 'demo-sample-task-1');
+        if (!hasSample) {
+          const sampleTask1 = {
+            id: 'demo-sample-task-1',
+            date: startDate,
+            branch: 'TYT',
+            subject: 'Biyoloji',
+            topic: 'Hücre Bölünmeleri & Mayoz',
+            type: 'Soru Çözümü',
+            bookId: 'demo-biyotik-1',
+            targetCount: 50,
+            completedCount: 0,
+            isDone: false,
+            coachNote: 'Biyotik TYT Biyoloji soru bankasından test 1-3 çözülecek. Yanlışlar kontrol edilsin.',
+            studentNote: ''
+          };
+          const sampleTask2 = {
+            id: 'demo-sample-task-2',
+            date: startDate,
+            branch: 'TYT',
+            subject: 'Matematik',
+            topic: 'Fonksiyonlar & Grafikler',
+            type: 'Soru Çözümü',
+            targetCount: 60,
+            completedCount: 0,
+            isDone: false,
+            coachNote: 'Fasiküldeki test 3 ve test 4 sorularını tamamlamalısın.',
+            studentNote: ''
+          };
+          return [sampleTask1, sampleTask2, ...prev.filter(t => t.id !== 'demo-sample-task-1' && t.id !== 'demo-sample-task-2')];
+        }
+        return prev;
+      });
+
+      setBooks(prev => {
+        if (!prev.some(b => b.id === 'demo-biyotik-1')) {
+          const sampleBiyotikBook = {
+            id: 'demo-biyotik-1',
+            bookName: 'Biyotik TYT Biyoloji Soru Bankası',
+            subject: 'Biyoloji',
+            resourceType: 'soru',
+            completionPercentage: 35,
+            completedTopics: ['Canlıların Ortak Özellikleri'],
+            topicQuestionCounts: {
+              'Hücre Bölünmeleri & Mayoz': 50,
+              'Kalıtımın Genel İlkeleri': 40
+            },
+            isStudentBook: true
+          };
+          return [sampleBiyotikBook, ...prev];
+        }
+        return prev;
+      });
+    }
+  }, [isTourOpen, startDate]);
+  
+  const [plans, setPlans] = useState<any[]>([]);
+  const [repetitionEnabled, setRepetitionEnabled] = useState<boolean>(() => {
+    return safeStorage.getItem('repetitionEnabled') !== 'false';
+  });
+  const [showRepetitionPlanner, setShowRepetitionPlanner] = useState<boolean>(() => {
+    return safeStorage.getItem('showRepetitionPlanner') !== 'false';
+  });
+  const [startingRepeatLevel, setStartingRepeatLevel] = useState<'level1' | 'level2' | 'level3'>('level1');
+  const [allowVirtualBooks, setAllowVirtualBooks] = useState<boolean>(true);
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<any>(null);
+  const [selectedWeek, setSelectedWeek] = useState(1);
+  const [shiftingTasks, setShiftingTasks] = useState(false);
+
   const handleEndTour = () => {
     setIsTourOpen(false);
     setCurrentTourTargetId(null);
@@ -1313,57 +1653,49 @@ export default function StudentProgram() {
       description: 'Pazartesi\'den Pazar\'a 7 günün çalışma takvimidir. Sol kütüphaneden sürüklenecek görevler buraya düşer. Her günün altında günün soru toplamını görebilir ve koç değerlendirme notu yazabilirsiniz.',
       position: 'top',
       badge: 'Haftalık Takvim'
-    }
-  ];
-
-  if (selectedStudent?.isDemo || location.state?.startTour) {
-    tourSteps.push(
-      {
-        targetId: 'tour-sample-task-card',
-        title: 'Örnek Ödev / Görev Kartı',
-        description: 'Programlanan her ders ve ödev takvimde şık bir kart olarak gösterilir. Üzerinde ders adı, konu başlığı, hedef soru sayısı ve tanımlanan koç notu yer alır.',
-        position: 'bottom',
-        badge: 'Örnek Görev'
-      },
-      {
-        targetId: 'tour-task-actions',
-        title: 'Görev Kartı Üzerindeki Hızlı İşlemler',
-        description: 'Programdaki her görevin sağ üst köşesinde görev eylemleri yer alır. Buradan görevi günlere dağıtabilir, kopyalayabilir, silebilir veya göreve özel koç notu yazabilirsiniz.',
-        position: 'bottom',
-        badge: 'Görev Yönetimi'
-      },
-      {
-        targetId: 'tour-task-distribute',
-        title: 'Görevi Günlere Dağıtma / Bölme',
-        description: 'Soru hedefini tek bir güne yığmak yerine, bu ikona tıklayarak hedef soru sayısını haftanın seçtiğiniz diğer günlerine eşit veya özel miktarlarda otomatik bölebilir ve dağıtabilirsiniz.',
-        position: 'bottom',
-        badge: 'Akıllı Bölüştürme'
-      },
-      {
-        targetId: 'tour-task-copy',
-        title: 'Görevi Kopyalama & Çoğaltma',
-        description: 'Aynı görevi ve hedefi tekrar tekrar oluşturmak yerine kopyalama butonuna basarak anında yeni bir kopyasını oluşturabilir ve istediğiniz güne taşıyabilirsiniz.',
-        position: 'bottom',
-        badge: 'Hızlı Çoğaltma'
-      },
-      {
-        targetId: 'tour-task-delete',
-        title: 'Görevi Programdan Silme',
-        description: 'Öğrencinin programından çıkarmak istediğiniz görevleri silme ikonuna tıklayarak haftalık takvimden kolayca kaldırabilirsiniz.',
-        position: 'bottom',
-        badge: 'Görev Silme'
-      },
-      {
-        targetId: 'tour-task-note',
-        title: 'Göreve Özgü Koç Notu & Açıklama',
-        description: 'Her bir ödeve özel detaylı talimat, püf noktası veya uyarı ekleyebilirsiniz. Öğrenci kendi panelinde bu ödevi incelerken yazdığınız koç notunu doğrudan görür ve yanıt yazabilir.',
-        position: 'bottom',
-        badge: 'Özel İletişim'
-      }
-    );
-  }
-
-  tourSteps.push(
+    },
+    {
+      targetId: 'tour-sample-task-card',
+      title: 'Örnek Ödev / Görev Kartı',
+      description: 'Programlanan her ders ve ödev takvimde şık bir kart olarak gösterilir. Üzerinde ders adı, konu başlığı, hedef soru sayısı ve tanımlanan koç notu yer alır.',
+      position: 'bottom',
+      badge: 'Örnek Görev'
+    },
+    {
+      targetId: 'tour-task-actions',
+      title: 'Görev Kartı Üzerindeki Hızlı İşlemler',
+      description: 'Programdaki her görevin sağ üst köşesinde görev eylemleri yer alır. Buradan görevi günlere dağıtabilir, kopyalayabilir, silebilir veya göreve özel koç notu yazabilirsiniz.',
+      position: 'bottom',
+      badge: 'Görev Yönetimi'
+    },
+    {
+      targetId: 'tour-task-distribute',
+      title: 'Görevi Günlere Dağıtma / Bölme',
+      description: 'Soru hedefini tek bir güne yığmak yerine, bu ikona tıklayarak hedef soru sayısını haftanın seçtiğiniz diğer günlerine eşit veya özel miktarlarda otomatik bölebilir ve dağıtabilirsiniz.',
+      position: 'bottom',
+      badge: 'Akıllı Bölüştürme'
+    },
+    {
+      targetId: 'tour-task-copy',
+      title: 'Görevi Kopyalama & Çoğaltma',
+      description: 'Aynı görevi ve hedefi tekrar tekrar oluşturmak yerine kopyalama butonuna basarak anında yeni bir kopyasını oluşturabilir ve istediğiniz güne taşıyabilirsiniz.',
+      position: 'bottom',
+      badge: 'Hızlı Çoğaltma'
+    },
+    {
+      targetId: 'tour-task-delete',
+      title: 'Görevi Programdan Silme',
+      description: 'Öğrencinin programından çıkarmak istediğiniz görevleri silme ikonuna tıklayarak haftalık takvimden kolayca kaldırabilirsiniz.',
+      position: 'bottom',
+      badge: 'Görev Silme'
+    },
+    {
+      targetId: 'tour-task-note',
+      title: 'Göreve Özgü Koç Notu & Açıklama',
+      description: 'Her bir ödeve özel detaylı talimat, püf noktası veya uyarı ekleyebilirsiniz. Öğrenci kendi panelinde bu ödevi incelerken yazdığınız koç notunu doğrudan görür ve yanıt yazabilir.',
+      position: 'bottom',
+      badge: 'Özel İletişim'
+    },
     {
       targetId: 'tour-program-sidebar',
       title: 'Görev Seçimi Kütüphanesi',
@@ -1434,32 +1766,7 @@ export default function StudentProgram() {
       position: 'top',
       badge: 'Detaylı Analiz'
     }
-  );
-
-  const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [dailyCoachNotes, setDailyCoachNotes] = useState<Record<string, string>>({});
-  const [dailyStudentNotes, setDailyStudentNotes] = useState<Record<string, string>>({});
-  const [savingRoutines, setSavingRoutines] = useState(false);
-  const [routines, setRoutines] = useState<any>({ paragraf: 40, problem: 20 });
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [books, setBooks] = useState<any[]>([]);
-  const [multipliers, setMultipliers] = useState<Record<string, number>>({});
-  
-  const [plans, setPlans] = useState<any[]>([]);
-  const [repetitionEnabled, setRepetitionEnabled] = useState<boolean>(() => {
-    return safeStorage.getItem('repetitionEnabled') !== 'false';
-  });
-  const [showRepetitionPlanner, setShowRepetitionPlanner] = useState<boolean>(() => {
-    return safeStorage.getItem('showRepetitionPlanner') !== 'false';
-  });
-  const [startingRepeatLevel, setStartingRepeatLevel] = useState<'level1' | 'level2' | 'level3'>('level1');
-  const [allowVirtualBooks, setAllowVirtualBooks] = useState<boolean>(true);
-  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<any>(null);
-  const [selectedWeek, setSelectedWeek] = useState(1);
-  const [shiftingTasks, setShiftingTasks] = useState(false);
+  ];
 
   const isRoutineTask = (t: any) => {
     return (
@@ -1853,6 +2160,8 @@ export default function StudentProgram() {
       studentDataService.getExamResults(selectedStudent!.uid)
     ]);
     
+    globalBooksRef.current = globalBooksData || [];
+    
     if (examsData) {
        setMultipliers(calculateSubjectMultipliers(examsData, selectedStudent!.branch));
     }
@@ -1926,21 +2235,62 @@ export default function StudentProgram() {
         };
         finalBooks = [sampleBiyotikBook, ...finalBooks.filter((b: any) => b.id !== 'demo-biyotik-1')];
     }
+    booksRef.current = finalBooks;
     setBooks(finalBooks);
 
+    isInitialLoadDone.current = false;
     let allTasks: any[] = [];
     const loadedCoachNotes: Record<string, string> = {};
     const loadedStudentNotes: Record<string, string> = {};
-    const todayStr = new Date().toISOString().split('T')[0];
+    let hasAnyDraft = false;
+    let hasAnyPublished = false;
     
     dates.forEach(dateStr => {
         const dp = programsArray.find(p => p.date === dateStr);
         if (dp) {
-            if (dp.coachNote) loadedCoachNotes[dateStr] = dp.coachNote;
-            else if (dp.note) loadedCoachNotes[dateStr] = dp.note; // backward compatibility
+            if (dp.hasDraft) hasAnyDraft = true;
+            if (dp.isPublished) hasAnyPublished = true;
+
+            // Note handling: prefer draftCoachNote if a draft exists
+            if (dp.draftCoachNote !== undefined && dp.hasDraft) {
+                loadedCoachNotes[dateStr] = dp.draftCoachNote;
+            } else if (dp.coachNote) {
+                loadedCoachNotes[dateStr] = dp.coachNote;
+            } else if (dp.note) {
+                loadedCoachNotes[dateStr] = dp.note; // backward compatibility
+            }
+
             if (dp.studentNote) loadedStudentNotes[dateStr] = dp.studentNote;
 
-            if (dp.tasks) {
+            // Tasks handling: load draftTasks if draft exists, syncing any completion data from published tasks and preserving student-added/extra tasks
+            if (dp.draftTasks !== undefined && dp.hasDraft) {
+                const publishedMap = new Map((dp.tasks || []).map((pt: any) => [pt.id, pt]));
+                const draftTaskIds = new Set((dp.draftTasks || []).map((dt: any) => dt.id));
+                const mergedDailyTasks = (dp.draftTasks || []).map((dt: any) => {
+                    const pub: any = publishedMap.get(dt.id);
+                    if (pub) {
+                        return {
+                            ...dt,
+                            isDone: pub.isDone !== undefined ? pub.isDone : dt.isDone,
+                            completedCount: pub.completedCount !== undefined ? pub.completedCount : dt.completedCount,
+                            isWaitingResult: pub.isWaitingResult !== undefined ? pub.isWaitingResult : dt.isWaitingResult,
+                            studentNote: pub.studentNote || dt.studentNote || ''
+                        };
+                    }
+                    return dt;
+                });
+
+                // Preserve any tasks in dp.tasks that are not in draftTasks (such as student self-studies / extra tasks)
+                const extraStudentTasks = (dp.tasks || []).filter((pt: any) => !draftTaskIds.has(pt.id));
+                const combinedTasks = [...mergedDailyTasks, ...extraStudentTasks];
+
+                allTasks = [...allTasks, ...combinedTasks.map((t:any) => ({
+                    ...t, 
+                    date: dateStr,
+                    coachNote: t.coachNote || t.note || '',
+                    studentNote: t.studentNote || ''
+                }))];
+            } else if (dp.tasks) {
                 allTasks = [...allTasks, ...dp.tasks.map((t:any) => ({
                     ...t, 
                     date: dateStr,
@@ -1950,6 +2300,32 @@ export default function StudentProgram() {
             }
         }
     });
+
+    // Check localStorage fallback in case page refreshed right after an edit
+    const draftKey = `weekly_program_draft_${selectedStudent!.uid}_${startDate}`;
+    const localCached = safeStorage.getItem(draftKey);
+    if (localCached) {
+        try {
+            const parsed = JSON.parse(localCached);
+            if (parsed && parsed.timestamp && (Date.now() - parsed.timestamp < 2 * 60 * 60 * 1000)) {
+                if (allTasks.length === 0 && parsed.tasks && parsed.tasks.length > 0) {
+                    allTasks = parsed.tasks;
+                    if (parsed.notes) Object.assign(loadedCoachNotes, parsed.notes);
+                    hasAnyDraft = true;
+                }
+            }
+        } catch (e) {
+            console.error("Local draft parse error", e);
+        }
+    }
+
+    if (hasAnyDraft) {
+        setDraftStatus('saved');
+    } else if (hasAnyPublished) {
+        setDraftStatus('published');
+    } else {
+        setDraftStatus('idle');
+    }
 
     if (isTourOpen && (selectedStudent?.isDemo || location.state?.startTour)) {
         allTasks = [
@@ -1988,6 +2364,15 @@ export default function StudentProgram() {
     setDailyCoachNotes(loadedCoachNotes);
     setDailyStudentNotes(loadedStudentNotes);
     setLoading(false);
+
+    lastSavedSnapshotRef.current = JSON.stringify({
+        tasks: allTasks,
+        notes: loadedCoachNotes
+    });
+
+    setTimeout(() => {
+        isInitialLoadDone.current = true;
+    }, 150);
   };
 
   const navigateDay = (days: number) => {
@@ -2204,6 +2589,9 @@ export default function StudentProgram() {
   };
 
   const handleSave = async () => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
     setSaving(true);
     
     // Group tasks by date
@@ -2215,25 +2603,21 @@ export default function StudentProgram() {
 
     // Ensure all 7 currently displayed days are included, even if they have no tasks
     const start = new Date(startDate);
+    const daysData = [];
     for (let i = 0; i < 7; i++) {
         const d = new Date(start);
         d.setDate(start.getDate() + i);
         const dateStr = d.toISOString().split('T')[0];
-        if (!tasksByDate[dateStr]) {
-            tasksByDate[dateStr] = []; // explicit empty array to overwrite deleted tasks
-        }
+        daysData.push({
+          date: dateStr,
+          tasks: tasksByDate[dateStr] || [],
+          coachNote: dailyCoachNotes[dateStr] || '',
+          studentNote: dailyStudentNotes[dateStr] || ''
+        });
     }
 
     const promises = [];
-    for (const [date, dailyTasks] of Object.entries(tasksByDate)) {
-      promises.push(studentDataService.saveDailyProgram({
-         studentId: selectedStudent!.uid,
-         date,
-         tasks: dailyTasks,
-         coachNote: dailyCoachNotes[date] || '',
-         studentNote: dailyStudentNotes[date] || ''
-      }));
-    }
+    promises.push(studentDataService.publishDailyPrograms(selectedStudent!.uid, daysData));
     
     // Save routines
     promises.push(studentDataService.saveRoutines(selectedStudent!.uid, routines));
@@ -2295,28 +2679,101 @@ export default function StudentProgram() {
       console.error("Bildirim gönderilemedi", e);
     }
 
+    lastSavedSnapshotRef.current = JSON.stringify({
+      tasks,
+      notes: dailyCoachNotes
+    });
+    setDraftStatus('published');
     setSaving(false);
-    alert('Program ve Rutinler kaydedildi!');
+    alert('Haftalık program ve rutinler başarıyla kaydedildi ve öğrencinin paneline yayınlandı!');
   };
 
   const updateBookTopicCount = async (bookId: string, topic: string, count: number | null) => {
-    const book = books.find((b: any) => b.id === bookId);
+    const currentBooks = booksRef.current && booksRef.current.length > 0 ? booksRef.current : books;
+    const book = currentBooks.find((b: any) => b.id === bookId);
     if (!book) return;
 
     const newCounts = { ...((book as any).topicQuestionCounts || {}) };
-    if (count === null) {
+    if (count === null || count === undefined || count <= 0) {
       delete newCounts[topic];
     } else {
       newCounts[topic] = count;
     }
 
     const updatedBook = { ...book, topicQuestionCounts: newCounts };
-    setBooks((prev: any[]) => prev.map(b => b.id === bookId ? updatedBook : b));
+    const updatedBooksList = currentBooks.map((b: any) => b.id === bookId ? updatedBook : b);
+    booksRef.current = updatedBooksList;
+    setBooks(updatedBooksList);
     
-    if (book.globalBookId) {
-      await studentDataService.updateGlobalBookTopicCounts(book.globalBookId, newCounts);
-    } else {
-      await studentDataService.updateBookProgress(bookId, { topicQuestionCounts: newCounts });
+    try {
+      let targetGlobalId = book.globalBookId;
+      const bookName = book.bookName || book.name;
+      const subject = book.subject;
+      const resourceType = book.resourceType || book.type || 'soru';
+
+      // Global kitap ID'si yoksa isim ve derse göre globalBooksRef içinden bul
+      if (!targetGlobalId && bookName && subject) {
+        const foundGb = globalBooksRef.current.find((gb: any) => 
+          gb.id === bookId || 
+          (gb.name && gb.name.trim().toLowerCase() === bookName.trim().toLowerCase() && gb.subject === subject)
+        );
+        if (foundGb) {
+          targetGlobalId = foundGb.id;
+        }
+      }
+
+      // Hala targetGlobalId yoksa ve demo kitap değilse yeni bir global kitap belgesi oluştur
+      if (!targetGlobalId && bookName && !bookId.startsWith('demo-')) {
+        targetGlobalId = await studentDataService.saveGlobalBook({
+          name: bookName,
+          subject: subject,
+          type: resourceType,
+          resourceType: resourceType,
+          topicQuestionCounts: newCounts
+        });
+        if (targetGlobalId) {
+          const withGlobalIdList = booksRef.current.map((b: any) => b.id === bookId ? { ...b, globalBookId: targetGlobalId } : b);
+          booksRef.current = withGlobalIdList;
+          setBooks(withGlobalIdList);
+        }
+      }
+
+      // Her halükarda global_books koleksiyonunda güncelle / kaydet
+      if (targetGlobalId && !targetGlobalId.startsWith('demo-')) {
+        await studentDataService.updateGlobalBookTopicCounts(targetGlobalId, newCounts, {
+          name: bookName,
+          subject: subject,
+          type: resourceType
+        });
+        
+        // Cache ref güncelle
+        const gbIndex = globalBooksRef.current.findIndex((g: any) => g.id === targetGlobalId);
+        if (gbIndex >= 0) {
+          globalBooksRef.current[gbIndex] = {
+            ...globalBooksRef.current[gbIndex],
+            topicQuestionCounts: newCounts
+          };
+        } else if (targetGlobalId) {
+          globalBooksRef.current.push({
+            id: targetGlobalId,
+            name: bookName,
+            subject: subject,
+            type: resourceType,
+            resourceType: resourceType,
+            topicQuestionCounts: newCounts
+          });
+        }
+      }
+
+      // Öğrencinin book_tracking dokümanı varsa öğrenci kaydını da güncelle
+      if (book.isStudentBook && book.id && !book.id.startsWith('demo-')) {
+        await studentDataService.updateBookProgress(book.id, {
+          topicQuestionCounts: newCounts,
+          ...(targetGlobalId ? { globalBookId: targetGlobalId } : {})
+        });
+      }
+    } catch (err) {
+      console.error("Kitap soru sayısı güncellenirken hata:", err);
     }
   };
 
@@ -2558,7 +3015,28 @@ export default function StudentProgram() {
                 <button onClick={() => navigateDay(7)} className="p-1 hover:bg-white/5 rounded text-slate-500" title="Sonraki Hafta"><ChevronsRight size={18} /></button>
               </div>
             </div>
-            <div className="flex flex-wrap items-stretch md:items-center gap-3 w-full md:w-auto">
+            <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+              {draftStatus === 'saving' && (
+                <div className="flex items-center gap-1.5 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl text-[11px] font-bold text-amber-400">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Taslak Kaydediliyor...</span>
+                </div>
+              )}
+              {draftStatus === 'saved' && (
+                <div 
+                  className="flex items-center gap-1.5 px-3 py-2 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-[11px] font-bold text-indigo-300 cursor-help"
+                  title="Yaptığınız tüm değişiklikler anlık taslak olarak kaydedildi. Sayfa yenilense bile kaybolmaz. Öğrencinin görebilmesi için 'PROGRAMI KAYDET' butonuna basınız."
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Taslak Kaydedildi</span>
+                </div>
+              )}
+              {draftStatus === 'published' && (
+                <div className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-[11px] font-bold text-emerald-400">
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Öğrenciye Yayınlandı</span>
+                </div>
+              )}
               <button 
                 id="tour-program-pdf"
                 onClick={downloadPDF}
@@ -2580,8 +3058,9 @@ export default function StudentProgram() {
                 onClick={handleSave}
                 disabled={saving}
                 className="w-full sm:w-auto print:hidden bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 px-5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 uppercase tracking-widest text-[10px]"
+                title="Tüm hazırlanan haftalık programı öğrenciye yayınlar ve rutinleri günceller."
               >
-                <Save size={14} /> {saving ? 'GÜNCELLENİYOR...' : 'PROGRAMI KAYDET'}
+                <Save size={14} /> {saving ? 'YAYINLANIYOR...' : 'PROGRAMI KAYDET'}
               </button>
             </div>
           </div>
@@ -2688,41 +3167,47 @@ export default function StudentProgram() {
                     </div>
                  </div>
 
-            {tasks && days.map((day, dayIdx) => (
-                <DroppableDay 
-                  key={day.date} 
-                  id={`day-${day.date}`} 
-                  label={day.label} 
-                  shortLabel={day.shortLabel} 
-                  tasks={tasks.filter((t: any) => t.date === day.date)} 
-                  completionPercentage={calculateDailyCompletion(tasks.filter((t: any) => t.date === day.date))}
-                  coachNote={dailyCoachNotes[day.date]}
-                  studentNote={dailyStudentNotes[day.date]}
-                  onCoachNoteChange={(val) => setDailyCoachNotes(prev => ({ ...prev, [day.date]: val }))}
-                >
-                  <SortableContext items={sortTasks(tasks.filter((t: any) => t.date === day.date)).map((t: any) => t.id)} strategy={verticalListSortingStrategy}>
-                    <div className="relative space-y-3 flex-1">
-                      {sortTasks(tasks.filter((t: any) => t.date === day.date)).map((task: any, taskIdx: number) => (
-                          <SortableTask 
-                            key={task.id} 
-                            task={task} 
-                            updateTask={updateTask} 
-                            removeTask={removeTask} 
-                            duplicateTask={duplicateTask} 
-                            currentSubjects={currentSubjects} 
-                            subjects={subjects} 
-                            CURRICULUM={CURRICULUM} 
-                            books={books} 
-                            onDistribute={distributeTaskAcrossDays}
-                            allDays={days}
-                            isFirstTaskCard={dayIdx === 0 && taskIdx === 0}
-                            isTourOpen={isTourOpen}
-                          />
-                      ))}
-                    </div>
-                  </SortableContext>
-                </DroppableDay>
-            ))}
+            {(() => {
+                const firstVisibleTaskId = tasks && tasks.length > 0
+                  ? (days.map(d => sortTasks(tasks.filter((t: any) => t.date === d.date))).flat()[0]?.id)
+                  : null;
+
+                return tasks && days.map((day, dayIdx) => (
+                  <DroppableDay 
+                    key={day.date} 
+                    id={`day-${day.date}`} 
+                    label={day.label} 
+                    shortLabel={day.shortLabel} 
+                    tasks={tasks.filter((t: any) => t.date === day.date)} 
+                    completionPercentage={calculateDailyCompletion(tasks.filter((t: any) => t.date === day.date))}
+                    coachNote={dailyCoachNotes[day.date]}
+                    studentNote={dailyStudentNotes[day.date]}
+                    onCoachNoteChange={(val) => setDailyCoachNotes(prev => ({ ...prev, [day.date]: val }))}
+                  >
+                    <SortableContext items={sortTasks(tasks.filter((t: any) => t.date === day.date)).map((t: any) => t.id)} strategy={verticalListSortingStrategy}>
+                      <div className="relative space-y-3 flex-1">
+                        {sortTasks(tasks.filter((t: any) => t.date === day.date)).map((task: any, taskIdx: number) => (
+                            <SortableTask 
+                              key={task.id} 
+                              task={task} 
+                              updateTask={updateTask} 
+                              removeTask={removeTask} 
+                              duplicateTask={duplicateTask} 
+                              currentSubjects={currentSubjects} 
+                              subjects={subjects} 
+                              CURRICULUM={CURRICULUM} 
+                              books={books} 
+                              onDistribute={distributeTaskAcrossDays}
+                              allDays={days}
+                              isFirstTaskCard={task.id === firstVisibleTaskId}
+                              isTourOpen={isTourOpen}
+                            />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DroppableDay>
+                ));
+            })()}
           </div>
 
           {/* Haftalık Dağılım Tablosu */}
@@ -2932,7 +3417,7 @@ export default function StudentProgram() {
         </div>
 
         {/* Sidebar */}
-        <aside className="w-full xl:w-80 shrink-0 bg-slate-900/40 border-b xl:border-b-0 xl:border-l border-white/5 p-6 space-y-6 max-h-[50vh] xl:max-h-none overflow-y-auto custom-scrollbar xl:sticky xl:top-0">
+        <aside className="w-full xl:w-80 shrink-0 bg-slate-900/40 border-b xl:border-b-0 xl:border-l border-white/5 p-6 space-y-6 h-fit">
             <h2 className="text-sm font-black text-white uppercase tracking-widest sticky top-0 bg-slate-900/80 backdrop-blur-sm z-10 py-2">Görev Hazırlama</h2>
 
             {/* En Üstteki Aksiyon Butonları (Eksik Görev & Tekrarlayıcı - Minimal Yan Yana) */}
@@ -3084,7 +3569,21 @@ export default function StudentProgram() {
             )}
 
             <div id="tour-program-sidebar">
-              <SidebarHierarchy CURRICULUM={CURRICULUM} tytSubjects={BRANCH_CONFIG['TYT'].subjects} aytSubjects={currentBranch?.aytSubjects || []} books={books} updateBookTopicCount={updateBookTopicCount} studentBranch={selectedStudent?.branch || 'SAYISAL'} studentGrade={selectedStudent?.grade || ''} isTourOpen={isTourOpen} currentTourTargetId={currentTourTargetId} />
+              <SidebarHierarchy 
+                CURRICULUM={CURRICULUM} 
+                tytSubjects={BRANCH_CONFIG['TYT'].subjects} 
+                aytSubjects={currentBranch?.aytSubjects || []} 
+                books={books} 
+                updateBookTopicCount={updateBookTopicCount} 
+                studentBranch={selectedStudent?.branch || 'SAYISAL'} 
+                studentGrade={selectedStudent?.grade || ''} 
+                isTourOpen={isTourOpen} 
+                currentTourTargetId={currentTourTargetId}
+                onQuickAdd={(template) => {
+                  const targetDate = days[0]?.date || startDate;
+                  addTask(targetDate, template);
+                }}
+              />
             </div>
         </aside>
       </div>

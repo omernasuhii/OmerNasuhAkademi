@@ -10,8 +10,15 @@ import { checkAndRenewSubscription } from '../services/subscriptionService';
 interface AuthContextType {
   user: User | null;
   userData: any | null;
+  realUser: User | null;
+  realUserData: any | null;
   systemSettings: any | null;
   loading: boolean;
+  isAdmin: boolean;
+  isImpersonating: boolean;
+  impersonatedStudent: any | null;
+  setImpersonatedStudent: (student: any | null) => void;
+  clearImpersonation: () => void;
   logout: () => Promise<void>;
 }
 
@@ -19,9 +26,51 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [userData, setUserData] = useState<any | null>(null);
+  const [actualUserData, setActualUserData] = useState<any | null>(null);
+  const [impersonatedStudent, setImpersonatedStudentState] = useState<any | null>(() => {
+    const saved = safeStorage.getItem('admin_impersonated_student');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
   const [systemSettings, setSystemSettings] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const setImpersonatedStudent = (student: any | null) => {
+    setImpersonatedStudentState(student);
+    if (student) {
+      safeStorage.setItem('admin_impersonated_student', JSON.stringify(student));
+      safeStorage.setItem('coach_selected_student', JSON.stringify(student));
+    } else {
+      safeStorage.removeItem('admin_impersonated_student');
+      safeStorage.removeItem('coach_selected_student');
+    }
+  };
+
+  const clearImpersonation = () => {
+    setImpersonatedStudent(null);
+  };
+
+  // Real-time listener for impersonated student document if an admin is inspecting
+  useEffect(() => {
+    if (actualUserData?.role === 'admin' && impersonatedStudent?.uid) {
+      const unsub = onSnapshot(doc(db, 'users', impersonatedStudent.uid), (snap) => {
+        if (snap.exists()) {
+          const freshData = { uid: snap.id, ...snap.data() };
+          setImpersonatedStudentState((prev: any) => ({ ...prev, ...freshData }));
+          safeStorage.setItem('admin_impersonated_student', JSON.stringify({ ...impersonatedStudent, ...freshData }));
+        }
+      }, (err) => {
+        console.warn("Impersonated student snapshot error:", err);
+      });
+      return () => unsub();
+    }
+  }, [actualUserData?.role, impersonatedStudent?.uid]);
 
   useEffect(() => {
     // Fetch global system settings once when provider mounts
@@ -58,22 +107,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (snapshot.exists() && snapshot.data()?.role) {
             const data: any = { uid: firebaseUser.uid, ...snapshot.data() };
             
-            setUserData((prevData: any) => {
+            setActualUserData((prevData: any) => {
               if (!prevData) return data;
               
-              const prevClone = { ...prevData };
-              const newClone = { ...data };
+              // Normalize and compare core identity & authorization properties
+              const keysToIgnore = new Set(['isOnline', 'lastSeenAt', 'lastLoginAt', 'updatedAt']);
               
-              delete prevClone.isOnline;
-              delete prevClone.lastSeenAt;
-              delete prevClone.lastLoginAt;
+              const prevFiltered: any = {};
+              for (const [k, v] of Object.entries(prevData)) {
+                if (!keysToIgnore.has(k)) {
+                  prevFiltered[k] = v;
+                }
+              }
+              const newFiltered: any = {};
+              for (const [k, v] of Object.entries(data)) {
+                if (!keysToIgnore.has(k)) {
+                  newFiltered[k] = v;
+                }
+              }
               
-              delete newClone.isOnline;
-              delete newClone.lastSeenAt;
-              delete newClone.lastLoginAt;
-              
-              if (JSON.stringify(prevClone) === JSON.stringify(newClone)) {
-                return prevData;
+              const prevKeys = Object.keys(prevFiltered);
+              const newKeys = Object.keys(newFiltered);
+              if (prevKeys.length === newKeys.length) {
+                const isIdentical = prevKeys.every(key => {
+                  const valA = prevFiltered[key];
+                  const valB = newFiltered[key];
+                  if (valA === valB) return true;
+                  if (valA && valB && typeof valA === 'object' && typeof valB === 'object') {
+                    try {
+                      return JSON.stringify(valA) === JSON.stringify(valB);
+                    } catch {
+                      return false;
+                    }
+                  }
+                  return false;
+                });
+                if (isIdentical) {
+                  return prevData; // Keep reference to prevent re-renders
+                }
               }
               return data;
             });
@@ -95,7 +166,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 const firstDoc = querySnap.docs[0];
                 if (firstDoc.exists() && firstDoc.data()?.role) {
                   const data: any = { uid: firstDoc.id, ...firstDoc.data() };
-                  setUserData(data);
+                  setActualUserData(data);
                   setLoading(false);
                   return;
                 }
@@ -105,7 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
 
-          setUserData(null);
+          setActualUserData(null);
           setLoading(false);
         };
 
@@ -121,13 +192,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               await loadUserData(userDoc);
             } catch (retryErr) {
               console.error("AuthContext user doc retry failed:", retryErr);
-              setUserData(null);
+              setActualUserData(null);
               setLoading(false);
             }
           }, 500);
         });
       } else {
-        setUserData(null);
+        setActualUserData(null);
         setLoading(false);
       }
     });
@@ -146,11 +217,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       safeStorage.removeSessionItem(`session_logged_${user.uid}`);
     }
     safeStorage.removeItem('coach_selected_student');
+    safeStorage.removeItem('admin_impersonated_student');
+    setImpersonatedStudentState(null);
     await auth.signOut();
   };
 
+  const isAdmin = actualUserData?.role === 'admin';
+  const isImpersonating = isAdmin && !!impersonatedStudent;
+
+  // Derive effective user and userData:
+  // When an admin selects a student to troubleshoot, userData points to that student
+  const effectiveUserData = isImpersonating ? { ...impersonatedStudent, isImpersonated: true } : actualUserData;
+  const effectiveUser = isImpersonating && user ? {
+    ...user,
+    uid: impersonatedStudent.uid,
+    email: impersonatedStudent.email || user.email,
+    displayName: impersonatedStudent.displayName || (impersonatedStudent.firstName ? `${impersonatedStudent.firstName} ${impersonatedStudent.lastName || ''}`.trim() : user.displayName),
+    photoURL: impersonatedStudent.photoURL || user.photoURL,
+  } : user;
+
   return (
-    <AuthContext.Provider value={{ user, userData, systemSettings, loading, logout }}>
+    <AuthContext.Provider value={{ 
+      user: effectiveUser as User | null, 
+      userData: effectiveUserData,
+      realUser: user,
+      realUserData: actualUserData,
+      systemSettings, 
+      loading, 
+      isAdmin,
+      isImpersonating,
+      impersonatedStudent,
+      setImpersonatedStudent,
+      clearImpersonation,
+      logout 
+    }}>
       {children}
     </AuthContext.Provider>
   );

@@ -8,7 +8,9 @@ import ChatWidget from '../chat/ChatWidget';
 import { notificationService, Notification } from '../../services/notificationService';
 
 export default function Navbar() {
-  const { user, userData, logout } = useAuth();
+  const { user, userData, realUserData, isAdmin, clearImpersonation, logout } = useAuth();
+  const displayUser = realUserData || userData;
+  const isAdminUser = isAdmin || realUserData?.role === 'admin';
   const { totalItems } = useCart();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [openMobileSubmenu, setOpenMobileSubmenu] = useState<string | null>(null);
@@ -32,12 +34,12 @@ export default function Navbar() {
   useEffect(() => {
     if (!user?.uid) return;
     const unsubscribe = notificationService.onNotificationsChange(user.uid, (data) => {
-      setNotifications(data);
+      setNotifications(data || []);
     });
     return () => unsubscribe();
   }, [user?.uid]);
 
-  const unreadCount = notifications.filter(n => !n.isRead).length;
+  const unreadCount = (notifications || []).filter(n => !n?.isRead).length;
 
   const markAllAsRead = async () => {
     if (user?.uid) {
@@ -183,6 +185,7 @@ export default function Navbar() {
         </div>
 
         <Link to="/iletisim" className="hover:text-white transition-colors">İletişim</Link>
+        <Link to="/koclar-icin" className="hover:text-emerald-400 transition-colors text-emerald-400/90 font-medium">Koçlar İçin</Link>
       </nav>
 
       <div className="flex items-center gap-3">
@@ -209,13 +212,13 @@ export default function Navbar() {
               onClick={() => setActiveDropdown(activeDropdown === 'profil' ? null : 'profil')}
             >
               <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] overflow-hidden">
-                {userData?.photoURL ? (
-                  <img src={userData.photoURL} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                {displayUser?.photoURL ? (
+                  <img src={displayUser.photoURL} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                 ) : (
-                  `${userData?.firstName?.[0] || ''}${userData?.lastName?.[0] || ''}` || 'U'
+                  `${displayUser?.firstName?.[0] || ''}${displayUser?.lastName?.[0] || ''}` || 'U'
                 )}
               </div>
-              <span className="hidden sm:inline">{userData?.firstName}</span>
+              <span className="hidden sm:inline">{displayUser?.firstName}</span>
               <ChevronDown size={14} className={`transition-transform duration-300 ${activeDropdown === 'profil' ? 'rotate-180' : ''}`} />
             </button>
             
@@ -224,62 +227,94 @@ export default function Navbar() {
                 <div className="px-4 py-3 border-b border-white/5 mb-1">
                   <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Kullanıcı Hesabı</p>
                   <p className="text-sm text-white font-semibold truncate">
-                    {userData ? `${userData.firstName} ${userData.lastName}` : (user.displayName || user.email?.split('@')[0])}
+                    {displayUser ? `${displayUser.firstName} ${displayUser.lastName}` : (user.displayName || user.email?.split('@')[0])}
                   </p>
                   <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mt-0.5">
-                    {!userData ? 'Profil Yükleniyor...' : 
-                     userData.role === 'student' ? 'Öğrenci' : 
-                     userData.role === 'coach' ? 'Koç' : 
-                     userData.role === 'admin' ? 'Yönetici' : 
-                     userData.role === 'parent' ? 'Veli' : 'Kullanıcı'}
+                    {isAdminUser ? (
+                      realUserData && userData && realUserData.uid !== userData.uid ? 'Yönetici (Teşhis Modu)' : 'Yönetici'
+                    ) : (
+                      userData?.role === 'student' ? 'Öğrenci' : 
+                      userData?.role === 'coach' ? 'Koç' : 
+                      userData?.role === 'parent' ? 'Veli' : 'Kullanıcı'
+                    )}
                   </p>
                 </div>
 
-                <Link to="/profil" className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm">
+                <Link to="/profil" onClick={() => setActiveDropdown(null)} className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm">
                   <User size={16} className="text-blue-400" />
                   Profil Ayarları
                 </Link>
-                
-                {userData?.role === 'student' && (
-                  <Link to="/panel/ogrenci" className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm">
-                    <LayoutDashboard size={16} className="text-blue-400" />
-                    Öğrenci Paneli
-                  </Link>
-                )}
-                
-                {userData?.role === 'coach' && (
-                  <Link to="/panel/koc" className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm">
-                    <LayoutDashboard size={16} className="text-emerald-400" />
-                    Koç Paneli
-                  </Link>
-                )}
 
-                {userData?.role === 'parent' && (
-                  <Link to="/panel/veli" className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm">
-                    <LayoutDashboard size={16} className="text-emerald-500" />
-                    Veli Paneli
-                  </Link>
-                )}
-
-                {userData?.role === 'admin' && (
+                {isAdminUser ? (
                   <>
-                    <Link to="/panel/admin" className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm">
+                    <Link 
+                      to="/panel/admin" 
+                      onClick={() => {
+                        clearImpersonation();
+                        setActiveDropdown(null);
+                      }} 
+                      className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm"
+                    >
                       <Shield size={16} className="text-red-500" />
                       Yönetici Paneli
                     </Link>
-                    <Link to="/panel/koc" className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm">
+                    <Link 
+                      to="/panel/koc" 
+                      onClick={() => {
+                        clearImpersonation();
+                        setActiveDropdown(null);
+                      }} 
+                      className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm"
+                    >
                       <LayoutDashboard size={16} className="text-emerald-400" />
                       Koç Paneli
                     </Link>
-                    <Link to="/panel/veli" className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm">
+                    <Link 
+                      to="/panel/veli" 
+                      onClick={() => {
+                        clearImpersonation();
+                        setActiveDropdown(null);
+                      }} 
+                      className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm"
+                    >
                       <LayoutDashboard size={16} className="text-emerald-500" />
                       Veli Paneli
                     </Link>
-                    <Link to="/panel/ogrenci" className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm">
+                    <Link 
+                      to="/panel/ogrenci" 
+                      onClick={() => {
+                        clearImpersonation();
+                        setActiveDropdown(null);
+                      }} 
+                      className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm"
+                    >
                       <LayoutDashboard size={16} className="text-blue-400" />
                       Öğrenci Paneli
                     </Link>
                     <div className="h-px bg-white/5 my-1 mx-4" />
+                  </>
+                ) : (
+                  <>
+                    {userData?.role === 'student' && (
+                      <Link to="/panel/ogrenci" onClick={() => setActiveDropdown(null)} className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm">
+                        <LayoutDashboard size={16} className="text-blue-400" />
+                        Öğrenci Paneli
+                      </Link>
+                    )}
+                    
+                    {userData?.role === 'coach' && (
+                      <Link to="/panel/koc" onClick={() => setActiveDropdown(null)} className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm">
+                        <LayoutDashboard size={16} className="text-emerald-400" />
+                        Koç Paneli
+                      </Link>
+                    )}
+
+                    {userData?.role === 'parent' && (
+                      <Link to="/panel/veli" onClick={() => setActiveDropdown(null)} className="px-4 py-2.5 hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-3 text-sm">
+                        <LayoutDashboard size={16} className="text-emerald-500" />
+                        Veli Paneli
+                      </Link>
+                    )}
                   </>
                 )}
 
@@ -382,28 +417,34 @@ export default function Navbar() {
                 </button>
               )}
               
-              <Link to="/" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors block">Ana Sayfa</Link>
+              <Link 
+                to="/" 
+                onClick={() => setIsMobileMenuOpen(false)} 
+                className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors block"
+              >
+                Ana Sayfa
+              </Link>
             
             {/* Mobile YKS Dropdown */}
             <div className="flex flex-col">
               <button 
                 onClick={() => toggleSubmenu('yks')}
-                className="py-3 flex items-center justify-between px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors"
+                className="py-3 flex items-center justify-between px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors w-full text-left"
               >
                 <span>YKS</span>
                 <ChevronDown size={16} className={`transition-transform ${openMobileSubmenu === 'yks' ? 'rotate-180' : ''}`} />
               </button>
               {openMobileSubmenu === 'yks' && (
                 <div className="bg-white/5 rounded-xl mt-1 py-2 px-3 flex flex-col space-y-1">
-                  <Link to="/sinav-geri-sayimi" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Sınav Geri Sayımı</Link>
-                  <Link to="/kanal-onerileri" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Kanal Önerileri</Link>
-                  <Link to="/yks-konulari" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">YKS Konuları</Link>
-                  <Link to="/soru-dagilimi" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Hangi Konu Kaç Soru?</Link>
-                  <Link to="/yks-puan-hesaplama" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">YKS Puan Hesaplama</Link>
-                  <Link to="/meslek-rehberi" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Meslek Rehberi</Link>
-                  <Link to="/yok-atlas" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">YÖK Atlas</Link>
-                  <Link to="/tercih-robotu" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Tercih Robotu</Link>
-                  <Link to="/kyk-yurtlari" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">KYK Yurtları</Link>
+                  <Link to="/sinav-geri-sayimi" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Sınav Geri Sayımı</Link>
+                  <Link to="/kanal-onerileri" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Kanal Önerileri</Link>
+                  <Link to="/yks-konulari" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">YKS Konuları</Link>
+                  <Link to="/soru-dagilimi" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Hangi Konu Kaç Soru?</Link>
+                  <Link to="/yks-puan-hesaplama" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">YKS Puan Hesaplama</Link>
+                  <Link to="/meslek-rehberi" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Meslek Rehberi</Link>
+                  <Link to="/yok-atlas" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">YÖK Atlas</Link>
+                  <Link to="/tercih-robotu" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Tercih Robotu</Link>
+                  <Link to="/kyk-yurtlari" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">KYK Yurtları</Link>
                 </div>
               )}
             </div>
@@ -412,18 +453,18 @@ export default function Navbar() {
             <div className="flex flex-col">
               <button 
                 onClick={() => toggleSubmenu('meb')}
-                className="py-3 flex items-center justify-between px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors"
+                className="py-3 flex items-center justify-between px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors w-full text-left"
               >
                 <span>MEB</span>
                 <ChevronDown size={16} className={`transition-transform ${openMobileSubmenu === 'meb' ? 'rotate-180' : ''}`} />
               </button>
               {openMobileSubmenu === 'meb' && (
                 <div className="bg-white/5 rounded-xl mt-1 py-2 px-3 flex flex-col space-y-1">
-                  <Link to="/eba-akademik-destek" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">EBA Akademik Destek</Link>
-                  <Link to="/mebi" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">MEBİ</Link>
-                  <Link to="/ogm-materyal" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">OGM Materyal</Link>
-                  <a href="https://tymm.meb.gov.tr/ders-kitaplari/ortaogretim" target="_blank" rel="noopener noreferrer" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg flex items-center gap-2">Lise MEB Kitapları PDF <ExternalLink size={14} className="opacity-50" /></a>
-                  <Link to="/meb-mufredat" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">MEB Müfredatı</Link>
+                  <Link to="/eba-akademik-destek" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">EBA Akademik Destek</Link>
+                  <Link to="/mebi" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">MEBİ</Link>
+                  <Link to="/ogm-materyal" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">OGM Materyal</Link>
+                  <a href="https://tymm.meb.gov.tr/ders-kitaplari/ortaogretim" target="_blank" rel="noopener noreferrer" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg flex items-center gap-2">Lise MEB Kitapları PDF <ExternalLink size={14} className="opacity-50" /></a>
+                  <Link to="/meb-mufredat" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">MEB Müfredatı</Link>
                 </div>
               )}
             </div>
@@ -432,18 +473,18 @@ export default function Navbar() {
             <div className="flex flex-col">
               <button 
                 onClick={() => toggleSubmenu('sinav')}
-                className="py-3 flex items-center justify-between px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors"
+                className="py-3 flex items-center justify-between px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors w-full text-left"
               >
                 <span>Sınav Hakkında</span>
                 <ChevronDown size={16} className={`transition-transform ${openMobileSubmenu === 'sinav' ? 'rotate-180' : ''}`} />
               </button>
               {openMobileSubmenu === 'sinav' && (
                 <div className="bg-white/5 rounded-xl mt-1 py-2 px-3 flex flex-col space-y-1">
-                  <Link to="/deneme-takibi" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Deneme Takibi</Link>
-                  <Link to="/derin-deneme-analizi" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Derin Deneme Analizi</Link>
-                  <Link to="/kisilik-analizleri" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Kişilik Analizleri</Link>
-                  <Link to="/zaman-yonetimi" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Zaman Yönetimi</Link>
-                  <Link to="/sinav-surec-takibi" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Sınav Süreç Takibi</Link>
+                  <Link to="/deneme-takibi" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Deneme Takibi</Link>
+                  <Link to="/derin-deneme-analizi" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Derin Deneme Analizi</Link>
+                  <Link to="/kisilik-analizleri" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Kişilik Analizleri</Link>
+                  <Link to="/zaman-yonetimi" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Zaman Yönetimi</Link>
+                  <Link to="/sinav-surec-takibi" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Sınav Süreç Takibi</Link>
                 </div>
               )}
             </div>
@@ -452,23 +493,37 @@ export default function Navbar() {
             <div className="flex flex-col">
               <button 
                 onClick={() => toggleSubmenu('hakkimizda')}
-                className="py-3 flex items-center justify-between px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors"
+                className="py-3 flex items-center justify-between px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors w-full text-left"
               >
                 <span>Hakkımızda</span>
                 <ChevronDown size={16} className={`transition-transform ${openMobileSubmenu === 'hakkimizda' ? 'rotate-180' : ''}`} />
               </button>
               {openMobileSubmenu === 'hakkimizda' && (
                 <div className="bg-white/5 rounded-xl mt-1 py-2 px-3 flex flex-col space-y-1">
-                  <Link to="/hakkimizda" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Biz Kimiz?</Link>
-                  <Link to="/vizyon-misyon" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Vizyon & Misyon</Link>
-                  <Link to="/egitim-kadromuz" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Eğitim Kadromuz</Link>
-                  <Link to="/basarilarimiz" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Başarılarımız</Link>
-                  <Link to="/sss" className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Sıkça Sorulan Sorular</Link>
+                  <Link to="/hakkimizda" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Biz Kimiz?</Link>
+                  <Link to="/vizyon-misyon" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Vizyon & Misyon</Link>
+                  <Link to="/egitim-kadromuz" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Eğitim Kadromuz</Link>
+                  <Link to="/basarilarimiz" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Başarılarımız</Link>
+                  <Link to="/sss" onClick={() => setIsMobileMenuOpen(false)} className="py-2 px-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">Sıkça Sorulan Sorular</Link>
                 </div>
               )}
             </div>
 
-            <Link to="/iletisim" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors">İletişim</Link>
+            <Link 
+              to="/iletisim" 
+              onClick={() => setIsMobileMenuOpen(false)} 
+              className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors block"
+            >
+              İletişim
+            </Link>
+
+            <Link 
+              to="/koclar-icin" 
+              onClick={() => setIsMobileMenuOpen(false)} 
+              className="py-3 px-4 text-base font-medium text-emerald-400 hover:bg-white/5 rounded-xl transition-colors block"
+            >
+              Koçlar İçin
+            </Link>
             
             {/* User mobile actions */}
             {!user && (
@@ -483,38 +538,69 @@ export default function Navbar() {
             {user && (
               <div className="pt-4 mt-2 border-t border-white/10 flex flex-col space-y-1">
                 <div className="px-4 py-2 opacity-60 text-xs uppercase tracking-widest font-semibold">Profil İşlemleri</div>
-                <Link to="/profil" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
+                <Link to="/profil" onClick={() => setIsMobileMenuOpen(false)} className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
                    <User size={18} /> Profil Ayarları
                 </Link>
-                {userData?.role === 'parent' && (
-                  <Link to="/panel/veli" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
-                    <LayoutDashboard size={18} className="text-emerald-500" /> Veli Paneli
-                  </Link>
-                )}
-                {userData?.role === 'student' && (
-                  <Link to="/panel/ogrenci" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
-                    <LayoutDashboard size={18} /> Öğrenci Paneli
-                  </Link>
-                )}
-                {userData?.role === 'coach' && (
-                  <Link to="/panel/koc" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
-                    <LayoutDashboard size={18} /> Koç Paneli
-                  </Link>
-                )}
-                {userData?.role === 'admin' && (
+                {isAdminUser ? (
                   <>
-                    <Link to="/panel/admin" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
-                      <Shield size={18} /> Yönetici Paneli
+                    <Link 
+                      to="/panel/admin" 
+                      onClick={() => {
+                        clearImpersonation();
+                        setIsMobileMenuOpen(false);
+                      }} 
+                      className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center"
+                    >
+                      <Shield size={18} className="text-red-500" /> Yönetici Paneli
                     </Link>
-                    <Link to="/panel/koc" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
-                      <LayoutDashboard size={18} /> Koç Paneli
+                    <Link 
+                      to="/panel/koc" 
+                      onClick={() => {
+                        clearImpersonation();
+                        setIsMobileMenuOpen(false);
+                      }} 
+                      className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center"
+                    >
+                      <LayoutDashboard size={18} className="text-emerald-400" /> Koç Paneli
                     </Link>
-                    <Link to="/panel/veli" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
+                    <Link 
+                      to="/panel/veli" 
+                      onClick={() => {
+                        clearImpersonation();
+                        setIsMobileMenuOpen(false);
+                      }} 
+                      className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center"
+                    >
                       <LayoutDashboard size={18} className="text-emerald-500" /> Veli Paneli
                     </Link>
-                    <Link to="/panel/ogrenci" className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
-                      <LayoutDashboard size={18} /> Öğrenci Paneli
+                    <Link 
+                      to="/panel/ogrenci" 
+                      onClick={() => {
+                        clearImpersonation();
+                        setIsMobileMenuOpen(false);
+                      }} 
+                      className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center"
+                    >
+                      <LayoutDashboard size={18} className="text-blue-400" /> Öğrenci Paneli
                     </Link>
+                  </>
+                ) : (
+                  <>
+                    {userData?.role === 'parent' && (
+                      <Link to="/panel/veli" onClick={() => setIsMobileMenuOpen(false)} className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
+                        <LayoutDashboard size={18} className="text-emerald-500" /> Veli Paneli
+                      </Link>
+                    )}
+                    {userData?.role === 'student' && (
+                      <Link to="/panel/ogrenci" onClick={() => setIsMobileMenuOpen(false)} className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
+                        <LayoutDashboard size={18} className="text-blue-400" /> Öğrenci Paneli
+                      </Link>
+                    )}
+                    {userData?.role === 'coach' && (
+                      <Link to="/panel/koc" onClick={() => setIsMobileMenuOpen(false)} className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">
+                        <LayoutDashboard size={18} className="text-emerald-400" /> Koç Paneli
+                      </Link>
+                    )}
                   </>
                 )}
                 

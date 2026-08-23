@@ -278,7 +278,8 @@ export default function ParentAssistant() {
           <AnimatePresence>
             {messages.map((message, idx) => {
               if (message.role === 'function') return null;
-              if (message.functionCalls) return null; // We can hide internal function calls from UI
+              if (message.functionCalls) return null;
+              if (!message.content || typeof message.content !== 'string' || !message.content.trim()) return null;
 
               const isModel = message.role === 'model';
 

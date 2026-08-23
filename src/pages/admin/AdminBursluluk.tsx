@@ -30,8 +30,6 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import Markdown from 'react-markdown';
 
 // CABA Questions for reference

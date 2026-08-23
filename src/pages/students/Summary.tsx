@@ -24,6 +24,7 @@ import { NotificationPrompt } from '../../components/NotificationPrompt';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { SUBSCRIPTION_PACKAGES } from './Subscription';
+import { isSubscriptionActive, syncExpiredSubscriptionStatus } from '../../services/subscriptionService';
 
 import { notificationService } from '../../services/notificationService';
 import { fcmService } from '../../services/fcmService';
@@ -487,7 +488,9 @@ export default function Summary() {
   const dailyCompletedTasks = dailyTasks.filter(t => t.isDone).length;
 
   const calculateSubscriptionTime = () => {
-    if (!userData?.subscriptionStartDate || !userData?.subscriptionEndDate) return { remainingDays: 0, remainingHours: 0, remainingMinutes: 0, totalDays: 0, percentage: 0, percentageFormatted: "0.00", daysExpired: -1 };
+    if (!userData?.subscriptionStartDate || !userData?.subscriptionEndDate || !userData?.subscriptionPlan) {
+      return { remainingDays: 0, remainingHours: 0, remainingMinutes: 0, totalDays: 0, percentage: 0, percentageFormatted: "0.00", daysExpired: -1, isActive: false };
+    }
     
     const start = new Date(userData.subscriptionStartDate).getTime();
     const end = new Date(userData.subscriptionEndDate).getTime();
@@ -508,12 +511,17 @@ export default function Summary() {
     const remainingHrs = Math.floor(remainingHoursTotal % 24);
     const remainingMins = Math.floor(remainingMinutesTotal % 60);
     const totalDays = Math.ceil(totalMinutes / (60 * 24));
+    const isActive = isSubscriptionActive(userData);
+
+    if (!isActive && userData.subscriptionStatus !== 'expired' && user?.uid) {
+      syncExpiredSubscriptionStatus(userData, user.uid);
+    }
     
-    return { remainingDays, remainingHours: remainingHrs, remainingMinutes: remainingMins, totalDays, percentage, percentageFormatted, daysExpired };
+    return { remainingDays, remainingHours: remainingHrs, remainingMinutes: remainingMins, totalDays, percentage, percentageFormatted, daysExpired, isActive };
   };
 
   const subStats = calculateSubscriptionTime();
-  const showSubscription = userData?.subscriptionPlan && (subStats.remainingDays > 0 || subStats.remainingHours > 0 || subStats.remainingMinutes > 0 || (subStats.daysExpired >= 0 && subStats.daysExpired <= 3));return (
+  const showSubscription = Boolean(userData?.subscriptionPlan);return (
     <div className="w-full max-w-7xl mx-auto space-y-8">
       <NotificationPrompt />
       {(pendingResultsCount > 0 || expiredWaitingCount > 0) && (
@@ -629,35 +637,64 @@ export default function Summary() {
 
         {/* Abonelik Durumu & Çubuk */}
         {showSubscription ? (
-          <div className="bg-gradient-to-r from-yellow-500/10 via-amber-500/5 to-transparent border border-yellow-500/20 p-5 md:p-6 rounded-2xl mt-4">
+          <div className={`p-5 md:p-6 rounded-2xl mt-4 border transition-all ${
+            subStats.isActive 
+              ? 'bg-gradient-to-r from-yellow-500/10 via-amber-500/5 to-transparent border-yellow-500/20' 
+              : 'bg-gradient-to-r from-rose-500/10 via-red-500/5 to-transparent border-rose-500/20'
+          }`}>
             <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-4">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-yellow-500/20 flex items-center justify-center border border-yellow-500/30 shrink-0">
-                  <Crown className="text-yellow-400" size={24} />
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center border shrink-0 ${
+                  subStats.isActive 
+                    ? 'bg-yellow-500/20 border-yellow-500/30 text-yellow-400' 
+                    : 'bg-rose-500/20 border-rose-500/30 text-rose-400'
+                }`}>
+                  <Crown size={24} />
                 </div>
                 <div>
                   <h3 className="text-white font-bold text-base flex items-center gap-2 mb-1">
                     {userData.subscriptionPlan} Abonelik 
-                    <span className="px-2 py-0.5 rounded-md bg-yellow-500/20 text-yellow-400 text-[10px] uppercase tracking-widest font-black">
-                      {subStats.remainingDays > 0 || subStats.remainingHours > 0 ? 'Aktif' : 'Süresi Doldu'}
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] uppercase tracking-widest font-black ${
+                      subStats.isActive 
+                        ? 'bg-yellow-500/20 text-yellow-400' 
+                        : 'bg-rose-500/20 text-rose-400'
+                    }`}>
+                      {subStats.isActive ? 'Aktif' : 'Süresi Doldu'}
                     </span>
                   </h3>
-                  <p className="text-slate-400 text-xs">Sana özel eğitim imkanlarından faydalanmaya devam ediyorsun.</p>
+                  <p className="text-slate-400 text-xs">
+                    {subStats.isActive 
+                      ? 'Sana özel eğitim imkanlarından faydalanmaya devam ediyorsun.' 
+                      : 'Abonelik süreniz sona ermiştir. Özellikleri kullanmaya devam etmek için paketinizi yenileyin.'}
+                  </p>
                 </div>
               </div>
               <div className="text-left md:text-right">
-                <p className="text-3xl font-black text-yellow-400">
-                  {subStats.remainingDays}<span className="text-sm font-bold text-yellow-500/70 ml-1">GÜN KALDI</span>
-                </p>
+                {subStats.isActive ? (
+                  <p className="text-3xl font-black text-yellow-400">
+                    {subStats.remainingDays}<span className="text-sm font-bold text-yellow-500/70 ml-1">GÜN KALDI</span>
+                  </p>
+                ) : (
+                  <Link 
+                    to="/panel/ogrenci/abonelik"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-yellow-500/20"
+                  >
+                    Paketi Yenile
+                  </Link>
+                )}
               </div>
             </div>
             <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden shadow-inner">
-              <div className="h-full bg-gradient-to-r from-yellow-500 to-amber-500 rounded-full relative transition-all duration-1000" style={{ width: `${subStats.percentage}%` }}>
+              <div className={`h-full rounded-full relative transition-all duration-1000 ${
+                subStats.isActive 
+                  ? 'bg-gradient-to-r from-yellow-500 to-amber-500' 
+                  : 'bg-gradient-to-r from-rose-500 to-red-500'
+              }`} style={{ width: `${subStats.percentage}%` }}>
                 <div className="absolute inset-0 bg-white/20 w-full h-full" style={{ backgroundImage: 'linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent)', backgroundSize: '1rem 1rem' }}></div>
               </div>
             </div>
             <div className="flex justify-between mt-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-              <span>Kullanılan %{subStats.percentageFormatted}</span>
+              <span>{subStats.isActive ? `Kullanılan %${subStats.percentageFormatted}` : 'Abonelik Tamamlandı'}</span>
               <span className="text-slate-400">Toplam: {subStats.totalDays} Gün</span>
             </div>
           </div>

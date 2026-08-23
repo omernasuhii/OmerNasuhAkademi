@@ -56,11 +56,64 @@ export function matchPackage(planName: string, packages: SubscriptionPackage[]):
  */
 export function isSubscriptionActive(studentData: any): boolean {
   if (!studentData || !studentData.subscriptionPlan) return false;
-  if (studentData.subscriptionStatus !== 'active') return false;
+  if (studentData.subscriptionStatus === 'expired' || studentData.subscriptionStatus === 'cancelled') return false;
   if (!studentData.subscriptionEndDate) return false;
   
   const endDate = new Date(studentData.subscriptionEndDate);
-  return endDate.getTime() > Date.now();
+  if (isNaN(endDate.getTime())) return false;
+  
+  // Expiry check: if now >= endDate, subscription is expired
+  if (endDate.getTime() <= Date.now()) return false;
+
+  // Must be active (or default to active if within date range)
+  return studentData.subscriptionStatus === 'active' || !studentData.subscriptionStatus;
+}
+
+/**
+ * Synchronizes an expired subscription in Firestore if its date has passed.
+ */
+export async function syncExpiredSubscriptionStatus(studentData: any, studentUid?: string): Promise<boolean> {
+  const uid = studentUid || studentData?.uid || studentData?.id;
+  if (!uid || !studentData || !studentData.subscriptionPlan || !studentData.subscriptionEndDate) return false;
+
+  const endDate = new Date(studentData.subscriptionEndDate);
+  if (isNaN(endDate.getTime())) return false;
+
+  const isExpired = endDate.getTime() <= Date.now();
+  if (isExpired && studentData.subscriptionStatus !== 'expired') {
+    try {
+      await studentDataService.updateStudentProfile(uid, {
+        subscriptionStatus: 'expired'
+      });
+      return true;
+    } catch (e) {
+      console.warn("Could not sync expired subscription status for student", uid, e);
+    }
+  }
+  return false;
+}
+
+/**
+ * Checks an array of students, auto-syncs any expired ones in the background,
+ * and returns students with currently active subscriptions.
+ */
+export function filterAndSyncActiveSubscriptions(students: any[]): any[] {
+  if (!Array.isArray(students)) return [];
+  
+  const activeList: any[] = [];
+  students.forEach(student => {
+    if (!student) return;
+    if (isSubscriptionActive(student)) {
+      activeList.push(student);
+    } else if (student.subscriptionPlan && student.subscriptionEndDate) {
+      const endDate = new Date(student.subscriptionEndDate);
+      if (!isNaN(endDate.getTime()) && endDate.getTime() <= Date.now() && student.subscriptionStatus !== 'expired') {
+        syncExpiredSubscriptionStatus(student);
+      }
+    }
+  });
+
+  return activeList;
 }
 
 let isChecking = false;

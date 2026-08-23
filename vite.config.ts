@@ -58,7 +58,7 @@ export default defineConfig(({ mode }) => {
           manualChunks(id) {
             if (id.includes('node_modules')) {
               if (id.includes('firebase')) return 'firebase';
-              if (id.includes('jspdf') || id.includes('html2canvas')) return 'pdf';
+              if (id.includes('jspdf') || id.includes('html-to-image')) return 'pdf';
               if (id.includes('recharts')) return 'charts';
               if (id.includes('motion')) return 'motion';
               return 'vendor';

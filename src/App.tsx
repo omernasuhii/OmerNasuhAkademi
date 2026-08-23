@@ -114,6 +114,7 @@ import Staff from "./pages/Staff";
 import SuccessStories from "./pages/SuccessStories";
 import FAQ from "./pages/FAQ";
 import Contact from "./pages/Contact";
+import ForCoaches from "./pages/ForCoaches";
 import ComingSoonStudent from "./pages/students/ComingSoonStudent";
 import Subscription from "./pages/students/Subscription";
 import GoogleDrive from "./pages/admin/GoogleDrive";
@@ -141,6 +142,7 @@ import DeepAnalysis from "./pages/DeepAnalysis";
 import PersonalityAnalysis from "./pages/PersonalityAnalysis";
 import ExamMetronome from "./pages/ExamMetronome";
 import ExamProcessTracking from "./pages/ExamProcessTracking";
+import AdminSocialMediaAgency from "./pages/admin/AdminSocialMediaAgency";
 
 import CoachLayout from "./pages/coach/CoachLayout";
 import StudentSummary from "./pages/coach/StudentSummary";
@@ -228,6 +230,7 @@ export default function App() {
               <Route path="/basarilarimiz" element={<SuccessStories />} />
               <Route path="/sss" element={<FAQ />} />
               <Route path="/iletisim" element={<Contact />} />
+              <Route path="/koclar-icin" element={<ForCoaches />} />
               <Route path="/kayit" element={<Register />} />
               <Route path="/koc-basvuru" element={<Register />} />
               <Route path="/kayit-tamamla" element={<CompleteRegistration />} />
@@ -352,6 +355,8 @@ export default function App() {
                 <Route path="crm/toplantilar" element={<ComingSoonAdmin />} />
                 <Route path="crm/takip" element={<ComingSoonAdmin />} />
                 <Route path="crm/sadakat" element={<ComingSoonAdmin />} />
+                <Route path="sosyal-medya-ajansi" element={<AdminSocialMediaAgency />} />
+                <Route path="ai-ajans" element={<AdminSocialMediaAgency />} />
                 <Route path="referans" element={<ReferralSettings />} />
                 <Route path="analizler" element={<ComingSoonAdmin />} />
                 <Route path="otomasyonlar" element={<ComingSoonAdmin />} />

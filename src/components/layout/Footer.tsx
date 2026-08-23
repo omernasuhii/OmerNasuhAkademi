@@ -16,10 +16,11 @@ export default function Footer() {
         <div className="md:col-span-4">
           <h3 className="font-bold text-white tracking-wide uppercase text-sm mb-6">Kurumsal</h3>
           <ul className="space-y-4 text-sm text-slate-400">
+            <li><Link to="/koclar-icin" className="hover:text-emerald-400 transition-colors">Koçlar İçin FocusON</Link></li>
+            <li><Link to="/koc-basvuru" className="hover:text-emerald-400 transition-colors font-medium text-emerald-400/90">Koç Başvurusu</Link></li>
             <li><a href="#" className="hover:text-blue-400 transition-colors">Biz Kimiz?</a></li>
             <li><a href="#" className="hover:text-blue-400 transition-colors">Amacımız</a></li>
             <li><a href="#" className="hover:text-blue-400 transition-colors">Sıkça Sorulan Sorular</a></li>
-            <li><a href="#" className="hover:text-blue-400 transition-colors">İnsan Kaynakları</a></li>
             <li><a href="#" className="hover:text-blue-400 transition-colors">İletişim</a></li>
           </ul>
         </div>

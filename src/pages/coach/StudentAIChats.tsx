@@ -49,6 +49,14 @@ const DEMO_PARENT_MESSAGES: Message[] = [
   }
 ];
 
+const isValidDisplayMessage = (m: any): boolean => {
+  if (!m) return false;
+  if (m.role !== 'user' && m.role !== 'model') return false;
+  if (m.functionCalls || m.functionCall || m.functionResponse || m.name) return false;
+  if (typeof m.content !== 'string' || !m.content.trim()) return false;
+  return true;
+};
+
 export default function StudentAIChats() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -143,7 +151,7 @@ export default function StudentAIChats() {
 
         if (activeStudent?.uid && user?.uid) {
           const sMessagesRaw = await studentDataService.getAIAssistantChatHistory(activeStudent.uid);
-          sMessages = sMessagesRaw.filter((m: Message) => m.role !== 'system');
+          sMessages = sMessagesRaw.filter(isValidDisplayMessage);
           sLastViewed = await studentDataService.getCoachAIChatViewCount(user.uid, activeStudent.uid);
         }
 
@@ -169,7 +177,7 @@ export default function StudentAIChats() {
             setParentId(pId);
             
             const pMessagesRaw = await studentDataService.getParentAIAssistantChatHistory(pId);
-            pMessages = pMessagesRaw.filter((m: Message) => m.role !== 'system');
+            pMessages = pMessagesRaw.filter(isValidDisplayMessage);
             if (user?.uid) {
               pLastViewed = await studentDataService.getCoachAIChatViewCount(user.uid, pId);
               if (pMessages.length > pLastViewed) {
@@ -222,6 +230,7 @@ export default function StudentAIChats() {
 
   // Render a chat message
   const renderMessage = (msg: Message, isNewSession = false, idx: number) => {
+    if (!msg || typeof msg.content !== 'string' || !msg.content.trim()) return null;
     const isModel = msg.role === 'model';
     return (
       <div key={`msg-${idx}`} className="w-full">

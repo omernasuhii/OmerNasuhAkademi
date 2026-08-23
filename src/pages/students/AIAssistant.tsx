@@ -524,43 +524,49 @@ export default function AIAssistant() {
       // ONLY generate audio if it is a valid single question!
       if (isValidSingleQ) {
         setIsAudioGenerating(true);
-        fetch("/api/student-question-audio", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: data.text,
-            voiceName: selectedVoice
-          })
-        })
-        .then(res => res.json())
-        .then(audioData => {
-          if (audioData.audioBase64) {
-            const audioUrl = `data:${audioData.audioMimeType || 'audio/wav'};base64,${audioData.audioBase64}`;
-            setSolverResult(prev => prev ? { ...prev, audioDataUrl: audioUrl } : null);
+        try {
+          const audioRes = await fetch("/api/student-question-audio", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text: data.text,
+              voiceName: selectedVoice
+            })
+          });
 
-            if (userData?.uid && newQId) {
-              studentDataService.saveSolvedQuestionHistory(userData.uid, {
-                id: newQId,
-                subject: selectedSubject,
-                qText: qText.trim(),
-                qImagePreview,
-                solverResult: {
-                  text: data.text,
-                  audioDataUrl: audioUrl,
-                  hasValidSingleQuestion: isValidSingleQ,
-                  questionStatus: data.questionStatus
-                },
-                followUpMessages: []
-              }).then(() => loadHistoryItems()).catch(console.error);
+          if (audioRes.ok) {
+            const contentType = audioRes.headers.get("content-type");
+            if (contentType && contentType.includes("application/json")) {
+              const audioData = await audioRes.json();
+              if (audioData.audioBase64) {
+                const audioUrl = `data:${audioData.audioMimeType || 'audio/wav'};base64,${audioData.audioBase64}`;
+                setSolverResult(prev => prev ? { ...prev, audioDataUrl: audioUrl } : null);
+
+                if (userData?.uid && newQId) {
+                  studentDataService.saveSolvedQuestionHistory(userData.uid, {
+                    id: newQId,
+                    subject: selectedSubject,
+                    qText: qText.trim(),
+                    qImagePreview,
+                    solverResult: {
+                      text: data.text,
+                      audioDataUrl: audioUrl,
+                      hasValidSingleQuestion: isValidSingleQ,
+                      questionStatus: data.questionStatus
+                    },
+                    followUpMessages: []
+                  }).then(() => loadHistoryItems()).catch(console.error);
+                }
+              }
             }
+          } else {
+            console.warn("Sesli çözüm sunucu yanıtı başarısız:", audioRes.status);
           }
-        })
-        .catch(err => {
-          console.warn("Sesli çözüm yüklenemedi:", err);
-        })
-        .finally(() => {
+        } catch (audioErr) {
+          console.warn("Sesli çözüm yüklenemedi:", audioErr);
+        } finally {
           setIsAudioGenerating(false);
-        });
+        }
       } else {
         setIsAudioGenerating(false);
       }
@@ -598,23 +604,30 @@ export default function AIAssistant() {
           voiceName: selectedVoice
         })
       });
-      const audioData = await res.json();
-      if (audioData.audioBase64) {
-        const audioUrl = `data:${audioData.audioMimeType || 'audio/wav'};base64,${audioData.audioBase64}`;
-        setSolverResult(prev => prev ? { ...prev, audioDataUrl: audioUrl } : null);
-        if (userData?.uid && currentQuestionId) {
-          studentDataService.saveSolvedQuestionHistory(userData.uid, {
-            id: currentQuestionId,
-            subject: selectedSubject,
-            qText,
-            qImagePreview,
-            solverResult: {
-              ...solverResult,
-              audioDataUrl: audioUrl
-            },
-            followUpMessages
-          }).catch(console.error);
+      if (res.ok) {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const audioData = await res.json();
+          if (audioData.audioBase64) {
+            const audioUrl = `data:${audioData.audioMimeType || 'audio/wav'};base64,${audioData.audioBase64}`;
+            setSolverResult(prev => prev ? { ...prev, audioDataUrl: audioUrl } : null);
+            if (userData?.uid && currentQuestionId) {
+              studentDataService.saveSolvedQuestionHistory(userData.uid, {
+                id: currentQuestionId,
+                subject: selectedSubject,
+                qText,
+                qImagePreview,
+                solverResult: {
+                  ...solverResult,
+                  audioDataUrl: audioUrl
+                },
+                followUpMessages
+              }).catch(console.error);
+            }
+          }
         }
+      } else {
+        console.warn("Ses yeniden oluşturma başarısız, HTTP status:", res.status);
       }
     } catch (err) {
       console.error("Audio regeneration failed:", err);

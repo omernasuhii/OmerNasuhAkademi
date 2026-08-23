@@ -202,7 +202,7 @@ export default function BookingModal({ isOpen, onClose, initialBooking }: Bookin
     const dayName = new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
     const workingBlocks = coachSchedule.weeklyHours[dayName] || [];
     
-    const { duration = 60, bufferTime = 0 } = selectedService;
+    const { duration = 45, bufferTime = 0 } = selectedService;
     const totalSlotTime = duration + bufferTime;
     
     // Check if date is blocked completely
@@ -294,7 +294,7 @@ export default function BookingModal({ isOpen, onClose, initialBooking }: Bookin
     if (!user || !userData || !selectedService || !selectedDate || !selectedSlot) return;
     setBooking(true);
     try {
-      const endTime = formatTime(parseTime(selectedSlot) + (selectedService.duration || 60));
+      const endTime = formatTime(parseTime(selectedSlot) + (selectedService.duration || 45));
       
       if (initialBooking) {
         await appointmentService.updateAppointment(initialBooking.id!, {

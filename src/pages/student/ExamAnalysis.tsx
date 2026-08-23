@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { auth } from "../../lib/firebase";
+import { useAuth } from "../../lib/AuthContext";
 import { studentDataService } from "../../services/studentDataService";
 import {
   ChevronLeft,
@@ -12,6 +12,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { useCurriculum } from "../../lib/CurriculumContext";
+import { SUBTOPICS as DEFAULT_SUBTOPICS } from "../../constants/subtopics";
 import { formatDriveUrl } from "../../lib/formatDriveUrl";
 import { motion } from "motion/react";
 
@@ -784,7 +785,9 @@ const safeFormatDate = (dateVal: any) => {
 };
 
 export default function ExamAnalysis() {
-  const { curriculum } = useCurriculum();
+  const { user, userData } = useAuth();
+  const currentUid = userData?.uid || user?.uid;
+  const { curriculum, subtopics: curriculumSubtopics } = useCurriculum();
   const { examId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -798,15 +801,12 @@ export default function ExamAnalysis() {
 
   useEffect(() => {
     const loadData = async () => {
-      if (!examId) return;
+      if (!examId || !currentUid) return;
       setLoading(true);
       try {
-        const user = auth.currentUser;
-        if (!user) return;
-
         const [results, profile] = await Promise.all([
-          studentDataService.getExamResults(user.uid),
-          studentDataService.getStudentProfile(user.uid),
+          studentDataService.getExamResults(currentUid),
+          studentDataService.getStudentProfile(currentUid),
         ]);
 
         const currentExam = (results as any[]).find((e) => e.id === examId);
@@ -814,7 +814,7 @@ export default function ExamAnalysis() {
         setStudentProfile(profile);
 
         const existingAnalysis =
-          await studentDataService.getExamAnalysis(examId);
+          await studentDataService.getExamAnalysis(examId, currentUid);
         const startType = new URLSearchParams(location.search).get("type");
 
         let globalExamData: any = null;
@@ -866,6 +866,30 @@ export default function ExamAnalysis() {
           return q?.subject || "";
         };
 
+        const getGlobalSubtopic = (branch: string, index: number) => {
+          if (!globalExamData || !globalExamData.questions) return "";
+
+          if (branch === "Geometri") {
+            const foundQ = globalExamData.questions.find(
+              (q: any) =>
+                (q.sectionName === "Temel Matematik" || q.sectionName === "Matematik" || q.sectionName === "Geometri") &&
+                q.number === (index + 1 + 30)
+            );
+            if (foundQ) return foundQ.subtopic || "";
+          }
+
+          const { targetSection, targetNumber } = getTargetSectionAndNumber(
+            branch,
+            index + 1
+          );
+
+          const q = globalExamData.questions.find(
+            (q: any) =>
+              q.sectionName === targetSection && q.number === targetNumber,
+          );
+          return q?.subtopic || "";
+        };
+
         if (existingAnalysis) {
           let data = existingAnalysis.data || {};
           let expectedBranches =
@@ -910,6 +934,7 @@ export default function ExamAnalysis() {
               data[branch] = Array.from({ length: questionCount }, (_, i) => ({
                 questionNo: i + 1,
                 topic: getGlobalTopic(branch, i),
+                subtopic: getGlobalSubtopic(branch, i),
                 errorType: "none",
               }));
             }
@@ -995,6 +1020,7 @@ export default function ExamAnalysis() {
               (_, i) => ({
                 questionNo: i + 1,
                 topic: getGlobalTopic(branch, i),
+                subtopic: getGlobalSubtopic(branch, i),
                 errorType: "none",
               }),
             );
@@ -1002,7 +1028,7 @@ export default function ExamAnalysis() {
 
           setAnalysis({
             examId,
-            studentId: user.uid,
+            studentId: currentUid,
             data: initialData,
           });
 
@@ -1050,7 +1076,7 @@ export default function ExamAnalysis() {
     };
 
     loadData();
-  }, [examId]);
+  }, [examId, currentUid]);
 
   const getQuestionCountForBranch = (exam: any, branch: string) => {
     if (BRANCH_QUESTION_COUNTS[branch]) return BRANCH_QUESTION_COUNTS[branch];
@@ -1084,17 +1110,17 @@ export default function ExamAnalysis() {
       await studentDataService.saveExamAnalysis(analysis);
 
       // Find the daily program for the exam date and update the Deneme task
-      if (exam && auth.currentUser) {
+      if (exam && currentUid) {
          const datesToUpdate = [exam.date];
          if (exam.examType === 'YKS' && exam.aytDate && exam.aytDate !== exam.date) {
             datesToUpdate.push(exam.aytDate);
          }
-         await studentDataService.syncDailyProgramsWithExams(auth.currentUser.uid, datesToUpdate);
+         await studentDataService.syncDailyProgramsWithExams(currentUid, datesToUpdate);
       }
 
       // Refresh to get potentially new ID if it was a create
 
-      const updated = await studentDataService.getExamAnalysis(examId!);
+      const updated = await studentDataService.getExamAnalysis(examId!, currentUid);
       setAnalysis(updated);
     } catch (err) {
       console.error("Save error:", err);
@@ -1104,7 +1130,7 @@ export default function ExamAnalysis() {
   };
 
   const checkIfBranchComplete = (branchName: string) => {
-    if (!analysis || !exam || !analysis.data[branchName]) return false;
+    if (!analysis || !exam || !analysis.data || !analysis.data[branchName]) return false;
 
     let totalCorrect = 0;
     if (exam.examType === "BRANŞ") {
@@ -1197,8 +1223,9 @@ export default function ExamAnalysis() {
       });
     }
 
-    const noneCount = analysis.data[branchName].filter(
-      (q: any) => q.errorType === "none",
+    const branchQuestions = (analysis.data && analysis.data[branchName]) || [];
+    const noneCount = branchQuestions.filter(
+      (q: any) => q && q.errorType === "none",
     ).length;
     // Default answers initially have 'none' errorType.
     // They are complete if they replaced exactly (totalQuestions - totalCorrect) 'none's with actual errors.
@@ -1213,7 +1240,7 @@ export default function ExamAnalysis() {
     );
   }
 
-  if (!exam || !analysis) {
+  if (!exam || !analysis || !analysis.data) {
     return (
       <div className="text-center py-20 bg-slate-900/40 rounded-3xl border border-white/5">
         <AlertCircle className="mx-auto text-red-500 mb-4" size={48} />
@@ -1230,7 +1257,7 @@ export default function ExamAnalysis() {
     );
   }
 
-  let displayBranches = Object.keys(analysis.data);
+  let displayBranches = Object.keys(analysis.data || {});
   const startType = new URLSearchParams(location.search).get("type");
 
   if (exam.examType === "YKS") {
@@ -1331,7 +1358,7 @@ export default function ExamAnalysis() {
             <thead>
               <tr className="bg-white/5 border-b border-white/5 text-[10px] font-black uppercase tracking-widest text-slate-400">
                 <th className="px-6 py-4 w-16">NO</th>
-                <th className="px-6 py-4 w-64">SORU KONUSU</th>
+                <th className="px-6 py-4 min-w-[320px]">SORU KONUSU & ALT BAŞLIK (1. & 2. KADEME)</th>
                 {ERROR_TYPES.map((type) => (
                   <th
                     key={type.id}
@@ -1367,98 +1394,186 @@ export default function ExamAnalysis() {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="space-y-2">
-                        <select
-                          disabled={!!exam?.globalExamId}
-                          value={
-                            getTopicsForBranch(
-                              curriculum,
-                              activeBranch,
-                              question.questionNo,
-                              exam.examType,
-                            ).includes(question.topic)
-                              ? question.topic
-                              : question.topic
-                                ? "Diğer"
-                                : ""
-                          }
-                          onChange={(e) => {
-                            if (e.target.value !== "Diğer") {
-                              handleUpdateQuestion(
-                                idx,
-                                "topic",
-                                e.target.value,
-                              );
-                            } else {
-                              handleUpdateQuestion(idx, "topic", " "); // Signal other
-                            }
-                          }}
-                          className="w-full bg-slate-800/50 border border-indigo-500/30 rounded-xl p-2.5 text-sm text-white outline-none focus:border-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <option value="">Konu Seçiniz...</option>
-                          {getTopicsForBranch(
-                            curriculum,
-                            activeBranch,
-                            question.questionNo,
-                            exam.examType,
-                          ).map((topic) => (
-                            <option key={topic} value={topic}>
-                              {topic}
-                            </option>
-                          ))}
-                          <option value="Diğer">Diğer (Listede Yok)</option>
-                        </select>
-
-                        {!getTopicsForBranch(
+                      {(() => {
+                        const branchTopics = getTopicsForBranch(
                           curriculum,
                           activeBranch,
                           question.questionNo,
                           exam.examType,
-                        ).includes(question.topic) &&
-                          question.topic !== "" && (
-                            <input
-                              type="text"
-                              disabled={!!exam?.globalExamId}
-                              value={question.topic.trim()}
-                              onChange={(e) =>
-                                handleUpdateQuestion(
-                                  idx,
-                                  "topic",
-                                  e.target.value,
-                                )
-                              }
-                              placeholder="Konu adını yazınız..."
-                              className="w-full bg-slate-800/30 border border-white/10 rounded-lg p-2 text-xs text-white outline-none focus:border-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                              autoFocus
-                            />
-                          )}
+                        );
+                        const isPredefinedTopic = branchTopics.includes(question.topic);
+                        const cleanTopic = (question.topic || "").trim();
+                        const availableSubtopics =
+                          (curriculumSubtopics && curriculumSubtopics[cleanTopic]) ||
+                          DEFAULT_SUBTOPICS[cleanTopic] ||
+                          [];
+                        const isPredefinedSubtopic = availableSubtopics.includes(question.subtopic);
 
-                        {gQuestion &&
-                          (gQuestion.answer || gQuestion.imageUrl) && (
-                            <div className="flex items-center gap-3 mt-2 text-indigo-300 text-xs bg-indigo-500/10 p-2 rounded-lg border border-indigo-500/20">
-                              {gQuestion.answer && (
-                                <span className="font-bold">
-                                  Cevap:{" "}
-                                  <span className="text-white">
-                                    {gQuestion.answer}
-                                  </span>
+                        return (
+                          <div className="space-y-3">
+                            {/* 1. Kademe: Ana Konu */}
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                                  1. Kademe • Ana Konu
                                 </span>
-                              )}
-                              {gQuestion.imageUrl && (
-                                <div className="mt-2 w-full">
-                                  <a
-                                    href={formatDriveUrl(gQuestion.imageUrl)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center gap-1 hover:text-white transition-colors"
-                                  >
-                                    <ImageIcon size={14} /> Resmi Gör <ExternalLink size={12} />
-                                  </a>
-                                </div>
+                              </div>
+                              <select
+                                disabled={!!exam?.globalExamId}
+                                value={
+                                  isPredefinedTopic
+                                    ? question.topic
+                                    : question.topic
+                                      ? "Diğer"
+                                      : ""
+                                }
+                                onChange={(e) => {
+                                  if (e.target.value !== "Diğer") {
+                                    handleUpdateQuestion(
+                                      idx,
+                                      "topic",
+                                      e.target.value,
+                                    );
+                                  } else {
+                                    handleUpdateQuestion(idx, "topic", " ");
+                                  }
+                                }}
+                                className="w-full bg-slate-800/60 border border-indigo-500/30 rounded-xl p-2.5 text-sm text-white outline-none focus:border-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <option value="">Ana Konu Seçiniz...</option>
+                                {branchTopics.map((topic) => (
+                                  <option key={topic} value={topic}>
+                                    {topic}
+                                  </option>
+                                ))}
+                                <option value="Diğer">Diğer (Listede Yok)</option>
+                              </select>
+
+                              {!isPredefinedTopic && question.topic !== "" && (
+                                <input
+                                  type="text"
+                                  disabled={!!exam?.globalExamId}
+                                  value={question.topic.trim()}
+                                  onChange={(e) =>
+                                    handleUpdateQuestion(
+                                      idx,
+                                      "topic",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder="Özel ana konu adını yazınız..."
+                                  className="w-full bg-slate-800/40 border border-indigo-500/20 rounded-lg p-2 text-xs text-white outline-none focus:border-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-1"
+                                  autoFocus
+                                />
                               )}
                             </div>
-                          )}
-                      </div>
+
+                            {/* 2. Kademe: Alt Başlık */}
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                  2. Kademe • Alt Başlık
+                                </span>
+                              </div>
+
+                              {availableSubtopics.length > 0 ? (
+                                <>
+                                  <select
+                                    disabled={!!exam?.globalExamId}
+                                    value={
+                                      isPredefinedSubtopic
+                                        ? question.subtopic || ""
+                                        : question.subtopic
+                                          ? "Diğer"
+                                          : ""
+                                    }
+                                    onChange={(e) => {
+                                      if (e.target.value !== "Diğer") {
+                                        handleUpdateQuestion(
+                                          idx,
+                                          "subtopic",
+                                          e.target.value,
+                                        );
+                                      } else {
+                                        handleUpdateQuestion(idx, "subtopic", " ");
+                                      }
+                                    }}
+                                    className="w-full bg-slate-800/40 border border-emerald-500/30 rounded-xl p-2 text-xs text-emerald-200 outline-none focus:border-emerald-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    <option value="">Alt Başlık Seçiniz (İsteğe Bağlı / Genel)</option>
+                                    {availableSubtopics.map((st) => (
+                                      <option key={st} value={st}>
+                                        {st}
+                                      </option>
+                                    ))}
+                                    <option value="Diğer">Diğer (Özel Alt Başlık)</option>
+                                  </select>
+
+                                  {!isPredefinedSubtopic && question.subtopic && question.subtopic !== "" && (
+                                    <input
+                                      type="text"
+                                      disabled={!!exam?.globalExamId}
+                                      value={question.subtopic.trim()}
+                                      onChange={(e) =>
+                                        handleUpdateQuestion(
+                                          idx,
+                                          "subtopic",
+                                          e.target.value,
+                                        )
+                                      }
+                                      placeholder="Özel alt başlık yazınız..."
+                                      className="w-full bg-slate-800/30 border border-emerald-500/20 rounded-lg p-2 text-xs text-white outline-none focus:border-emerald-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-1"
+                                    />
+                                  )}
+                                </>
+                              ) : (
+                                <input
+                                  type="text"
+                                  disabled={!!exam?.globalExamId}
+                                  value={question.subtopic || ""}
+                                  onChange={(e) =>
+                                    handleUpdateQuestion(
+                                      idx,
+                                      "subtopic",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder={cleanTopic ? "Alt başlık / spesifik kazanım (isteğe bağlı)..." : "Önce ana konu seçiniz"}
+                                  className="w-full bg-slate-800/40 border border-emerald-500/20 rounded-xl p-2 text-xs text-white placeholder-slate-500 outline-none focus:border-emerald-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                />
+                              )}
+                            </div>
+
+                            {gQuestion &&
+                              (gQuestion.answer || gQuestion.imageUrl) && (
+                                <div className="flex items-center gap-3 mt-2 text-indigo-300 text-xs bg-indigo-500/10 p-2 rounded-lg border border-indigo-500/20">
+                                  {gQuestion.answer && (
+                                    <span className="font-bold">
+                                      Cevap:{" "}
+                                      <span className="text-white">
+                                        {gQuestion.answer}
+                                      </span>
+                                    </span>
+                                  )}
+                                  {gQuestion.imageUrl && (
+                                    <div className="mt-2 w-full">
+                                      <a
+                                        href={formatDriveUrl(gQuestion.imageUrl)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-1 hover:text-white transition-colors"
+                                      >
+                                        <ImageIcon size={14} /> Resmi Gör <ExternalLink size={12} />
+                                      </a>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                          </div>
+                        );
+                      })()}
                     </td>
                     {ERROR_TYPES.map((type) => (
                       <td key={type.id} className="px-2 py-4 text-center">

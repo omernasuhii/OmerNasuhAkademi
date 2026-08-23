@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { CreditCard, CheckCircle, Clock, Trash2, ArrowRight } from 'lucide-react';
 import { studentDataService } from '../../services/studentDataService';
 import { appointmentService } from '../../services/appointmentService';
+import { isSubscriptionActive, filterAndSyncActiveSubscriptions } from '../../services/subscriptionService';
 
 export default function AdminSubscriptions() {
   const [activeTab, setActiveTab] = useState<'current' | 'history'>('current');
@@ -39,7 +40,7 @@ export default function AdminSubscriptions() {
     }
   };
 
-  const currentSubscriptions = students.filter(s => s.subscriptionStatus === 'active' && s.subscriptionPlan);
+  const currentSubscriptions = filterAndSyncActiveSubscriptions(students);
 
   const getActionColor = (action: string) => {
     switch (action) {

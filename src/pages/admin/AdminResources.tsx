@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   BookOpen, 
   Plus, 
@@ -14,21 +14,30 @@ import {
   Video, 
   CheckCircle2, 
   AlertCircle,
+  AlertTriangle,
   Eye,
   Key,
-  Layers
+  Layers,
+  FileText,
+  Camera
 } from 'lucide-react';
 import { studentDataService } from '../../services/studentDataService';
 import { BRANCH_CONFIG } from '../../constants/branchConfig';
+import { getYoutubeChannelsForSubject } from '../../constants/youtubeChannels';
+import { BarcodeScannerModal } from '../../components/BarcodeScannerModal';
+
+const cleanIsbn = (s: string) => (s || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
 
 export default function AdminResources() {
   const [books, setBooks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [typeFilter, setTypeFilter] = useState('Hepsi');
+  const [resourceTypeFilter, setResourceTypeFilter] = useState('Hepsi');
+  const [examTypeFilter, setExamTypeFilter] = useState('Hepsi');
   const [subjectFilter, setSubjectFilter] = useState('Hepsi');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [editingBook, setEditingBook] = useState<any>(null);
 
   // Video viewer modal state
@@ -71,6 +80,39 @@ export default function AdminResources() {
     setLoading(false);
   };
 
+  // Find duplicate ISBNs across all books (excluding YouTube)
+  const duplicateIsbnGroups = useMemo(() => {
+    const isbnMap = new Map<string, any[]>();
+    books.forEach(book => {
+      if (book.resourceType !== 'youtube' && book.isbn && book.isbn.trim()) {
+        const norm = cleanIsbn(book.isbn);
+        if (norm) {
+          if (!isbnMap.has(norm)) {
+            isbnMap.set(norm, []);
+          }
+          isbnMap.get(norm)!.push(book);
+        }
+      }
+    });
+
+    const duplicates: { normIsbn: string; displayIsbn: string; books: any[] }[] = [];
+    isbnMap.forEach((matchedBooks, norm) => {
+      if (matchedBooks.length > 1) {
+        duplicates.push({
+          normIsbn: norm,
+          displayIsbn: matchedBooks[0].isbn,
+          books: matchedBooks
+        });
+      }
+    });
+
+    return duplicates;
+  }, [books]);
+
+  const duplicateIsbnSet = useMemo(() => {
+    return new Set(duplicateIsbnGroups.map(d => d.normIsbn));
+  }, [duplicateIsbnGroups]);
+
   const handleOpenModal = (book: any = null) => {
     setYoutubeError(null);
     if (book) {
@@ -80,7 +122,7 @@ export default function AdminResources() {
         type: book.type || 'TYT',
         subject: book.subject || 'Türkçe',
         resourceType: book.resourceType || 'soru',
-        isbn: book.isbn || '',
+        isbn: book.resourceType === 'youtube' ? '' : (book.isbn || ''),
         order: book.order || '',
         playlistUrl: book.playlistUrl || (book.playlistId ? `https://www.youtube.com/playlist?list=${book.playlistId}` : ''),
         playlistId: book.playlistId || '',
@@ -136,7 +178,14 @@ export default function AdminResources() {
         })
       });
 
-      const data = await res.json();
+      let data: any = {};
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(text || 'Sunucudan beklenmeyen bir yanıt alındı.');
+      }
 
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'YouTube oynatma listesi çekilemedi.');
@@ -214,14 +263,33 @@ export default function AdminResources() {
 
   const handleSaveBook = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name) {
+    if (!formData.name.trim()) {
       alert('Lütfen kaynak adını girin.');
       return;
+    }
+
+    // For YouTube resources, always clear ISBN
+    const finalIsbn = formData.resourceType === 'youtube' ? '' : formData.isbn.trim();
+
+    // Check unique ISBN constraint for non-youtube resources
+    if (formData.resourceType !== 'youtube' && finalIsbn) {
+      const normIsbn = cleanIsbn(finalIsbn);
+      const duplicateBook = books.find(b => {
+        if (b.resourceType === 'youtube') return false;
+        if (editingBook && b.id === editingBook.id) return false;
+        return b.isbn && cleanIsbn(b.isbn) === normIsbn;
+      });
+
+      if (duplicateBook) {
+        alert(`UYARI: Bu ISBN numarası (${finalIsbn}) zaten "${duplicateBook.name}" (${duplicateBook.subject} - ${duplicateBook.type}) kaynağında kayıtlı!\n\nHer ISBN numarası sistemde eşsiz olmalıdır. Lütfen farklı bir ISBN giriniz veya mevcut kaynağı düzenleyiniz.`);
+        return;
+      }
     }
 
     const bookToSave = {
       ...(editingBook || {}),
       ...formData,
+      isbn: finalIsbn,
       order: formData.order ? parseInt(formData.order.toString()) : null
     };
 
@@ -247,12 +315,24 @@ export default function AdminResources() {
   };
 
   const filteredBooks = books.filter(book => {
-    const matchesSearch = book.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          book.isbn?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          book.channelTitle?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesType = typeFilter === 'Hepsi' || book.type === typeFilter;
+    const query = searchTerm.toLowerCase().trim();
+    const matchesSearch = 
+      !query ||
+      book.name?.toLowerCase().includes(query) || 
+      book.isbn?.toLowerCase().includes(query) ||
+      book.channelTitle?.toLowerCase().includes(query) ||
+      book.subject?.toLowerCase().includes(query);
+      
+    const bookResType = book.resourceType || 'soru';
+    const matchesResourceType = 
+      resourceTypeFilter === 'Hepsi' || 
+      bookResType === resourceTypeFilter ||
+      (resourceTypeFilter === 'soru' && (book.resourceType === 'soru' || !book.resourceType));
+      
+    const matchesExamType = examTypeFilter === 'Hepsi' || book.type === examTypeFilter;
     const matchesSubject = subjectFilter === 'Hepsi' || book.subject === subjectFilter;
-    return matchesSearch && matchesType && matchesSubject;
+    
+    return matchesSearch && matchesResourceType && matchesExamType && matchesSubject;
   });
 
   const allSubjects = Array.from(new Set(Object.values(BRANCH_CONFIG).flatMap((b: any) => [...b.subjects, ...b.aytSubjects])));
@@ -273,6 +353,140 @@ export default function AdminResources() {
         </button>
       </div>
 
+      {/* Duplicate ISBN Warning Banner */}
+      {duplicateIsbnGroups.length > 0 && (
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-red-950/80 via-red-900/40 to-slate-900 border-2 border-red-500/40 shadow-xl space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-red-500/20 text-red-400">
+              <AlertTriangle size={24} />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-red-300 uppercase tracking-wide">
+                Mükerrer (Çift) ISBN Uyarısı! ({duplicateIsbnGroups.length} Farklı Çakışma Tespit Edildi)
+              </h3>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Aşağıdaki kaynaklar aynı ISBN kodunu paylaşmaktadır. Sistem stabilitesi ve doğru kitap takibi için her ISBN eşsiz olmalıdır.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+            {duplicateIsbnGroups.map((group, idx) => (
+              <div key={idx} className="p-3 rounded-xl bg-black/40 border border-red-500/30 flex flex-col justify-between space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-xs font-bold text-red-400 bg-red-500/10 px-2 py-0.5 rounded">
+                    ISBN: {group.displayIsbn}
+                  </span>
+                  <span className="text-[11px] font-bold text-slate-400">
+                    {group.books.length} Kaynakta Ortak
+                  </span>
+                </div>
+                <div className="space-y-1.5 divide-y divide-white/5">
+                  {group.books.map(b => (
+                    <div key={b.id} className="pt-1.5 first:pt-0 flex items-center justify-between gap-2 text-xs">
+                      <div className="truncate">
+                        <span className="font-semibold text-white">{b.name}</span>
+                        <span className="text-[10px] text-slate-400 ml-1.5">({b.subject} - {b.type})</span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => handleOpenModal(b)}
+                          className="px-2 py-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-200 rounded font-semibold transition-colors"
+                        >
+                          Düzenle
+                        </button>
+                        <button
+                          onClick={() => handleDeleteBook(b.id)}
+                          className="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors"
+                          title="Sil"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Quick Filter Tabs */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setResourceTypeFilter('Hepsi')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            resourceTypeFilter === 'Hepsi'
+              ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+              : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-white/5'
+          }`}
+        >
+          <span>Tümü</span>
+          <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+            resourceTypeFilter === 'Hepsi' ? 'bg-white/20 text-white' : 'bg-slate-700 text-slate-300'
+          }`}>
+            {books.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setResourceTypeFilter('soru')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            resourceTypeFilter === 'soru'
+              ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20'
+              : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-white/5'
+          }`}
+        >
+          <BookOpen size={14} />
+          <span>Soru Bankası</span>
+          <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+            resourceTypeFilter === 'soru' ? 'bg-white/20 text-white' : 'bg-slate-700 text-slate-300'
+          }`}>
+            {books.filter(b => (b.resourceType || 'soru') === 'soru').length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setResourceTypeFilter('konu')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            resourceTypeFilter === 'konu'
+              ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20'
+              : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-white/5'
+          }`}
+        >
+          <FileText size={14} />
+          <span>Konu Anlatımı</span>
+          <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+            resourceTypeFilter === 'konu' ? 'bg-white/20 text-white' : 'bg-slate-700 text-slate-300'
+          }`}>
+            {books.filter(b => b.resourceType === 'konu').length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setResourceTypeFilter('youtube')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            resourceTypeFilter === 'youtube'
+              ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
+              : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-white/5'
+          }`}
+        >
+          <Youtube size={14} />
+          <span>YouTube</span>
+          <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+            resourceTypeFilter === 'youtube' ? 'bg-white/20 text-white' : 'bg-slate-700 text-slate-300'
+          }`}>
+            {books.filter(b => b.resourceType === 'youtube').length}
+          </span>
+        </button>
+      </div>
+
+      {/* Search and Filters Bar */}
       <div className="flex flex-col md:flex-row gap-4">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
@@ -284,22 +498,39 @@ export default function AdminResources() {
             className="w-full bg-slate-800/80 border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-emerald-500/50"
           />
         </div>
-        <div className="flex items-center gap-2">
-          <Filter size={20} className="text-slate-400" />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <Filter size={18} className="text-slate-400" />
+            <select
+              value={resourceTypeFilter}
+              onChange={(e) => setResourceTypeFilter(e.target.value)}
+              className="bg-slate-800 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50 cursor-pointer font-medium"
+            >
+              <option value="Hepsi">Tüm Türler</option>
+              <option value="soru">Soru Bankası</option>
+              <option value="konu">Konu Anlatımı</option>
+              <option value="youtube">YouTube</option>
+            </select>
+          </div>
+
           <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            className="bg-slate-800 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50"
+            value={examTypeFilter}
+            onChange={(e) => setExamTypeFilter(e.target.value)}
+            className="bg-slate-800 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50 cursor-pointer font-medium"
           >
-            <option value="Hepsi">Tüm Türler</option>
+            <option value="Hepsi">Tüm Alanlar</option>
             <option value="TYT">TYT</option>
             <option value="AYT">AYT</option>
+            <option value="9. Sınıf">9. Sınıf</option>
             <option value="10. Sınıf">10. Sınıf</option>
+            <option value="11. Sınıf">11. Sınıf</option>
+            <option value="Ortak">Ortak</option>
           </select>
+
           <select
             value={subjectFilter}
             onChange={(e) => setSubjectFilter(e.target.value)}
-            className="bg-slate-800 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50"
+            className="bg-slate-800 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50 cursor-pointer font-medium"
           >
             <option value="Hepsi">Tüm Dersler</option>
             {allSubjects.map((sub: any) => (
@@ -327,74 +558,86 @@ export default function AdminResources() {
           <div className="p-12 text-center text-slate-400">Kaynak bulunamadı.</div>
         ) : (
           <div className="divide-y divide-white/5 max-h-[600px] overflow-y-auto">
-            {filteredBooks.sort((a,b) => (a.order || 999) - (b.order || 999)).map((book: any) => (
-              <div key={book.id} className="grid grid-cols-12 gap-4 p-4 text-sm items-center hover:bg-white/5 transition-colors">
-                <div className="col-span-1 text-center text-slate-400 font-bold">{book.order || '-'}</div>
-                <div className="col-span-4 text-white font-medium break-words">
-                  <div className="flex items-center gap-2">
-                    {book.resourceType === 'youtube' ? (
-                      <Youtube size={18} className="text-red-400 shrink-0" />
-                    ) : (
-                      <BookOpen size={18} className="text-emerald-400 shrink-0" />
-                    )}
-                    <span className="font-semibold text-slate-100">{book.name}</span>
-                  </div>
-                  {book.channelTitle && (
-                    <div className="text-[11px] text-red-400/90 font-medium mt-0.5 ml-6 flex items-center gap-1">
-                      <span>Kanal: {book.channelTitle}</span>
+            {filteredBooks.sort((a,b) => (a.order || 999) - (b.order || 999)).map((book: any) => {
+              const isDuplicate = book.isbn && duplicateIsbnSet.has(cleanIsbn(book.isbn));
+              return (
+                <div key={book.id} className="grid grid-cols-12 gap-4 p-4 text-sm items-center hover:bg-white/5 transition-colors">
+                  <div className="col-span-1 text-center text-slate-400 font-bold">{book.order || '-'}</div>
+                  <div className="col-span-4 text-white font-medium break-words">
+                    <div className="flex items-center gap-2">
+                      {book.resourceType === 'youtube' ? (
+                        <Youtube size={18} className="text-red-400 shrink-0" />
+                      ) : (
+                        <BookOpen size={18} className="text-emerald-400 shrink-0" />
+                      )}
+                      <span className="font-semibold text-slate-100">{book.name}</span>
                     </div>
-                  )}
-                  {book.isbn && <div className="text-[10px] text-slate-500 mt-0.5 ml-6">ISBN: {book.isbn}</div>}
-                </div>
-                <div className="col-span-2">
-                  <div className="text-white font-medium">{book.subject}</div>
-                  <div className="text-[10px] text-emerald-400 font-bold tracking-wider">{book.type}</div>
-                </div>
-                <div className="col-span-3">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                      book.resourceType === 'youtube' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
-                      book.resourceType === 'konu' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
-                      'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                    }`}>
-                      {book.resourceType === 'youtube' ? 'YouTube Kampı' : book.resourceType === 'konu' ? 'Konu Anlatımı' : 'Soru Bankası'}
-                    </span>
-
-                    {book.resourceType === 'youtube' && book.videos && book.videos.length > 0 && (
-                      <button
-                        onClick={() => setViewingVideoBook(book)}
-                        className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10 px-2 py-0.5 rounded-full text-[10px] font-bold transition-colors cursor-pointer"
-                        title="Videoları Görüntüle"
-                      >
-                        <Video size={11} className="text-red-400" />
-                        <span>{book.videos.length} Video</span>
-                        {book.totalDurationFormatted && (
-                          <span className="text-slate-400">({book.totalDurationFormatted})</span>
+                    {book.channelTitle && (
+                      <div className="text-[11px] text-red-400/90 font-medium mt-0.5 ml-6 flex items-center gap-1">
+                        <span>Kanal: {book.channelTitle}</span>
+                      </div>
+                    )}
+                    {book.resourceType !== 'youtube' && book.isbn && (
+                      <div className="text-[10px] text-slate-400 mt-0.5 ml-6 flex items-center gap-1.5">
+                        <span>ISBN: {book.isbn}</span>
+                        {isDuplicate && (
+                          <span className="px-1.5 py-0.2 rounded bg-red-500/20 text-red-400 border border-red-500/30 text-[9px] font-bold">
+                            ⚠️ Çift ISBN
+                          </span>
                         )}
-                        <Eye size={10} className="ml-0.5 text-slate-400" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="col-span-2">
+                    <div className="text-white font-medium">{book.subject}</div>
+                    <div className="text-[10px] text-emerald-400 font-bold tracking-wider">{book.type}</div>
+                  </div>
+                  <div className="col-span-3">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                        book.resourceType === 'youtube' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                        book.resourceType === 'konu' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
+                        'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                      }`}>
+                        {book.resourceType === 'youtube' ? 'YouTube Kampı' : book.resourceType === 'konu' ? 'Konu Anlatımı' : 'Soru Bankası'}
+                      </span>
+
+                      {book.resourceType === 'youtube' && book.videos && book.videos.length > 0 && (
+                        <button
+                          onClick={() => setViewingVideoBook(book)}
+                          className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10 px-2 py-0.5 rounded-full text-[10px] font-bold transition-colors cursor-pointer"
+                          title="Videoları Görüntüle"
+                        >
+                          <Video size={11} className="text-red-400" />
+                          <span>{book.videos.length} Video</span>
+                          {book.totalDurationFormatted && (
+                            <span className="text-slate-400">({book.totalDurationFormatted})</span>
+                          )}
+                          <Eye size={10} className="ml-0.5 text-slate-400" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="col-span-2 flex items-center justify-end gap-2">
+                    {book.resourceType === 'youtube' && book.videos && book.videos.length > 0 && (
+                      <button 
+                        onClick={() => setViewingVideoBook(book)} 
+                        className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                        title="Videoları Listele"
+                      >
+                        <Eye size={16} />
                       </button>
                     )}
+                    <button onClick={() => handleOpenModal(book)} className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors" title="Düzenle">
+                      <Edit2 size={16} />
+                    </button>
+                    <button onClick={() => handleDeleteBook(book.id)} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg transition-colors" title="Sil">
+                      <Trash2 size={16} />
+                    </button>
                   </div>
                 </div>
-                <div className="col-span-2 flex items-center justify-end gap-2">
-                  {book.resourceType === 'youtube' && book.videos && book.videos.length > 0 && (
-                    <button 
-                      onClick={() => setViewingVideoBook(book)} 
-                      className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                      title="Videoları Listele"
-                    >
-                      <Eye size={16} />
-                    </button>
-                  )}
-                  <button onClick={() => handleOpenModal(book)} className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors" title="Düzenle">
-                    <Edit2 size={16} />
-                  </button>
-                  <button onClick={() => handleDeleteBook(book.id)} className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg transition-colors" title="Sil">
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -404,35 +647,41 @@ export default function AdminResources() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-white/10 rounded-2xl p-6 w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400">
-                  <Youtube size={22} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-black text-white">{viewingVideoBook.name}</h3>
-                  <p className="text-xs text-slate-400">
-                    {viewingVideoBook.channelTitle && <span className="text-red-400 font-bold mr-2">Kanal: {viewingVideoBook.channelTitle}</span>}
-                    {viewingVideoBook.videos?.length || 0} Video • Toplam Süre: {viewingVideoBook.totalDurationFormatted || `${viewingVideoBook.totalDurationMinutes || 0} dk`}
-                  </p>
-                </div>
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <Youtube className="text-red-400" size={20} />
+                  <span>{viewingVideoBook.name}</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  {viewingVideoBook.channelTitle ? `Kanal: ${viewingVideoBook.channelTitle} • ` : ''}
+                  Toplam {viewingVideoBook.videos?.length || 0} Video 
+                  {viewingVideoBook.totalDurationFormatted ? ` (${viewingVideoBook.totalDurationFormatted})` : ''}
+                </p>
               </div>
               <button 
                 onClick={() => setViewingVideoBook(null)}
-                className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-white/5"
+                className="text-slate-400 hover:text-white p-2 text-lg"
               >
                 ✕
               </button>
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-              {(viewingVideoBook.videos || []).map((video: any, idx: number) => (
-                <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-slate-800/60 border border-white/5 hover:border-white/10 transition-colors">
+              {viewingVideoBook.videos?.map((video: any, idx: number) => (
+                <div 
+                  key={idx} 
+                  className="flex items-center justify-between p-3 rounded-xl bg-slate-800/60 border border-white/5 hover:border-red-500/30 transition-colors"
+                >
                   <div className="flex items-center gap-3 min-w-0">
-                    <span className="w-6 text-center text-xs font-black text-slate-500">{video.order || idx + 1}</span>
+                    <span className="font-mono text-xs font-bold text-slate-500 w-6 text-right">
+                      {video.order || idx + 1}.
+                    </span>
                     <div className="min-w-0">
-                      <p className="text-sm font-bold text-slate-200 truncate">{video.title}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[11px] font-bold text-red-400 flex items-center gap-1">
+                      <div className="text-sm font-semibold text-slate-200 truncate">
+                        {video.title}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
+                        <span className="flex items-center gap-1 text-red-400/90 font-medium">
                           <Clock size={11} /> {video.durationFormatted || `${video.durationMinutes} dk`}
                         </span>
                       </div>
@@ -510,7 +759,7 @@ export default function AdminResources() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setFormData({ ...formData, resourceType: 'youtube' })}
+                    onClick={() => setFormData({ ...formData, resourceType: 'youtube', isbn: '' })}
                     className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
                       formData.resourceType === 'youtube'
                         ? 'bg-red-600 text-white shadow-lg shadow-red-600/20'
@@ -613,7 +862,7 @@ export default function AdminResources() {
                         {formData.videos.map((vid: any, idx: number) => (
                           <div key={idx} className="flex items-center justify-between p-2 rounded-lg bg-white/5 text-xs text-slate-200 group">
                             <div className="flex items-center gap-2 min-w-0">
-                              <span className="font-mono text-[10px] text-slate-500 w-5">{vid.order || idx + 1}.</span>
+                              <span className="font-mono text-slate-500 w-5">{vid.order || idx + 1}.</span>
                               <span className="truncate max-w-[280px] font-medium">{vid.title}</span>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
@@ -686,7 +935,9 @@ export default function AdminResources() {
                   >
                     <option value="TYT">TYT</option>
                     <option value="AYT">AYT</option>
+                    <option value="9. Sınıf">9. Sınıf</option>
                     <option value="10. Sınıf">10. Sınıf</option>
+                    <option value="11. Sınıf">11. Sınıf</option>
                     <option value="Ortak">Ortak</option>
                   </select>
                 </div>
@@ -720,19 +971,58 @@ export default function AdminResources() {
                   <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
                     {formData.resourceType === 'youtube' ? 'Kanal / Eğitmen Adı' : 'ISBN (Opsiyonel)'}
                   </label>
-                  <input
-                    type="text"
-                    value={formData.resourceType === 'youtube' ? formData.channelTitle : formData.isbn}
-                    onChange={(e) => {
-                      if (formData.resourceType === 'youtube') {
-                        setFormData({ ...formData, channelTitle: e.target.value });
-                      } else {
-                        setFormData({ ...formData, isbn: e.target.value });
-                      }
-                    }}
-                    className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500/50"
-                    placeholder={formData.resourceType === 'youtube' ? 'Kanal / Eğitmen' : 'ISBN No'}
-                  />
+                  {formData.resourceType === 'youtube' ? (
+                    <div className="space-y-2">
+                      <select
+                        value={getYoutubeChannelsForSubject(formData.subject).includes(formData.channelTitle) ? formData.channelTitle : (formData.channelTitle ? 'custom' : '')}
+                        onChange={(e) => {
+                          if (e.target.value === 'custom') {
+                            // User wants custom input
+                          } else if (e.target.value) {
+                            const ch = e.target.value;
+                            setFormData({
+                              ...formData,
+                              channelTitle: ch,
+                              name: formData.name ? formData.name : `${ch} - ${formData.subject} Video Serisi`
+                            });
+                          }
+                        }}
+                        className="w-full bg-slate-800 border border-white/10 rounded-xl p-2.5 text-xs text-white outline-none focus:border-red-500/50 mb-1.5"
+                      >
+                        <option value="">-- Önerilen Kanallardan Seçin --</option>
+                        {getYoutubeChannelsForSubject(formData.subject).map(ch => (
+                          <option key={ch} value={ch}>{ch}</option>
+                        ))}
+                        <option value="custom">Diğer / Özel Kanal Girişi</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={formData.channelTitle}
+                        onChange={(e) => setFormData({ ...formData, channelTitle: e.target.value })}
+                        className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500/50"
+                        placeholder="Kanal / Eğitmen Adı (Örn: Eyüp B. Matematik)"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={formData.isbn}
+                        onChange={(e) => setFormData({ ...formData, isbn: e.target.value })}
+                        className="flex-1 bg-black/20 border border-white/10 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500/50"
+                        placeholder="ISBN No (Örn: 9786058116221)"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIsScannerOpen(true)}
+                        className="px-4 py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 hover:border-emerald-500/60 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 shadow-sm"
+                        title="Kamerayla Barkod Tara"
+                      >
+                        <Camera size={16} />
+                        <span className="hidden sm:inline">Kamera ile Tara</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -755,6 +1045,14 @@ export default function AdminResources() {
           </div>
         </div>
       )}
+
+      <BarcodeScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onScanSuccess={(scannedIsbn) => {
+          setFormData(prev => ({ ...prev, isbn: scannedIsbn }));
+        }}
+      />
     </div>
   );
 }

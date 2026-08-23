@@ -15,7 +15,12 @@ export const WhatsAppFallbackHelp: React.FC<WhatsAppFallbackHelpProps> = ({ phon
 
   useEffect(() => {
     fetch("/api/whatsapp-status")
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) return null;
+        const ct = res.headers.get("content-type") || "";
+        if (!ct.includes("application/json")) return null;
+        return res.json().catch(() => null);
+      })
       .then((data) => {
         if (data && data.whatsappNumber) {
           const cleaned = data.whatsappNumber.replace(/\D/g, "");

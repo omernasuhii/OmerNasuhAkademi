@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Calendar, Clock, Loader2, Check, User, Video } from 'lucide-react';
-import { appointmentService } from '../../services/appointmentService';
+import { appointmentService, calculateEndTime } from '../../services/appointmentService';
 import { useAuth } from '../../lib/AuthContext';
 import { notificationService } from '../../services/notificationService';
 
@@ -49,11 +49,7 @@ export default function CoachBookingModal({ isOpen, onClose, onSuccess }: CoachB
       const student = students.find(s => s.uid === selectedStudent);
       
       const startTime = selectedTime;
-      const [h, m] = startTime.split(':').map(Number);
-      const totalMin = h * 60 + m + 60;
-      const endH = Math.floor(totalMin / 60);
-      const endM = totalMin % 60;
-      const endTime = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
+      const endTime = calculateEndTime(startTime, 45);
 
       await appointmentService.bookAppointment({
         studentId: student.uid,
@@ -172,6 +168,14 @@ export default function CoachBookingModal({ isOpen, onClose, onSuccess }: CoachB
                   className="w-full bg-slate-950/50 border border-white/10 rounded-2xl py-3 px-4 text-white font-bold outline-none focus:ring-2 focus:ring-blue-500/50"
                   style={{ colorScheme: 'dark' }}
                 />
+                {selectedTime && (
+                  <div className="flex items-center justify-between text-xs text-slate-400 mt-2 px-1">
+                    <span>Süre: 45 Dakika</span>
+                    <span className="font-mono text-blue-400 font-bold">
+                      {selectedTime} - {calculateEndTime(selectedTime, 45)}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="bg-slate-950/40 p-4 rounded-xl border border-white/5 space-y-4">

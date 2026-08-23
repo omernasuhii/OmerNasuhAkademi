@@ -1,6 +1,6 @@
 {
   "name": "FocusON Akademi",
   "description": "Kapsamlı öğrenci koçluk, rehberlik, YKS/LGS sınava hazırlık, ve kişisel gelişim platformu. Özel programlar, randevu sistemi ve yapay zeka asistanı içerir.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

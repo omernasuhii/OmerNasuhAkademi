@@ -12,6 +12,7 @@ import { storeService, Purchase } from '../services/storeService';
 import AppointmentList from '../components/appointments/AppointmentList';
 import { eventService, EventData, TicketOrder, EventRSVP } from '../services/eventService';
 import { programService, Program, ProgramEnrollment } from '../services/programService';
+import { isSubscriptionActive } from '../services/subscriptionService';
 
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -810,11 +811,11 @@ export default function CommunityProfile() {
                
                <div className="flex items-center gap-4 relative">
                  <span className={`px-6 py-2 rounded-full text-sm font-bold uppercase tracking-widest border ${
-                   (userData.subscriptionEndDate && new Date(userData.subscriptionEndDate) > new Date())
+                   isSubscriptionActive(userData)
                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                      : 'bg-red-500/10 text-red-400 border-red-500/20'
                  }`}>
-                   {(userData.subscriptionEndDate && new Date(userData.subscriptionEndDate) > new Date()) ? 'Aktif' : 'Bitti'}
+                   {isSubscriptionActive(userData) ? 'Aktif' : 'Bitti'}
                  </span>
                </div>
             </div>

@@ -52,19 +52,22 @@ export function CurriculumProvider({ children }: { children: ReactNode }) {
     } else {
       setCurriculum(DEFAULT_CURRICULUM);
       setSubtopics(DEFAULT_SUBTOPICS);
-      // Seed db with defaults
+      // Seed db with defaults if authenticated
       try {
-        const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
-        const { db } = await import('../lib/firebase');
-        await setDoc(
-          doc(db, 'settings', 'curriculum'), 
-          { 
-            subjects: DEFAULT_CURRICULUM, 
-            subtopics: DEFAULT_SUBTOPICS,
-            updatedAt: serverTimestamp() 
-          }, 
-          { merge: true }
-        );
+        const { auth } = await import('../lib/firebase');
+        if (auth.currentUser) {
+          const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
+          const { db } = await import('../lib/firebase');
+          await setDoc(
+            doc(db, 'settings', 'curriculum'), 
+            { 
+              subjects: DEFAULT_CURRICULUM, 
+              subtopics: DEFAULT_SUBTOPICS,
+              updatedAt: serverTimestamp() 
+            }, 
+            { merge: true }
+          );
+        }
       } catch (e: any) {
         if (e.code !== 'permission-denied') {
           console.error('Failed to seed curriculum', e);
