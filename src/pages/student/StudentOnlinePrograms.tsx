@@ -133,13 +133,14 @@ export default function StudentOnlinePrograms() {
 
                <div className="space-y-4">
                   <h3 className="text-xl font-bold text-white mb-4">Program Adımları</h3>
-                  {selectedProgram.steps?.map((step, idx) => {
-                     const isCompleted = enr?.completedSteps?.includes(step.id);
+                  {Array.isArray(selectedProgram?.steps) && selectedProgram.steps.map((step, idx) => {
+                     const completedStepsList = Array.isArray(enr?.completedSteps) ? enr.completedSteps : [];
+                     const isCompleted = completedStepsList.includes(step.id);
                      let isLocked = false;
                      if (selectedProgram.orderType === 'fixed' && !enr) isLocked = true;
                      else if (selectedProgram.orderType === 'fixed' && enr) {
                         // find first uncompleted step index
-                        const firstUncompletedIndex = selectedProgram.steps.findIndex(s => !enr.completedSteps.includes(s.id));
+                        const firstUncompletedIndex = selectedProgram.steps.findIndex(s => !completedStepsList.includes(s.id));
                         if (firstUncompletedIndex !== -1 && idx > firstUncompletedIndex) isLocked = true;
                      }
 
@@ -154,13 +155,13 @@ export default function StudentOnlinePrograms() {
                          isCompleted={isCompleted || false}
                          enrollmentId={enr?.id}
                          isActive={!!enr && !isLocked}
-                         totalSteps={selectedProgram.steps.length}
-                         currentCompleted={enr?.completedSteps || []}
+                         totalSteps={(selectedProgram.steps || []).length}
+                         currentCompleted={completedStepsList}
                          onComplete={() => loadData()}
                        />
                      );
                   })}
-                  {(!selectedProgram.steps || selectedProgram.steps.length === 0) && (
+                  {(!Array.isArray(selectedProgram?.steps) || selectedProgram.steps.length === 0) && (
                      <p className="text-slate-500 italic">Bu programda henüz içerik bulunmamaktadır.</p>
                   )}
                </div>

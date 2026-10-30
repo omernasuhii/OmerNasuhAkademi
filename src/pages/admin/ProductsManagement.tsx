@@ -28,7 +28,7 @@ export default function ProductsManagement() {
   const [customPublisher, setCustomPublisher] = useState('');
   const [customBookstore, setCustomBookstore] = useState('');
 
-  const DEFAULT_PUBLISHERS = ['3D', 'ÜçDörtBeş', 'Bilgi Sarmal', 'Karekök', 'Limit', 'Orijinal', 'Apotemi', 'Hız ve Renk', 'Endemik', 'Çap', 'Diğer (Manuel Ekle)'];
+  const DEFAULT_PUBLISHERS = ['3D', 'ÜçDörtBeş', 'Bilgi Sarmal', 'Karekök', 'Limit', 'Orijinal', 'Apotemi', 'Hız ve Renk', 'Endemik', 'Çap', 'Full', 'Matematiğin İlacı', 'Acil', 'Egzersiz', 'Orbital', 'Biyotik', 'Diğer (Manuel Ekle)'];
   const uniquePublishers = Array.from(new Set([...DEFAULT_PUBLISHERS, ...products.map(p => p.publisher).filter(Boolean)]));
 
   const DEFAULT_BOOKSTORES = ['İşler', 'Beren', 'Başarı', 'Kariyer','Haluk', 'Işık', 'Anadolu', 'Kitapçım', 'Diğer (Manuel Ekle)'];
@@ -199,6 +199,7 @@ export default function ProductsManagement() {
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-white focus:outline-none focus:border-indigo-500"
               >
                 <option value="">Seçiniz / Yok</option>
+                <option value="11. Sınıf">11. Sınıf</option>
                 <option value="TYT">TYT</option>
                 <option value="AYT">AYT</option>
                 <option value="YDT">YDT</option>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
 import { useStudent } from '../../lib/StudentContext';
@@ -8,6 +8,8 @@ import { safeStorage } from '../../lib/localStorage';
 import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
 import { tourService } from '../../services/tourService';
 import { presenceService } from '../../services/presenceService';
+import CoachBookingModal from '../../components/appointments/CoachBookingModal';
+import { notificationService } from '../../services/notificationService';
 import { 
   Users, 
   Search, 
@@ -18,7 +20,14 @@ import {
   MoreVertical,
   MessageCircle,
   UserPlus,
-  Compass
+  Compass,
+  Archive,
+  ArchiveRestore,
+  UserMinus,
+  AlertTriangle,
+  CheckCircle2,
+  X,
+  Loader2
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -53,7 +62,8 @@ export const SAMPLE_DEMO_STUDENT = {
   parentPhone: '05000000000',
   phone: '05000000000',
   photoURL: 'https://images.unsplash.com/photo-1633332755192-727a05c4013d?w=250&auto=format&fit=crop&q=80',
-  isDemo: true
+  isDemo: true,
+  isArchived: false
 };
 
 export default function CoachStudents() {
@@ -63,8 +73,97 @@ export default function CoachStudents() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [isTourOpen, setIsTourOpen] = useState(false);
+  const [openMenuStudentId, setOpenMenuStudentId] = useState<string | null>(null);
+  const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+  const [bookingStudentId, setBookingStudentId] = useState<string | null>(null);
+  const [studentToRemove, setStudentToRemove] = useState<any | null>(null);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('all');
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Close 3-dot menu on outside click
+  useEffect(() => {
+    const handleGlobalClick = () => {
+      setOpenMenuStudentId(null);
+    };
+    if (openMenuStudentId) {
+      window.addEventListener('click', handleGlobalClick);
+      return () => window.removeEventListener('click', handleGlobalClick);
+    }
+  }, [openMenuStudentId]);
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => setToastMessage(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
+
+  const handleToggleArchive = async (student: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpenMenuStudentId(null);
+    const willArchive = !student.isArchived;
+    try {
+      if (!student.isDemo) {
+        await updateDoc(doc(db, 'users', student.uid), {
+          isArchived: willArchive,
+          archivedAt: willArchive ? new Date().toISOString() : null,
+          updatedAt: new Date().toISOString()
+        });
+        notificationService.setCachedArchiveStatus(student.uid, willArchive);
+      }
+      setStudents(prev => prev.map(s => s.uid === student.uid ? { ...s, isArchived: willArchive } : s));
+      setToastMessage(willArchive 
+        ? `${student.displayName} başarıyla arşive atıldı. Bildirimler kapatıldı ve genel değerlendirmede yalnızca çözülen soru sayısı hesaba katılacak.`
+        : `${student.displayName} arşivden çıkarıldı, bildirimler aktif edildi ve öğrenci listenize eklendi.`
+      );
+    } catch (error) {
+      console.error('Error toggling archive:', error);
+      alert('Arşiv işlemi sırasında bir hata oluştu.');
+    }
+  };
+
+  const handleGiveAppointment = (student: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpenMenuStudentId(null);
+    setBookingStudentId(student.uid);
+    setIsBookingModalOpen(true);
+  };
+
+  const handleConfirmRemoveStudent = async () => {
+    if (!studentToRemove) return;
+    setIsRemoving(true);
+    try {
+      if (!studentToRemove.isDemo) {
+        await updateDoc(doc(db, 'users', studentToRemove.uid), {
+          coachId: '',
+          assignedCoachId: '',
+          walletBalance: 0,
+          balance: 0,
+          isArchived: false,
+          updatedAt: new Date().toISOString()
+        });
+        await notificationService.addNotification(studentToRemove.uid, {
+          title: 'Koçluk Durumu ve Bakiye Bildirimi',
+          message: `${userData?.firstName || 'Koçunuz'} ${userData?.lastName || ''} ile koçluk süreciniz sonlandırıldı. Sistem bakiyeniz sıfırlanmıştır. Koçunuza yaptığınız ödemeler ve bakiye durumu için lütfen koçunuzla iletişime geçiniz. Sistem bu durumdan hiçbir şekilde sorumlu değildir.`,
+          type: 'system',
+          link: '/panel/ogrenci',
+          studentId: studentToRemove.uid
+        });
+      }
+      setStudents(prev => prev.filter(s => s.uid !== studentToRemove.uid));
+      setToastMessage(`${studentToRemove.displayName} öğrencilerinizden çıkarıldı.`);
+      setStudentToRemove(null);
+    } catch (error) {
+      console.error('Error removing student:', error);
+      alert('Öğrenci çıkarılırken bir sorun oluştu.');
+    } finally {
+      setIsRemoving(false);
+    }
+  };
 
   // Cache enriched student metadata to avoid dozens of redundant Firestore queries on presence updates
   const enrichmentCacheRef = React.useRef<Map<string, any>>(new Map());
@@ -80,6 +179,7 @@ export default function CoachStudents() {
       const rawStudents = snap.docs.map(doc => ({
         uid: doc.id,
         ...doc.data(),
+        isArchived: !!(doc.data().isArchived || doc.data().archived),
         displayName: doc.data().displayName || (doc.data().firstName || doc.data().lastName ? `${doc.data().firstName || ''} ${doc.data().lastName || ''}`.trim() : 'İsimsiz Öğrenci')
       }));
 
@@ -246,6 +346,7 @@ export default function CoachStudents() {
       const data = snap.docs.map(doc => ({
         uid: doc.id,
         ...doc.data(),
+        isArchived: !!(doc.data().isArchived || doc.data().archived),
         displayName: doc.data().displayName || (doc.data().firstName || doc.data().lastName ? `${doc.data().firstName || ''} ${doc.data().lastName || ''}`.trim() : 'İsimsiz Öğrenci')
       }));
 
@@ -348,9 +449,14 @@ export default function CoachStudents() {
     navigate('/panel/koc/ogrenci', { state: { isDemo: !!student.isDemo } });
   };
 
-  const realFiltered = students.filter(s => 
-    s.displayName.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const realFiltered = students.filter(s => {
+    const matchesSearch = (s.displayName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.email && s.email.toLowerCase().includes(searchTerm.toLowerCase()));
+    if (!matchesSearch) return false;
+    if (statusFilter === 'active') return !s.isArchived;
+    if (statusFilter === 'archived') return !!s.isArchived;
+    return true;
+  });
 
   // Show sample demo student ONLY during active system tour
   const filteredStudents = isTourOpen
@@ -402,9 +508,43 @@ export default function CoachStudents() {
              onChange={(e) => setSearchTerm(e.target.value)}
            />
         </div>
-        <button className="bg-slate-900/40 border border-white/5 hover:bg-white/5 px-6 rounded-2xl flex items-center gap-2 text-slate-400 font-bold transition-all">
-           <Filter size={18} /> Filtrele
-        </button>
+
+        {/* Status Filter Tabs */}
+        <div className="flex items-center bg-slate-900/40 border border-white/5 p-1 rounded-2xl shrink-0">
+          <button
+            type="button"
+            onClick={() => setStatusFilter('all')}
+            className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              statusFilter === 'all' 
+                ? 'bg-white/10 text-white shadow-sm' 
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Tümü ({students.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('active')}
+            className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              statusFilter === 'active' 
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm' 
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Aktif ({students.filter(s => !s.isArchived).length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('archived')}
+            className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              statusFilter === 'archived' 
+                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm' 
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Arşiv ({students.filter(s => s.isArchived).length})
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -425,10 +565,74 @@ export default function CoachStudents() {
               onClick={() => handleStudentClick(student)}
               className="bg-slate-900/40 border border-white/5 rounded-3xl p-6 hover:bg-emerald-600/5 hover:border-emerald-500/20 transition-all cursor-pointer group relative overflow-hidden"
             >
-              <div className="absolute top-0 right-0 p-4">
-                 <button className="p-2 text-slate-600 hover:text-white transition-colors">
+              <div className="absolute top-0 right-0 p-4 z-20" onClick={(e) => e.stopPropagation()}>
+                 <button 
+                   type="button"
+                   onClick={(e) => {
+                     e.stopPropagation();
+                     setOpenMenuStudentId(openMenuStudentId === student.uid ? null : student.uid);
+                   }}
+                   className={`p-2 rounded-xl transition-all ${
+                     openMenuStudentId === student.uid 
+                       ? 'bg-white/15 text-white shadow-lg' 
+                       : 'text-slate-500 hover:text-white hover:bg-white/5'
+                   }`}
+                   title="İşlemler"
+                 >
                     <MoreVertical size={20} />
                  </button>
+
+                 {openMenuStudentId === student.uid && (
+                   <div 
+                     className="absolute right-4 top-14 w-56 bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl p-1.5 shadow-2xl shadow-black/80 z-50 animate-in fade-in zoom-in-95 duration-150"
+                     onClick={(e) => e.stopPropagation()}
+                   >
+                     {/* Öğrenciye Randevu Ver */}
+                     <button
+                       type="button"
+                       onClick={(e) => handleGiveAppointment(student, e)}
+                       className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-bold text-slate-200 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-colors text-left"
+                     >
+                       <Calendar size={15} className="text-emerald-400 shrink-0" />
+                       <span>Öğrenciye Randevu Ver</span>
+                     </button>
+
+                     {/* Arşive At / Arşivden Çıkar */}
+                     <button
+                       type="button"
+                       onClick={(e) => handleToggleArchive(student, e)}
+                       className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-bold text-slate-200 hover:text-amber-400 hover:bg-amber-500/10 rounded-xl transition-colors text-left"
+                     >
+                       {student.isArchived ? (
+                         <>
+                           <ArchiveRestore size={15} className="text-amber-400 shrink-0" />
+                           <span>Arşivden Çıkar</span>
+                         </>
+                       ) : (
+                         <>
+                           <Archive size={15} className="text-amber-400 shrink-0" />
+                           <span>Arşive At</span>
+                         </>
+                       )}
+                     </button>
+
+                     <div className="h-px bg-white/5 my-1" />
+
+                     {/* Öğrencilerimden Çıkar */}
+                     <button
+                       type="button"
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         setOpenMenuStudentId(null);
+                         setStudentToRemove(student);
+                       }}
+                       className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-bold text-red-400 hover:bg-red-500/10 rounded-xl transition-colors text-left"
+                     >
+                       <UserMinus size={15} className="text-red-400 shrink-0" />
+                       <span>Öğrencilerimden Çıkar</span>
+                     </button>
+                   </div>
+                 )}
               </div>
 
               <div className="flex items-center gap-4 mb-6">
@@ -446,9 +650,17 @@ export default function CoachStudents() {
                     <div className="flex items-center justify-between gap-2">
                        <h3 className="text-lg font-bold text-white group-hover:text-emerald-400 transition-colors leading-tight truncate">{student.displayName}</h3>
                     </div>
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">
-                      {student.branch || 'Alan Yok'} • {student.grade || 'Sınıf Yok'}
-                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest truncate">
+                        {student.branch || 'Alan Yok'} • {student.grade || 'Sınıf Yok'}
+                      </p>
+                      {student.isArchived && (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full shrink-0 tracking-wider">
+                          <Archive size={10} />
+                          Arşivde
+                        </span>
+                      )}
+                    </div>
                     <div className="mt-1.5 flex items-center gap-1.5">
                        {presenceService.isOnline(student) ? (
                           <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
@@ -517,6 +729,75 @@ export default function CoachStudents() {
                 <p className="text-slate-500 font-medium italic">Öğrenci bulunamadı.</p>
              </div>
           )}
+        </div>
+      )}
+
+      {/* Student Removal Confirmation Modal */}
+      {studentToRemove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200" onClick={() => !isRemoving && setStudentToRemove(null)}>
+          <div 
+            className="bg-slate-900 border border-white/10 w-full max-w-md rounded-3xl p-6 shadow-2xl space-y-6 relative overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 shrink-0">
+                <UserMinus size={24} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Öğrencilerimden Çıkar</h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  <strong className="text-white">{studentToRemove.displayName}</strong> adlı öğrenciyi öğrencilerinizden çıkarmak istediğinize emin misiniz? Koç ataması kaldırılacaktır.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isRemoving}
+                onClick={() => setStudentToRemove(null)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={isRemoving}
+                onClick={handleConfirmRemoveStudent}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-500 shadow-lg shadow-red-600/30 transition-all flex items-center gap-2 disabled:opacity-50"
+              >
+                {isRemoving && <Loader2 size={14} className="animate-spin" />}
+                <span>Öğrencilerimden Çıkar</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Booking Modal */}
+      <CoachBookingModal
+        isOpen={isBookingModalOpen}
+        onClose={() => {
+          setIsBookingModalOpen(false);
+          setBookingStudentId(null);
+        }}
+        initialStudentId={bookingStudentId || undefined}
+        onSuccess={() => {
+          setToastMessage('Randevu başarıyla oluşturuldu.');
+        }}
+      />
+
+      {/* Toast notification message */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-slate-900 border border-emerald-500/30 text-white px-4 py-3 rounded-2xl shadow-2xl shadow-black/80 animate-in slide-in-from-bottom-3 duration-300">
+          <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+          <span className="text-xs font-medium text-slate-200">{toastMessage}</span>
+          <button
+            onClick={() => setToastMessage(null)}
+            className="text-slate-500 hover:text-white transition-colors ml-2 p-1"
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
     </div>

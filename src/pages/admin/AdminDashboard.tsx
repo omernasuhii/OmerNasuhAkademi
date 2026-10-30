@@ -45,6 +45,7 @@ import {
 } from 'recharts';
 import { collection, query, where, getDocs, orderBy, limit, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import { referralService } from '../../services/referralService';
 import { NotificationPrompt } from '../../components/NotificationPrompt';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -377,6 +378,7 @@ export default function AdminDashboard() {
         approved: true,
         approvedAt: serverTimestamp()
       });
+      await referralService.grantCoachWelcomeGift(coachId, 1500);
       // Refresh list
       await fetchStats(true);
     } catch (err) {

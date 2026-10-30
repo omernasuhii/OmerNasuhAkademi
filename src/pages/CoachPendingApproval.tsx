@@ -50,6 +50,31 @@ export default function CoachPendingApproval() {
         </button>
       </div>
 
+      {/* 1500 TL Hoş Geldin Hediyesi Bilgilendirme Kartı */}
+      {!isRejected && (
+        <div className="w-full max-w-lg bg-gradient-to-br from-emerald-500/15 via-teal-500/10 to-slate-900 border border-emerald-500/30 rounded-3xl p-6 shadow-xl space-y-3 text-left relative overflow-hidden">
+          <div className="flex items-center gap-3.5 border-b border-emerald-500/20 pb-3">
+            <div className="w-11 h-11 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-300 shrink-0">
+              <Gift size={22} />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-emerald-300 flex items-center gap-2">
+                  1.500 TL Hoş Geldin Hediyeniz Tanımlandı
+                </h3>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-black bg-emerald-400 text-slate-950 shadow-sm">
+                  ₺1.500
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">FocusOn Akademi koçlarına özel başlangıç desteği</p>
+            </div>
+          </div>
+          <p className="text-xs text-slate-300 leading-relaxed">
+            FocusOn Akademi ailesine katıldığınız için teşekkür ederiz! <strong className="text-white">₺1.500 tutarındaki sistem başlangıç hediyeniz</strong> hesabınıza tanımlandı. Yöneticilerimiz başvurunuzu onayladığında cüzdanınızda hazır olacak ve koçluk faaliyetlerinizde doğrudan kullanabileceksiniz.
+          </p>
+        </div>
+      )}
+
       {/* Sadece davet kodu başarıyla tanımlandıysa gösterilen avantaj bilgilendirme alanı */}
       {usedReferralCode && (
         <div className="w-full max-w-lg bg-emerald-500/10 backdrop-blur-xl border border-emerald-500/30 rounded-3xl p-6 shadow-xl space-y-3 text-left">

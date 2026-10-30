@@ -44,6 +44,8 @@ export default function AdminSubscriptions() {
 
   const getActionColor = (action: string) => {
     switch (action) {
+      case 'trial_started': return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+      case 'trial_ended': return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
       case 'started': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
       case 'renewed': return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
       case 'upgraded': return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20';
@@ -55,6 +57,8 @@ export default function AdminSubscriptions() {
 
   const getActionText = (action: string) => {
     switch (action) {
+      case 'trial_started': return '7 Günlük Deneme Başladı';
+      case 'trial_ended': return 'Deneme Tamamlandı';
       case 'started': return 'Başladı';
       case 'renewed': return 'Yenilendi';
       case 'upgraded': return 'Yükseltildi / Geçiş Yaptı';
@@ -143,7 +147,14 @@ export default function AdminSubscriptions() {
                   </div>
 
                   <div className="bg-black/40 border border-white/5 rounded-2xl p-4 mb-4">
-                    <div className="text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Paket</div>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-xs font-black text-slate-500 uppercase tracking-widest">Paket</div>
+                      {student.isTrial && (
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                          7 Günlük Deneme
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xl font-bold text-blue-400">{student.subscriptionPlan}</div>
                   </div>
 
@@ -162,7 +173,7 @@ export default function AdminSubscriptions() {
                     
                     <div className="flex justify-between text-xs text-slate-500">
                       <span>Bitiş: {new Date(student.subscriptionEndDate).toLocaleDateString('tr-TR')}</span>
-                      <span>Oto {student.autoRenew ? 'Açık' : 'Kapalı'}</span>
+                      <span>Oto {student.autoRenew !== false ? 'Açık' : 'Kapalı'}</span>
                     </div>
                   </div>
                 </div>

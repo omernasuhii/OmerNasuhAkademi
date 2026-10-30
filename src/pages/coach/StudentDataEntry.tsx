@@ -9,6 +9,7 @@ import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
 import { 
   ClipboardCheck, 
   BookOpen, 
+  Book,
   Trophy, 
   Save,
   Plus,
@@ -26,16 +27,21 @@ import {
   ExternalLink,
   Layers,
   ChevronRight,
-  Camera
+  Camera,
+  BookmarkCheck,
+  Check,
+  Target
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 import { BRANCH_CONFIG } from '../../constants/branchConfig';
 import { getYoutubeChannelsForSubject } from '../../constants/youtubeChannels';
 import { formatSubjectName } from './StudentProgram';
+import { calculateBookProgress as calculateBookProgressUtil, getSafePercentage, getCurriculumTopicsForBook } from '../../utils/bookProgress';
 import { SAMPLE_DEMO_STUDENT } from './CoachStudents';
 import NoStudentSelected from '../../components/NoStudentSelected';
 import { BarcodeScannerModal } from '../../components/BarcodeScannerModal';
+import DenemeResultModal from '../../components/DenemeResultModal';
 
 export default function StudentDataEntry() {
   const { user, userData } = useAuth();
@@ -47,6 +53,8 @@ export default function StudentDataEntry() {
   const [expandedBook, setExpandedBook] = useState<string | null>(null);
   const [expandedSubtopics, setExpandedSubtopics] = useState<Record<string, boolean>>({});
   const [isTourOpen, setIsTourOpen] = useState(false);
+  const [showCoachDenemeModal, setShowCoachDenemeModal] = useState(false);
+  const [coachDenemeData, setCoachDenemeData] = useState<any>(null);
 
   useEffect(() => {
     if (tourService.shouldAutoStartTour('student_data_entry', userData, location.state?.startTour)) {
@@ -89,7 +97,30 @@ export default function StudentDataEntry() {
   // Book Tracking State
   const [books, setBooks] = useState<any[]>([]);
   const [globalBooks, setGlobalBooks] = useState<any[]>([]);
-  const [newBook, setNewBook] = useState({ resourceType: 'soru', type: 'TYT', subject: 'Türkçe', name: '', globalBookId: '', isbn: '' });
+  const [newBook, setNewBook] = useState<{
+    resourceType: string;
+    type: string;
+    subject: string;
+    name: string;
+    globalBookId: string;
+    isbn: string;
+    coveredTopics: string[];
+    totalExamCount?: number;
+    initialPastSolvedCount?: number;
+    denemeCategory?: 'branch' | 'general';
+  }>({
+    resourceType: 'soru',
+    type: 'TYT',
+    subject: 'Türkçe',
+    name: '',
+    globalBookId: '',
+    isbn: '',
+    coveredTopics: [],
+    totalExamCount: 10,
+    initialPastSolvedCount: 0,
+    denemeCategory: 'branch'
+  });
+  const [customFasikulTopic, setCustomFasikulTopic] = useState('');
   const [isManualEntry, setIsManualEntry] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [bookSearchTerm, setBookSearchTerm] = useState('');
@@ -115,12 +146,14 @@ export default function StudentDataEntry() {
     return Array.from(new Set([...staticChannels, ...dynamicChannels])).filter(Boolean);
   };
 
-  const mergeBookData = (trackerList: any[], globalList: any[]) => {
-    return trackerList.map((tb: any) => {
+  const mergeBookData = (trackerList: any[] = [], globalList: any[] = []) => {
+    const safeTracker = Array.isArray(trackerList) ? trackerList : [];
+    const safeGlobal = Array.isArray(globalList) ? globalList : [];
+    return safeTracker.map((tb: any) => {
       let extraInfo: any = {};
       const tbIsbnNorm = normalizeIsbn(tb.isbn);
 
-      const gb = globalList.find((g: any) => {
+      const gb = safeGlobal.find((g: any) => {
         if (tb.globalBookId && g.id === tb.globalBookId) return true;
         if (tbIsbnNorm && g.isbn && normalizeIsbn(g.isbn) === tbIsbnNorm) return true;
         if ((g.name || '').trim().toLowerCase() === (tb.bookName || '').trim().toLowerCase() && (g.subject || '').trim().toLowerCase() === (tb.subject || '').trim().toLowerCase()) return true;
@@ -133,27 +166,32 @@ export default function StudentDataEntry() {
 
       if (gb) {
         extraInfo = {
-          videos: (tb.videos && tb.videos.length > 0) ? tb.videos : (gb.videos || []),
+          videos: (Array.isArray(tb.videos) && tb.videos.length > 0) ? tb.videos : (Array.isArray(gb.videos) ? gb.videos : []),
           channelTitle: gb.channelTitle || tb.channelTitle || '',
-          totalVideos: gb.totalVideos || (gb.videos?.length || 0) || tb.totalVideos || 0,
+          totalVideos: gb.totalVideos || (Array.isArray(gb.videos) ? gb.videos.length : 0) || tb.totalVideos || 0,
           totalDurationFormatted: gb.totalDurationFormatted || tb.totalDurationFormatted || '',
           totalDurationMinutes: gb.totalDurationMinutes || tb.totalDurationMinutes || 0,
           topicQuestionCounts: (gb as any).topicQuestionCounts || tb.topicQuestionCounts || {},
           resourceType: tb.resourceType || gb.resourceType || 'soru',
           type: tb.type || gb.type || 'TYT',
+          coveredTopics: (Array.isArray(tb.coveredTopics) && tb.coveredTopics.length > 0)
+            ? tb.coveredTopics
+            : (Array.isArray(gb.coveredTopics) ? gb.coveredTopics : []),
+          ...(gb.totalExamCount || tb.totalExamCount ? { totalExamCount: gb.totalExamCount || tb.totalExamCount } : ((tb.resourceType || gb.resourceType) === 'deneme' ? { totalExamCount: 10 } : {}))
         };
       }
       return {
         ...tb,
         resourceType: tb.resourceType || extraInfo.resourceType || 'soru',
+        ...(tb.totalExamCount || extraInfo.totalExamCount ? { totalExamCount: tb.totalExamCount || extraInfo.totalExamCount } : (tb.resourceType === 'deneme' ? { totalExamCount: 10 } : {})),
         ...extraInfo
       };
     });
   };
 
   const getBookItems = (book: any) => {
-    if (book.resourceType === 'youtube' || (book.videos && book.videos.length > 0)) {
-      const vids = book.videos || [];
+    if (book.resourceType === 'youtube' || (Array.isArray(book.videos) && book.videos.length > 0)) {
+      const vids = Array.isArray(book.videos) ? book.videos : [];
       if (vids.length > 0) {
         return vids.map((v: any, idx: number) => ({
           id: v.videoId || `vid-${idx}`,
@@ -165,7 +203,7 @@ export default function StudentDataEntry() {
         }));
       }
     }
-    const curriculumTopics = CURRICULUM[book.subject as keyof typeof CURRICULUM] || [];
+    const curriculumTopics = getCurriculumTopicsForBook(book, CURRICULUM) || [];
     return curriculumTopics.map((topic: string, idx: number) => ({
       id: `topic-${idx}`,
       title: topic,
@@ -203,14 +241,27 @@ export default function StudentDataEntry() {
         ]).then(([trackingData, globalsData]) => {
           setGlobalBooks(globalsData);
           const merged = mergeBookData(trackingData, globalsData);
-          setBooks(merged);
-          if (merged && merged.length > 0) {
-            setExpandedBook(merged[0].id);
+          const normalized = merged.map((b: any) => {
+            const safePct = calculateBookProgressUtil(b, b.completedTopics || [], CURRICULUM, SUBTOPICS_MAP);
+            if ((b.completionPercentage || 0) > 100 || (b.completionPercentage || 0) !== safePct) {
+              studentDataService.updateBookProgress(b.id, {
+                ...b,
+                completionPercentage: safePct
+              }).catch(console.error);
+            }
+            return {
+              ...b,
+              completionPercentage: safePct
+            };
+          });
+          setBooks(normalized);
+          if (normalized && normalized.length > 0) {
+            setExpandedBook(normalized[0].id);
           }
         });
       }
     }
-  }, [selectedStudent]);
+  }, [selectedStudent, CURRICULUM, SUBTOPICS_MAP]);
 
   const ALL_AYT_SUBJECTS = ['AYT Matematik', 'AYT Fizik', 'AYT Kimya', 'AYT Biyoloji', 'Edebiyat', 'AYT Tarih', 'AYT Coğrafya', 'AYT Felsefe', 'AYT Din', 'Yabancı Dil'];
 
@@ -243,35 +294,7 @@ export default function StudentDataEntry() {
   }, [newBook.type, subjectOptions]);
 
   const calculateBookProgress = (book: any, completedTopics: string[]) => {
-    const isYoutube = book.resourceType === 'youtube' || (book.videos && book.videos.length > 0);
-    if (isYoutube) {
-      const vids = getBookItems(book);
-      if (vids.length === 0) return 0;
-      const doneCount = vids.filter((v: any) => completedTopics.includes(v.title)).length;
-      return Math.min(100, Math.round((doneCount / vids.length) * 100));
-    }
-
-    const curriculumTopics = CURRICULUM[book.subject as keyof typeof CURRICULUM] || [];
-    if (curriculumTopics.length === 0) return 0;
-
-    let totalWeight = 0;
-    curriculumTopics.forEach((topic: string) => {
-      const subs = SUBTOPICS_MAP?.[topic] || [];
-      if (subs.length > 0) {
-        const doneSubs = subs.filter(s => completedTopics.includes(s)).length;
-        if (completedTopics.includes(topic) || doneSubs === subs.length) {
-          totalWeight += 1;
-        } else {
-          totalWeight += doneSubs / subs.length;
-        }
-      } else {
-        if (completedTopics.includes(topic)) {
-          totalWeight += 1;
-        }
-      }
-    });
-
-    return Math.min(100, Math.round((totalWeight / curriculumTopics.length) * 100));
+    return calculateBookProgressUtil(book, completedTopics, CURRICULUM, SUBTOPICS_MAP);
   };
 
   const toggleTopic = async (book: any, topic: string) => {
@@ -367,12 +390,45 @@ export default function StudentDataEntry() {
   };
 
   const toggleAllSubtopicsExpand = (book: any, expand: boolean) => {
-    const curriculumTopics = CURRICULUM[book.subject as keyof typeof CURRICULUM] || [];
+    const curriculumTopics = getCurriculumTopicsForBook(book, CURRICULUM) || [];
     const updates: Record<string, boolean> = {};
     curriculumTopics.forEach((t: string) => {
       updates[`${book.id}-${t}`] = expand;
     });
     setExpandedSubtopics(prev => ({ ...prev, ...updates }));
+  };
+
+  const handleBatchMarkPastDenemeler = async (book: any, count: number) => {
+    if (selectedStudent?.isDemo) return;
+    const total = Number(book.totalExamCount) || 10;
+    const safeCount = Math.min(Math.max(0, count), total);
+    const newCompleted: string[] = [];
+    for (let i = 1; i <= safeCount; i++) {
+      newCompleted.push(`Deneme ${i}`);
+    }
+    const percentage = Math.round((safeCount / total) * 100);
+    const updatedBook = {
+      ...book,
+      completedTopics: newCompleted,
+      completionPercentage: percentage
+    };
+    await studentDataService.updateBookProgress(book.id, updatedBook);
+    setBooks(prev => prev.map(b => b.id === book.id ? updatedBook : b));
+  };
+
+  const handleOpenCoachDenemeModal = (book: any, topicName: string) => {
+    setCoachDenemeData({
+      studentUid: selectedStudent?.uid,
+      studentName: selectedStudent?.displayName || selectedStudent?.firstName || '',
+      bookId: book.id,
+      bookName: book.bookName,
+      denemeTopic: topicName,
+      subject: book.subject,
+      branch: book.type || 'TYT',
+      examType: book.type || 'TYT',
+      date: new Date().toISOString().split('T')[0]
+    });
+    setShowCoachDenemeModal(true);
   };
 
   const liveMatchedBook = React.useMemo(() => {
@@ -499,7 +555,10 @@ export default function StudentDataEntry() {
         finalResourceType = existingGlobal.resourceType || 'soru';
         finalIsbn = existingGlobal.isbn || finalIsbn;
         extraBookData = {
-          topicQuestionCounts: existingGlobal.topicQuestionCounts || {}
+          topicQuestionCounts: existingGlobal.topicQuestionCounts || {},
+          coveredTopics: existingGlobal.coveredTopics || [],
+          ...(existingGlobal.totalExamCount ? { totalExamCount: existingGlobal.totalExamCount } : {}),
+          ...(existingGlobal.denemeCategory ? { denemeCategory: existingGlobal.denemeCategory } : {})
         };
       } else {
         if (!isManualEntry) {
@@ -516,14 +575,39 @@ export default function StudentDataEntry() {
         finalType = newBook.type;
         finalResourceType = newBook.resourceType || 'soru';
 
-        globalId = await studentDataService.saveGlobalBook({
+        const fasikulTopics = finalResourceType === 'fasikul' ? (newBook.coveredTopics || []) : [];
+        const denemeTotalCount = finalResourceType === 'deneme' ? (Number(newBook.totalExamCount) || 10) : undefined;
+        const denemeCat = finalResourceType === 'deneme' ? (newBook.denemeCategory || 'branch') : undefined;
+
+        if (finalResourceType === 'deneme' && denemeCat === 'general') {
+          finalSubject = 'Genel Deneme';
+        }
+
+        const globalBookPayload: any = {
           name: finalBookName,
           subject: finalSubject,
           type: finalType,
           resourceType: finalResourceType,
           isbn: finalIsbn,
-          topicQuestionCounts: {}
-        });
+          topicQuestionCounts: {},
+          coveredTopics: fasikulTopics
+        };
+
+        if (finalResourceType === 'deneme') {
+          globalBookPayload.totalExamCount = denemeTotalCount || 10;
+          globalBookPayload.denemeCategory = denemeCat || 'branch';
+        }
+
+        globalId = await studentDataService.saveGlobalBook(globalBookPayload);
+
+        extraBookData = {
+          ...extraBookData,
+          coveredTopics: fasikulTopics,
+          ...(finalResourceType === 'deneme' ? {
+            totalExamCount: denemeTotalCount || 10,
+            denemeCategory: denemeCat || 'branch'
+          } : {})
+        };
       }
     }
 
@@ -558,7 +642,8 @@ export default function StudentDataEntry() {
       setSubjectFilter('Hepsi');
       setExpandedBook(alreadyTracked.id);
       alert(`Bu kaynak ("${alreadyTracked.bookName || finalBookName}") zaten öğrencinin listesinde kayıtlı. İlgili sekmeye yönlendirildiniz.`);
-      setNewBook({ resourceType: newBook.resourceType, type: newBook.type, subject: newBook.subject, name: '', globalBookId: '', isbn: '' });
+      setNewBook({ resourceType: newBook.resourceType, type: newBook.type, subject: newBook.subject, name: '', globalBookId: '', isbn: '', coveredTopics: [], totalExamCount: 10, initialPastSolvedCount: 0 });
+      setCustomFasikulTopic('');
       setIsManualEntry(false);
       return;
     }
@@ -568,6 +653,18 @@ export default function StudentDataEntry() {
     const maxOrder = existingBooksInTab.reduce((max, b) => Math.max(max, b.order || 0), -1);
     const newOrder = maxOrder + 1;
 
+    // Initial completion setup for deneme if coach marked past solved denemes
+    let initialCompletedTopics: string[] = [];
+    let initialCompletionPercentage = 0;
+    if (finalResourceType === 'deneme') {
+      const totalCount = extraBookData.totalExamCount || newBook.totalExamCount || 10;
+      const pastCount = Math.min(totalCount, Math.max(0, newBook.initialPastSolvedCount || 0));
+      for (let i = 1; i <= pastCount; i++) {
+        initialCompletedTopics.push(`Deneme ${i}`);
+      }
+      initialCompletionPercentage = Math.round((initialCompletedTopics.length / totalCount) * 100);
+    }
+
     const newTrackId = await studentDataService.updateBookProgress(null, {
       studentId: selectedStudent!.uid,
       subject: finalSubject,
@@ -576,13 +673,14 @@ export default function StudentDataEntry() {
       globalBookId: globalId,
       resourceType: finalResourceType,
       isbn: finalIsbn,
-      completedTopics: [],
-      completionPercentage: 0,
+      completedTopics: initialCompletedTopics,
+      completionPercentage: initialCompletionPercentage,
       order: newOrder,
       ...extraBookData
     });
 
-    setNewBook({ resourceType: newBook.resourceType, type: newBook.type, subject: newBook.subject, name: '', globalBookId: '', isbn: '' });
+    setNewBook({ resourceType: newBook.resourceType, type: newBook.type, subject: newBook.subject, name: '', globalBookId: '', isbn: '', coveredTopics: [], totalExamCount: 10, initialPastSolvedCount: 0 });
+    setCustomFasikulTopic('');
     setIsManualEntry(false);
     setBookSearchTerm('');
     setCustomYoutubeChannel('');
@@ -699,17 +797,31 @@ export default function StudentDataEntry() {
         <div id="tour-data-entry-header" className="bg-white/5 border border-white/5 rounded-3xl p-8">
            <h3 className="text-lg font-bold mb-6 italic uppercase tracking-tighter">Yeni Kaynak Ekle</h3>
            
-           <div className="mb-6 flex gap-4">
+           <div className="mb-6 flex flex-wrap gap-4">
               <label className="flex items-center gap-2 cursor-pointer">
-                 <input type="radio" name="rType" value="soru" checked={newBook.resourceType === 'soru'} onChange={() => { setNewBook({...newBook, resourceType: 'soru', globalBookId: '', name: ''}); setIsManualEntry(false); }} className="text-indigo-500" />
+                 <input type="radio" name="rType" value="soru" checked={newBook.resourceType === 'soru'} onChange={() => { setNewBook({...newBook, resourceType: 'soru', globalBookId: '', name: '', coveredTopics: []}); setIsManualEntry(false); }} className="text-indigo-500" />
                  <span className="text-sm text-slate-300">Soru Bankası</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
-                 <input type="radio" name="rType" value="konu" checked={newBook.resourceType === 'konu'} onChange={() => { setNewBook({...newBook, resourceType: 'konu', globalBookId: '', name: ''}); setIsManualEntry(false); }} className="text-indigo-500" />
-                 <span className="text-sm text-slate-300">Konu Çalışması / Fasikül</span>
+                 <input type="radio" name="rType" value="fasikul" checked={newBook.resourceType === 'fasikul'} onChange={() => { setNewBook({...newBook, resourceType: 'fasikul', globalBookId: '', name: ''}); setIsManualEntry(false); }} className="text-purple-500" />
+                 <span className="text-sm text-purple-300 font-semibold flex items-center gap-1.5">
+                   <BookmarkCheck size={15} className="text-purple-400" />
+                   Soru Fasikülü
+                 </span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
-                 <input type="radio" name="rType" value="youtube" checked={newBook.resourceType === 'youtube'} onChange={() => { setNewBook({...newBook, resourceType: 'youtube', globalBookId: '', name: ''}); setIsManualEntry(false); }} className="text-indigo-500" />
+                 <input type="radio" name="rType" value="konu" checked={newBook.resourceType === 'konu'} onChange={() => { setNewBook({...newBook, resourceType: 'konu', globalBookId: '', name: '', coveredTopics: []}); setIsManualEntry(false); }} className="text-indigo-500" />
+                 <span className="text-sm text-slate-300">Konu Anlatımı</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                 <input type="radio" name="rType" value="deneme" checked={newBook.resourceType === 'deneme'} onChange={() => { setNewBook({...newBook, resourceType: 'deneme', globalBookId: '', name: '', coveredTopics: []}); setIsManualEntry(false); }} className="text-rose-500" />
+                 <span className="text-sm text-rose-300 font-semibold flex items-center gap-1.5">
+                   <Target size={15} className="text-rose-400" />
+                   Deneme Sınavı
+                 </span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                 <input type="radio" name="rType" value="youtube" checked={newBook.resourceType === 'youtube'} onChange={() => { setNewBook({...newBook, resourceType: 'youtube', globalBookId: '', name: '', coveredTopics: []}); setIsManualEntry(false); }} className="text-indigo-500" />
                  <span className="text-sm text-slate-300">YouTube Kanalı / Video</span>
               </label>
            </div>
@@ -818,8 +930,22 @@ export default function StudentDataEntry() {
                                 <div>
                                   <span className="font-bold text-white block text-sm">{liveMatchedBook.name}</span>
                                   <span className="text-[11px] text-emerald-300">
-                                    {liveMatchedBook.subject} • {liveMatchedBook.type} • {liveMatchedBook.resourceType === 'konu' ? 'Konu Anlatımı / Fasikül' : 'Soru Bankası'}
+                                    {liveMatchedBook.subject} • {liveMatchedBook.type} • {
+                                      liveMatchedBook.resourceType === 'fasikul' 
+                                        ? 'Soru Fasikülü' 
+                                        : liveMatchedBook.resourceType === 'deneme'
+                                          ? 'Deneme Sınavı'
+                                          : liveMatchedBook.resourceType === 'konu' 
+                                            ? 'Konu Anlatımı' 
+                                            : 'Soru Bankası'
+                                    }
                                   </span>
+                                  {liveMatchedBook.resourceType === 'fasikul' && Array.isArray(liveMatchedBook.coveredTopics) && liveMatchedBook.coveredTopics.length > 0 && (
+                                    <div className="text-[11px] text-purple-300 mt-1 flex items-center gap-1.5 font-medium">
+                                      <BookmarkCheck size={13} className="text-purple-400 shrink-0" />
+                                      <span>Kapsam: {liveMatchedBook.coveredTopics.join(', ')}</span>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                               <span className="text-[10px] uppercase font-black bg-emerald-500/20 px-2.5 py-1 rounded-lg">Veritabanında Kayıtlı</span>
@@ -873,11 +999,20 @@ export default function StudentDataEntry() {
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Materyal Tipi</label>
                             <select 
                               value={newBook.resourceType || 'soru'}
-                              onChange={(e) => setNewBook({...newBook, resourceType: e.target.value as any})}
+                              onChange={(e) => {
+                                const rt = e.target.value;
+                                setNewBook({
+                                  ...newBook, 
+                                  resourceType: rt as any,
+                                  subject: (rt === 'deneme' && newBook.denemeCategory === 'general') ? 'Genel Deneme' : (newBook.subject === 'Genel Deneme' ? subjectOptions[0] || 'Türkçe' : newBook.subject)
+                                });
+                              }}
                               className="w-full bg-slate-800 border border-white/10 rounded-xl py-2.5 px-3 text-xs text-white outline-none focus:border-amber-500/50"
                             >
                               <option value="soru">Soru Bankası</option>
-                              <option value="konu">Konu Çalışması / Fasikül</option>
+                              <option value="fasikul">Soru Fasikülü</option>
+                              <option value="deneme">Deneme Sınavı</option>
+                              <option value="konu">Konu Anlatımı</option>
                             </select>
                           </div>
                           <div className="space-y-1.5">
@@ -895,22 +1030,31 @@ export default function StudentDataEntry() {
                             </select>
                           </div>
                           <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ders</label>
-                            <select 
-                              value={newBook.subject}
-                              onChange={(e) => setNewBook({...newBook, subject: e.target.value})}
-                              className="w-full bg-slate-800 border border-white/10 rounded-xl py-2.5 px-3 text-xs text-white outline-none focus:border-amber-500/50"
-                            >
-                              {subjectOptions.map((s: string) => (
-                                <option key={s} value={s}>{formatSubjectName(s, newBook.type)}</option>
-                              ))}
-                            </select>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                              {newBook.resourceType === 'deneme' && newBook.denemeCategory === 'general' ? 'Kapsam' : 'Ders'}
+                            </label>
+                            {newBook.resourceType === 'deneme' && newBook.denemeCategory === 'general' ? (
+                              <div className="w-full bg-slate-800/80 border border-white/10 rounded-xl py-2.5 px-3 text-xs text-rose-300 font-bold flex items-center gap-1.5">
+                                <Target size={13} className="text-rose-400" />
+                                <span>Tüm Branşlar (Genel Deneme)</span>
+                              </div>
+                            ) : (
+                              <select 
+                                value={newBook.subject}
+                                onChange={(e) => setNewBook({...newBook, subject: e.target.value})}
+                                className="w-full bg-slate-800 border border-white/10 rounded-xl py-2.5 px-3 text-xs text-white outline-none focus:border-amber-500/50"
+                              >
+                                {subjectOptions.map((s: string) => (
+                                  <option key={s} value={s}>{formatSubjectName(s, newBook.type)}</option>
+                                ))}
+                              </select>
+                            )}
                           </div>
                           <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Kaynak / Kitap Adı</label>
                             <input 
                               type="text"
-                              placeholder="Örn: 3D TYT Matematik Soru Bankası"
+                              placeholder={newBook.resourceType === 'deneme' ? 'Örn: 3D TYT Matematik 10\'lu Deneme' : 'Örn: Apotemi Trigonometri Fasikülü'}
                               value={newBook.name}
                               onChange={(e) => setNewBook({...newBook, name: e.target.value})}
                               onKeyDown={e => {
@@ -921,6 +1065,263 @@ export default function StudentDataEntry() {
                             />
                           </div>
                         </div>
+
+                        {/* Fasikül Scope Selection in Manual Entry */}
+                        {newBook.resourceType === 'fasikul' && (
+                          <div className="bg-purple-950/40 border border-purple-500/30 p-4 rounded-xl space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <BookmarkCheck size={16} className="text-purple-400" />
+                                <span className="text-xs font-black text-purple-200 uppercase tracking-wider">
+                                  Fasikül Kapsamı ({newBook.coveredTopics.length} Konu Seçili)
+                                </span>
+                              </div>
+                              {newBook.coveredTopics.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setNewBook({ ...newBook, coveredTopics: [] })}
+                                  className="text-[11px] text-purple-400 hover:text-purple-300 underline font-medium"
+                                >
+                                  Temizle
+                                </button>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-purple-300/80">
+                              Bu fasikülde yer alan konu(ları) seçiniz. Bu barkod sisteme kaydedildiğinde diğer tüm koçlar için de bu kapsam otomatik olarak geçerli olacaktır.
+                            </p>
+
+                            {/* Selected Topics Badges */}
+                            {newBook.coveredTopics.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 p-2 bg-black/40 rounded-lg border border-purple-500/20">
+                                {newBook.coveredTopics.map((topic, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="inline-flex items-center gap-1.5 bg-purple-600/30 border border-purple-500/40 text-purple-200 text-xs px-2.5 py-1 rounded-lg font-medium"
+                                  >
+                                    <Check size={12} className="text-purple-400" />
+                                    <span>{topic}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setNewBook({
+                                        ...newBook,
+                                        coveredTopics: newBook.coveredTopics.filter(t => t !== topic)
+                                      })}
+                                      className="text-purple-300 hover:text-white ml-0.5"
+                                    >
+                                      ✕
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Curriculum Topics */}
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                                {newBook.subject} ({newBook.type}) Müfredatından Konu Seçin:
+                              </label>
+                              <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-2 bg-black/20 rounded-lg border border-white/5">
+                                {getCurriculumTopicsForBook({ subject: newBook.subject, type: newBook.type }, CURRICULUM).map((top: string) => {
+                                  const isSelected = newBook.coveredTopics.includes(top);
+                                  return (
+                                    <button
+                                      key={top}
+                                      type="button"
+                                      onClick={() => {
+                                        if (isSelected) {
+                                          setNewBook({
+                                            ...newBook,
+                                            coveredTopics: newBook.coveredTopics.filter(t => t !== top)
+                                          });
+                                        } else {
+                                          setNewBook({
+                                            ...newBook,
+                                            coveredTopics: [...newBook.coveredTopics, top]
+                                          });
+                                        }
+                                      }}
+                                      className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all text-left flex items-center gap-1.5 ${
+                                        isSelected
+                                          ? 'bg-purple-600 text-white shadow-sm'
+                                          : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/5'
+                                      }`}
+                                    >
+                                      {isSelected ? <Check size={12} /> : <Plus size={12} />}
+                                      <span>{top}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Custom topic add */}
+                            <div className="flex gap-2 pt-1">
+                              <input
+                                type="text"
+                                value={customFasikulTopic}
+                                onChange={(e) => setCustomFasikulTopic(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    if (customFasikulTopic.trim() && !newBook.coveredTopics.includes(customFasikulTopic.trim())) {
+                                      setNewBook({
+                                        ...newBook,
+                                        coveredTopics: [...newBook.coveredTopics, customFasikulTopic.trim()]
+                                      });
+                                      setCustomFasikulTopic('');
+                                    }
+                                  }
+                                }}
+                                placeholder="Özel konu / fasikül başlığı ekle..."
+                                className="flex-1 bg-black/40 border border-purple-500/30 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-purple-400 placeholder-purple-300/40"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (customFasikulTopic.trim() && !newBook.coveredTopics.includes(customFasikulTopic.trim())) {
+                                    setNewBook({
+                                      ...newBook,
+                                      coveredTopics: [...newBook.coveredTopics, customFasikulTopic.trim()]
+                                    });
+                                    setCustomFasikulTopic('');
+                                  }
+                                }}
+                                className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold transition-colors"
+                              >
+                                Ekle
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Deneme Scope & Past Setting Selection in Manual Entry */}
+                        {newBook.resourceType === 'deneme' && (
+                          <div className="bg-rose-950/40 border border-rose-500/30 p-4 rounded-xl space-y-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Target size={16} className="text-rose-400" />
+                                <span className="text-xs font-black text-rose-200 uppercase tracking-wider">
+                                  Deneme Paketi Yapılandırması & Başlangıç Ayarı
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-bold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded-full border border-rose-500/30">
+                                Fiziksel Deneme Paketi
+                              </span>
+                            </div>
+
+                            {/* Deneme Kategori Seçimi (Branş vs Genel) */}
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">
+                                Deneme Sınavı Kapsamı:
+                              </label>
+                              <div className="grid grid-cols-2 gap-2 bg-black/30 p-1.5 rounded-xl border border-rose-500/20">
+                                <button
+                                  type="button"
+                                  onClick={() => setNewBook({
+                                    ...newBook,
+                                    denemeCategory: 'branch',
+                                    subject: newBook.subject === 'Genel Deneme' ? (subjectOptions[0] || 'Türkçe') : newBook.subject
+                                  })}
+                                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                                    (newBook.denemeCategory || 'branch') === 'branch'
+                                      ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 border border-rose-400/50'
+                                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                                  }`}
+                                >
+                                  <Book size={13} />
+                                  <span>Branş Denemesi (Ders Odaklı)</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setNewBook({
+                                    ...newBook,
+                                    denemeCategory: 'general',
+                                    subject: 'Genel Deneme'
+                                  })}
+                                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                                    newBook.denemeCategory === 'general'
+                                      ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 border border-rose-400/50'
+                                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                                  }`}
+                                >
+                                  <Target size={13} />
+                                  <span>Genel Deneme Paketi (Tüm Branşlar)</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">
+                                  Paketteki Toplam Deneme Adedi:
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <input 
+                                    type="number"
+                                    min="1"
+                                    max="100"
+                                    value={newBook.totalExamCount || 10}
+                                    onChange={(e) => setNewBook({ ...newBook, totalExamCount: Math.max(1, parseInt(e.target.value) || 1) })}
+                                    className="w-20 bg-black/40 border border-rose-500/30 text-rose-300 font-bold text-center rounded-lg py-1.5 text-xs outline-none focus:border-rose-400"
+                                  />
+                                  <span className="text-xs text-slate-400">Adet Deneme Sınavı</span>
+                                </div>
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">
+                                  Önceden Çözülen Deneme Sayısı:
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <input 
+                                    type="number"
+                                    min="0"
+                                    max={newBook.totalExamCount || 10}
+                                    value={newBook.initialPastSolvedCount || 0}
+                                    onChange={(e) => setNewBook({ ...newBook, initialPastSolvedCount: Math.min(newBook.totalExamCount || 10, Math.max(0, parseInt(e.target.value) || 0)) })}
+                                    className="w-20 bg-black/40 border border-rose-500/30 text-emerald-400 font-bold text-center rounded-lg py-1.5 text-xs outline-none focus:border-emerald-400"
+                                  />
+                                  <span className="text-xs text-slate-400">
+                                    {(newBook.initialPastSolvedCount || 0) > 0 
+                                      ? `(Deneme 1 - ${newBook.initialPastSolvedCount} çözüldü)` 
+                                      : 'Yeni başlanıyor'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Fast Pill Selector for Past Solved Denemes */}
+                            <div className="space-y-1.5 pt-1">
+                              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                Hızlı Başlangıç Seçimi (İlk X Deneme Önceden Çözüldü):
+                              </label>
+                              <div className="flex flex-wrap gap-1.5">
+                                {[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 15, 20].filter(n => n <= (newBook.totalExamCount || 10)).map(n => (
+                                  <button
+                                    key={n}
+                                    type="button"
+                                    onClick={() => setNewBook({ ...newBook, initialPastSolvedCount: n })}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
+                                      (newBook.initialPastSolvedCount || 0) === n
+                                        ? 'bg-rose-500 text-white border-rose-400 shadow-sm'
+                                        : 'bg-black/30 hover:bg-white/10 text-slate-400 border-white/5'
+                                    }`}
+                                  >
+                                    {n === 0 ? '0 (Yeni)' : `İlk ${n} Deneme`}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-start gap-2.5 text-xs text-rose-300">
+                              <Sparkles size={16} className="text-rose-400 shrink-0 mt-0.5" />
+                              <div>
+                                <strong className="text-white block">Koç Bilgilendirmesi:</strong>
+                                Öğrenci bu kaynağa başlamadan önce ilk {(newBook.initialPastSolvedCount || 0)} denemeyi çözmüşse, başlangıç ilerlemesi doğrudan %{Math.round(((newBook.initialPastSolvedCount || 0) / (newBook.totalExamCount || 10)) * 100)} olarak ayarlanır ve öğrencinin programına zorunlu net girişi baskısı oluşturmaz.
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
                         <div className="flex items-center justify-end gap-3 pt-2">
                           <button
@@ -951,6 +1352,8 @@ export default function StudentDataEntry() {
             {/* Book List Tabs */}
             {(() => {
               const soruCount = books.filter(b => (b.resourceType || 'soru') === 'soru').length;
+              const fasikulCount = books.filter(b => b.resourceType === 'fasikul').length;
+              const denemeCount = books.filter(b => b.resourceType === 'deneme').length;
               const konuCount = books.filter(b => b.resourceType === 'konu').length;
               const youtubeCount = books.filter(b => b.resourceType === 'youtube').length;
               const totalCount = books.length;
@@ -969,10 +1372,22 @@ export default function StudentDataEntry() {
                       Soru Bankası ({soruCount})
                     </button>
                     <button 
+                      onClick={() => { setActiveTab('fasikul'); setSubjectFilter('Hepsi'); }}
+                      className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'fasikul' ? 'bg-purple-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                    >
+                      Soru Fasikülü ({fasikulCount})
+                    </button>
+                    <button 
+                      onClick={() => { setActiveTab('deneme'); setSubjectFilter('Hepsi'); }}
+                      className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'deneme' ? 'bg-rose-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                    >
+                      Deneme Sınavı ({denemeCount})
+                    </button>
+                    <button 
                       onClick={() => { setActiveTab('konu'); setSubjectFilter('Hepsi'); }}
                       className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'konu' ? 'bg-orange-500 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
                     >
-                      Konu Çalışması ({konuCount})
+                      Konu Anlatımı ({konuCount})
                     </button>
                     <button 
                       onClick={() => { setActiveTab('youtube'); setSubjectFilter('Hepsi'); }}
@@ -994,7 +1409,7 @@ export default function StudentDataEntry() {
                       <div className="flex items-center gap-2 text-slate-300">
                         <BookOpen size={18} className="text-indigo-400" />
                         <span className="font-bold text-sm tracking-wide">
-                          {activeTab === 'soru' ? 'Soru Bankaları' : activeTab === 'youtube' ? 'YouTube Kanalları' : activeTab === 'konu' ? 'Konu Çalışmaları' : 'Tüm Kaynaklar'}
+                          {activeTab === 'soru' ? 'Soru Bankaları' : activeTab === 'fasikul' ? 'Soru Fasikülleri' : activeTab === 'deneme' ? 'Deneme Sınavları' : activeTab === 'youtube' ? 'YouTube Kanalları' : activeTab === 'konu' ? 'Konu Anlatımları' : 'Tüm Kaynaklar'}
                         </span>
                       </div>
                       <div className="flex items-center gap-3">
@@ -1049,24 +1464,25 @@ export default function StudentDataEntry() {
                       </div>
                     ) : (
                       displayedBooks.map((book) => {
-                        const isYoutube = book.resourceType === 'youtube' || (book.videos && book.videos.length > 0);
-                        const videos = isYoutube ? getBookItems(book) : [];
-                        const curriculumTopics = !isYoutube ? (CURRICULUM[book.subject as keyof typeof CURRICULUM] || []) : [];
-                        const completedTopicsList = book.completedTopics || [];
+                        const isYoutube = book.resourceType === 'youtube' || (Array.isArray(book.videos) && book.videos.length > 0);
+                        const videos = isYoutube ? (getBookItems(book) || []) : [];
+                        const curriculumTopics = !isYoutube ? (getCurriculumTopicsForBook(book, CURRICULUM) || []) : [];
+                        const completedTopicsList = Array.isArray(book.completedTopics) ? book.completedTopics : [];
 
                         let completedMainCount = 0;
                         if (!isYoutube) {
                           curriculumTopics.forEach((t: string) => {
-                            const subs = SUBTOPICS_MAP?.[t] || [];
+                            const subs = Array.isArray(SUBTOPICS_MAP?.[t]) ? SUBTOPICS_MAP[t] : [];
                             if (completedTopicsList.includes(t) || (subs.length > 0 && subs.every(s => completedTopicsList.includes(s)))) {
                               completedMainCount++;
                             }
                           });
                         } else {
-                          completedMainCount = videos.filter((v: any) => completedTopicsList.includes(v.title)).length;
+                          completedMainCount = (videos || []).filter((v: any) => completedTopicsList.includes(v?.title)).length;
                         }
 
-                        const totalItemsCount = isYoutube ? videos.length : curriculumTopics.length;
+                        const totalItemsCount = isYoutube ? (videos?.length || 0) : (curriculumTopics?.length || 0);
+                        const safeMainCount = Math.min(totalItemsCount, Math.max(0, completedMainCount));
                         
                         return (
                           <div key={book.id} className="bg-slate-900/40 border border-white/5 rounded-3xl overflow-hidden group">
@@ -1075,18 +1491,38 @@ export default function StudentDataEntry() {
                               onClick={() => setExpandedBook(expandedBook === book.id ? null : book.id)}
                             >
                               <div className="flex items-center gap-6">
-                                <div className={`p-3 rounded-2xl flex-shrink-0 ${isYoutube ? 'bg-red-500/10 text-red-500' : book.resourceType === 'konu' ? 'bg-orange-500/10 text-orange-400' : 'bg-indigo-500/10 text-indigo-400'}`}>
-                                  {isYoutube ? <Youtube size={24} /> : book.resourceType === 'konu' ? <FileText size={24} /> : <BookOpen size={24} />}
+                                <div className={`p-3 rounded-2xl flex-shrink-0 ${
+                                  isYoutube 
+                                    ? 'bg-red-500/10 text-red-500' 
+                                    : book.resourceType === 'fasikul'
+                                      ? 'bg-purple-500/10 text-purple-400'
+                                      : book.resourceType === 'deneme'
+                                        ? 'bg-rose-500/10 text-rose-400'
+                                        : book.resourceType === 'konu' 
+                                          ? 'bg-orange-500/10 text-orange-400' 
+                                          : 'bg-indigo-500/10 text-indigo-400'
+                                }`}>
+                                  {isYoutube ? <Youtube size={24} /> : book.resourceType === 'fasikul' ? <BookmarkCheck size={24} /> : book.resourceType === 'deneme' ? <Target size={24} /> : book.resourceType === 'konu' ? <FileText size={24} /> : <BookOpen size={24} />}
                                 </div>
                                 <div>
                                   <div className="flex items-center gap-1.5 flex-wrap">
                                     <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">{formatSubjectName(book.subject, book.type)}</span>
                                     <span className="text-[10px] font-bold text-slate-600">•</span>
-                                    <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${isYoutube ? 'bg-red-500/10 text-red-500' : book.resourceType === 'konu' ? 'bg-orange-500/10 text-orange-500' : 'bg-slate-500/10 text-slate-400'}`}>
-                                       {isYoutube ? 'YOUTUBE' : book.resourceType === 'konu' ? 'KONU' : 'SORU'}
+                                    <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${
+                                      isYoutube 
+                                        ? 'bg-red-500/10 text-red-500' 
+                                        : book.resourceType === 'fasikul'
+                                          ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30'
+                                          : book.resourceType === 'deneme'
+                                            ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                                            : book.resourceType === 'konu' 
+                                              ? 'bg-orange-500/10 text-orange-500' 
+                                              : 'bg-slate-500/10 text-slate-400'
+                                    }`}>
+                                       {isYoutube ? 'YOUTUBE' : book.resourceType === 'fasikul' ? 'FASİKÜL' : book.resourceType === 'deneme' ? 'DENEME' : book.resourceType === 'konu' ? 'KONU' : 'SORU'}
                                     </span>
                                     <span className="text-[10px] font-bold text-slate-600">•</span>
-                                    <span className="text-[10px] font-bold text-slate-500 uppercase">{completedMainCount} / {totalItemsCount} {isYoutube ? 'Video' : 'Ana Konu'}</span>
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase">{safeMainCount} / {totalItemsCount} {isYoutube ? 'Video' : 'Ana Konu'}</span>
                                     {isYoutube && book.totalDurationFormatted && (
                                       <>
                                         <span className="text-[10px] font-bold text-slate-600">•</span>
@@ -1095,6 +1531,12 @@ export default function StudentDataEntry() {
                                     )}
                                   </div>
                                   <h4 className="text-lg font-bold text-white mt-1 uppercase">{book.bookName}</h4>
+                                  {book.resourceType === 'fasikul' && Array.isArray(book.coveredTopics) && book.coveredTopics.length > 0 && (
+                                    <p className="text-xs font-semibold text-purple-300 mt-1 flex items-center gap-1.5">
+                                      <BookmarkCheck size={13} className="text-purple-400 shrink-0" />
+                                      <span>Kapsam: {book.coveredTopics.join(', ')}</span>
+                                    </p>
+                                  )}
                                   {isYoutube && book.channelTitle && book.channelTitle !== book.bookName && (
                                     <p className="text-xs font-semibold text-red-400/80 mt-0.5">{book.channelTitle}</p>
                                   )}
@@ -1109,10 +1551,10 @@ export default function StudentDataEntry() {
                                     <div className="w-32 h-1.5 bg-white/5 rounded-full overflow-hidden">
                                       <div 
                                         className="h-full bg-emerald-500 transition-all duration-500"
-                                        style={{ width: `${book.completionPercentage || 0}%` }}
+                                        style={{ width: `${getSafePercentage(book.completionPercentage)}%` }}
                                       />
                                     </div>
-                                    <span className="text-xl font-black text-white">%{book.completionPercentage || 0}</span>
+                                    <span className="text-xl font-black text-white">%{getSafePercentage(book.completionPercentage)}</span>
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-4">
@@ -1171,7 +1613,64 @@ export default function StudentDataEntry() {
                                     </div>
                                   )}
 
-                                  {!isYoutube && (
+                                  {book.resourceType === 'deneme' ? (
+                                    <div className="mb-4 p-4 rounded-2xl bg-rose-950/20 border border-rose-500/20">
+                                      <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+                                        <div className="flex items-center gap-2">
+                                          <Trophy size={16} className="text-rose-400" />
+                                          <span className="text-xs font-bold text-rose-200">
+                                            Deneme Paketi İlerlemesi ({book.completedTopics?.length || 0} / {book.totalExamCount || 10} Çözüldü)
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <span className="text-[10px] font-bold text-slate-400 mr-1">Geçmiş Denemeleri İşaretle:</span>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleBatchMarkPastDenemeler(book, 3);
+                                            }}
+                                            className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20 transition-all cursor-pointer"
+                                          >
+                                            İlk 3
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleBatchMarkPastDenemeler(book, 5);
+                                            }}
+                                            className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20 transition-all cursor-pointer"
+                                          >
+                                            İlk 5
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleBatchMarkPastDenemeler(book, book.totalExamCount || 10);
+                                            }}
+                                            className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/20 transition-all cursor-pointer"
+                                          >
+                                            Tümü
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleBatchMarkPastDenemeler(book, 0);
+                                            }}
+                                            className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 transition-all cursor-pointer"
+                                          >
+                                            Sıfırla
+                                          </button>
+                                        </div>
+                                      </div>
+                                      <p className="text-[11px] text-slate-400">
+                                        Öğrencinin bu pakete başlamadan önce çözdüğü denemeleri yukarıdan tek tıkla işaretleyebilirsiniz. Öğrenciye net girme zorunluluğu yaratmaz, başlangıç ilerlemesini günceller.
+                                      </p>
+                                    </div>
+                                  ) : !isYoutube ? (
                                     <div className="flex items-center justify-between mb-4">
                                       <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
                                         Konu ve Alt Konu Listesi
@@ -1197,10 +1696,10 @@ export default function StudentDataEntry() {
                                         </button>
                                       </div>
                                     </div>
-                                  )}
+                                  ) : null}
 
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    {(!isYoutube ? (CURRICULUM[book.subject as keyof typeof CURRICULUM] || []) : getBookItems(book)).map((item: any, idx: number) => {
+                                    {(!isYoutube ? getCurriculumTopicsForBook(book, CURRICULUM) : getBookItems(book)).map((item: any, idx: number) => {
                                       if (isYoutube) {
                                         const isCompleted = (book.completedTopics || []).includes(item.title);
                                         return (
@@ -1244,18 +1743,61 @@ export default function StudentDataEntry() {
                                         );
                                       }
 
+                                      if (book.resourceType === 'deneme') {
+                                        const isCompleted = (book.completedTopics || []).includes(item);
+                                        return (
+                                          <div 
+                                            key={item || idx}
+                                            className={`p-3 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
+                                              isCompleted ? 'bg-rose-500/10 border-rose-500/30' : 'bg-slate-800/40 border-white/5'
+                                            }`}
+                                          >
+                                            <div 
+                                              onClick={() => toggleTopic(book, item)}
+                                              className="flex items-center gap-3 cursor-pointer flex-1 min-w-0"
+                                            >
+                                              <div className={`w-5 h-5 rounded-lg flex items-center justify-center border transition-all flex-shrink-0 ${
+                                                isCompleted ? 'bg-rose-500 border-rose-500 text-white font-bold' : 'border-slate-700 bg-slate-900'
+                                              }`}>
+                                                {isCompleted && <ClipboardCheck size={12} strokeWidth={3} />}
+                                              </div>
+                                              <div className="min-w-0 flex-1">
+                                                <span className={`text-xs block truncate ${isCompleted ? 'text-rose-200 font-semibold' : 'text-slate-300'}`}>
+                                                  {item}
+                                                </span>
+                                                <span className="text-[10px] text-slate-500">
+                                                  {isCompleted ? 'Tamamlandı / Önceden Çözüldü' : 'Henüz Çözülmedi'}
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleOpenCoachDenemeModal(book, item);
+                                              }}
+                                              className="text-[10px] font-bold text-rose-400 hover:text-rose-300 px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+                                              title="Bu deneme için net / puan gir"
+                                            >
+                                              <Target size={12} />
+                                              <span>Net Gir</span>
+                                            </button>
+                                          </div>
+                                        );
+                                      }
+
                                       const topic = item;
-                                      const subtopics = SUBTOPICS_MAP?.[topic] || [];
+                                      const subtopics = Array.isArray(SUBTOPICS_MAP?.[topic]) ? SUBTOPICS_MAP[topic] : [];
                                       const hasSubtopics = subtopics.length > 0;
                                       const isSubExpanded = expandedSubtopics[`${book.id}-${topic}`] || false;
 
                                       let isCompleted = false;
                                       let completedSubCount = 0;
                                       if (hasSubtopics) {
-                                        completedSubCount = subtopics.filter((sub: string) => (book.completedTopics || []).includes(sub)).length;
+                                        completedSubCount = subtopics.filter((sub: string) => (Array.isArray(book.completedTopics) ? book.completedTopics : []).includes(sub)).length;
                                         isCompleted = completedSubCount === subtopics.length && subtopics.length > 0;
                                       } else {
-                                        isCompleted = (book.completedTopics || []).includes(topic);
+                                        isCompleted = (Array.isArray(book.completedTopics) ? book.completedTopics : []).includes(topic);
                                       }
 
                                       return (
@@ -1315,7 +1857,7 @@ export default function StudentDataEntry() {
                                                 Alt Başlıklar
                                               </div>
                                               {subtopics.map((sub: string) => {
-                                                const isSubDone = (book.completedTopics || []).includes(sub);
+                                                const isSubDone = (Array.isArray(book?.completedTopics) ? book.completedTopics : []).includes(sub);
                                                 return (
                                                   <div
                                                     key={sub}
@@ -1358,6 +1900,25 @@ export default function StudentDataEntry() {
         onScanSuccess={(scannedIsbn) => {
           setNewBook(prev => ({ ...prev, isbn: scannedIsbn }));
           setIsManualEntry(false);
+        }}
+      />
+
+      <DenemeResultModal
+        isOpen={showCoachDenemeModal}
+        studentId={selectedStudent?.uid || ''}
+        onClose={() => {
+          setShowCoachDenemeModal(false);
+          setCoachDenemeData(null);
+        }}
+        initialData={coachDenemeData}
+        onSuccess={async () => {
+          if (selectedStudent?.uid) {
+            const [updatedTracking, globals] = await Promise.all([
+              studentDataService.getBookTracking(selectedStudent.uid),
+              studentDataService.getGlobalBooks()
+            ]);
+            setBooks(mergeBookData(updatedTracking, globals));
+          }
         }}
       />
     </div>

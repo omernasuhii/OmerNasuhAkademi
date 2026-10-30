@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, X, Check, Clock, Trash2 } from 'lucide-react';
+import { Bell, X, Check, Clock, Trash2, Smartphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../lib/AuthContext';
 import { notificationService, Notification } from '../../services/notificationService';
+import NotificationTesterModal from '../notifications/NotificationTesterModal';
 
 interface NotificationBellProps {
   notifications: Notification[];
@@ -11,8 +12,11 @@ interface NotificationBellProps {
 
 export default function NotificationBell({ notifications = [] }: NotificationBellProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const { user } = useAuth();
+  const [isTesterOpen, setIsTesterOpen] = useState(false);
+  const { user, userData, actualUserData, isAdmin } = useAuth();
   const navigate = useNavigate();
+
+  const isAdminUser = Boolean(isAdmin || userData?.role === 'admin' || actualUserData?.role === 'admin');
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const unreadCount = (notifications || []).filter(n => !n?.isRead).length;
@@ -86,21 +90,35 @@ export default function NotificationBell({ notifications = [] }: NotificationBel
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             className="absolute right-0 mt-4 w-80 sm:w-96 bg-[#0c121e] border border-white/5 rounded-3xl shadow-2xl z-[100] overflow-hidden"
           >
-            <div className="p-6 border-b border-white/5 flex items-center justify-between">
+            <div className="p-5 border-b border-white/5 flex items-center justify-between gap-2">
               <div>
                 <h3 className="text-sm font-black text-white uppercase tracking-widest italic">Bildirimler</h3>
-                <p className="text-[10px] text-slate-500 font-bold mt-1 uppercase tracking-widest">
+                <p className="text-[10px] text-slate-500 font-bold mt-0.5 uppercase tracking-widest">
                   {unreadCount > 0 ? `${unreadCount} Okunmamış İleti` : 'Tüm Bildirimler Okundu'}
                 </p>
               </div>
-              {unreadCount > 0 && (
-                <button 
-                  onClick={markAllAsRead}
-                  className="text-[10px] font-black text-emerald-500 hover:text-emerald-400 uppercase tracking-widest transition-colors flex items-center gap-1"
-                >
-                  <Check size={12} /> Hepsini Oku
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {isAdminUser && (
+                  <button
+                    onClick={() => {
+                      setIsOpen(false);
+                      setIsTesterOpen(true);
+                    }}
+                    title="Yönetici Bildirim Teşhis & Test Paneli"
+                    className="px-2 py-1 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-[10px] font-bold flex items-center gap-1 transition-all"
+                  >
+                    <Smartphone size={12} /> Test Et
+                  </button>
+                )}
+                {unreadCount > 0 && (
+                  <button 
+                    onClick={markAllAsRead}
+                    className="text-[10px] font-black text-emerald-500 hover:text-emerald-400 uppercase tracking-widest transition-colors flex items-center gap-1"
+                  >
+                    <Check size={12} /> Hepsini Oku
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="max-h-[400px] overflow-y-auto custom-scrollbar">
@@ -156,6 +174,11 @@ export default function NotificationBell({ notifications = [] }: NotificationBel
           </motion.div>
         )}
       </AnimatePresence>
+
+      <NotificationTesterModal
+        isOpen={isTesterOpen}
+        onClose={() => setIsTesterOpen(false)}
+      />
     </div>
   );
 }

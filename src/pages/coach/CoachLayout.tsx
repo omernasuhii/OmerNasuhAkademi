@@ -17,7 +17,6 @@ import {
   FileEdit,
   ChevronLeft,
   ChevronRight,
-  PanelLeftClose,
   PanelLeftOpen,
   Wallet,
   X,
@@ -159,11 +158,13 @@ export default function CoachLayout() {
       <AnimatePresence>
         {isSidebarCollapsed && (
           <motion.button
+            id="tour-coach-sidebar-open"
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
             onClick={() => setIsSidebarCollapsed(false)}
-            className="fixed left-4 top-1/2 -translate-y-1/2 z-[60] w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-emerald-500/20 hover:scale-110 transition-transform hidden lg:flex"
+            className="fixed left-4 top-1/2 -translate-y-1/2 z-[70] w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-emerald-500/20 hover:scale-110 transition-transform hidden lg:flex cursor-pointer"
+            title="Yan Paneli Aç"
           >
             <PanelLeftOpen size={20} />
           </motion.button>
@@ -185,18 +186,10 @@ export default function CoachLayout() {
 
       {/* Sidebar */}
       <aside className={`print:hidden
-        fixed inset-y-0 left-0 z-50 w-72 bg-[#070b14]/95 border-r border-white/5 flex flex-col transition-all duration-300 lg:static 
+        fixed inset-y-0 left-0 z-50 w-72 bg-[#070b14]/95 border-r border-white/5 flex flex-col transition-all duration-300 lg:static lg:h-auto lg:min-h-full
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         ${isSidebarCollapsed ? 'lg:w-0 lg:opacity-0 lg:pointer-events-none' : 'lg:w-72 lg:opacity-100'}
       `}>
-        {/* Toggle Button Inside Sidebar (Desktop only) */}
-        <button 
-          onClick={() => setIsSidebarCollapsed(true)}
-          className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-12 bg-[#070b14] border border-white/5 rounded-full flex items-center justify-center text-slate-500 hover:text-white transition-colors hidden lg:flex z-10"
-        >
-          <ChevronLeft size={14} />
-        </button>
-
         {/* Back to Dashboard Link */}
         <div className="pt-6 px-8 flex">
           <Link 
@@ -265,7 +258,7 @@ export default function CoachLayout() {
         </div>
 
         {/* Navigation Menu */}
-        <nav className="flex-1 px-4 space-y-8 overflow-y-auto custom-scrollbar pb-10">
+        <nav className="flex-1 lg:flex-none px-4 space-y-8 overflow-y-auto lg:overflow-y-visible lg:h-auto no-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pb-10">
           <div>
             <p className="px-4 text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 mb-2">Öğrenci Yönetimi</p>
             <div className="space-y-1">
@@ -321,6 +314,18 @@ export default function CoachLayout() {
           </button>
         </div>
       </aside>
+
+      {/* Sidebar Toggle Close Trigger (Fixed on border in the exact vertical center of the viewport, rendered on top of sidebar with z-[70]) */}
+      {!isSidebarCollapsed && (
+        <button 
+          id="tour-coach-sidebar-collapse"
+          onClick={() => setIsSidebarCollapsed(true)}
+          className="fixed left-[288px] -translate-x-1/2 top-1/2 -translate-y-1/2 w-6 h-12 bg-[#0b1324] border border-slate-700 hover:border-emerald-500 rounded-full flex items-center justify-center text-slate-300 hover:text-white shadow-2xl hover:scale-105 transition-all hidden lg:flex z-[70] cursor-pointer group"
+          title="Yan Menüyü Gizle"
+        >
+          <ChevronLeft size={14} className="group-hover:-translate-x-0.5 transition-transform text-slate-400 group-hover:text-emerald-400" />
+        </button>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0">
@@ -402,7 +407,7 @@ export default function CoachLayout() {
               }
             }
 
-            return <Outlet />;
+            return <Outlet context={{ isSidebarCollapsed, setIsSidebarCollapsed }} />;
           })()}
         </div>
       </main>

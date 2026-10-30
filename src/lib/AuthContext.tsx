@@ -1,15 +1,17 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { sessionTracker } from '../services/sessionTracker';
 import { presenceService } from '../services/presenceService';
 import { safeStorage } from './localStorage';
 import { checkAndRenewSubscription } from '../services/subscriptionService';
+import { systemLogger } from '../services/systemLogger';
 
 interface AuthContextType {
   user: User | null;
   userData: any | null;
+  actualUserData?: any | null;
   realUser: User | null;
   realUserData: any | null;
   systemSettings: any | null;
@@ -26,7 +28,20 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [actualUserData, setActualUserData] = useState<any | null>(null);
+  
+  // Instant local session cache for zero-latency initial render
+  const [actualUserData, setActualUserData] = useState<any | null>(() => {
+    const cached = safeStorage.getItem('focuson_cached_user_data');
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
+
   const [impersonatedStudent, setImpersonatedStudentState] = useState<any | null>(() => {
     const saved = safeStorage.getItem('admin_impersonated_student');
     if (saved) {
@@ -39,7 +54,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return null;
   });
   const [systemSettings, setSystemSettings] = useState<any | null>(null);
-  const [loading, setLoading] = useState(true);
+  // If we have cached user data, we can start with loading: false for instant screen display
+  const [loading, setLoading] = useState<boolean>(() => {
+    return !safeStorage.getItem('focuson_cached_user_data');
+  });
 
   const setImpersonatedStudent = (student: any | null) => {
     setImpersonatedStudentState(student);
@@ -55,6 +73,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const clearImpersonation = () => {
     setImpersonatedStudent(null);
   };
+
+  // Synchronize active user context with systemLogger
+  useEffect(() => {
+    if (user && actualUserData) {
+      systemLogger.setUserContext({
+        uid: user.uid,
+        name: `${actualUserData.firstName || ''} ${actualUserData.lastName || ''}`.trim() || actualUserData.displayName || user.displayName || user.email || 'Kullanıcı',
+        email: actualUserData.email || user.email || '',
+        role: actualUserData.role || 'user'
+      });
+    } else if (user) {
+      systemLogger.setUserContext({
+        uid: user.uid,
+        name: user.displayName || user.email || 'Kullanıcı',
+        email: user.email || '',
+        role: 'user'
+      });
+    } else {
+      systemLogger.setUserContext(null);
+    }
+  }, [user, actualUserData]);
 
   // Real-time listener for impersonated student document if an admin is inspecting
   useEffect(() => {
@@ -107,6 +146,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (snapshot.exists() && snapshot.data()?.role) {
             const data: any = { uid: firebaseUser.uid, ...snapshot.data() };
             
+            // Persist to safeStorage for immediate instant hydration on future visits
+            try {
+              safeStorage.setItem('focuson_cached_user_data', JSON.stringify(data));
+            } catch (e) {}
+
             setActualUserData((prevData: any) => {
               if (!prevData) return data;
               
@@ -159,13 +203,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Fallback: search users collection by email if uid match failed or doc not found yet
           if (firebaseUser.email) {
             try {
-              const { collection, query, where, getDocs } = await import('firebase/firestore');
               const q = query(collection(db, 'users'), where('email', '==', firebaseUser.email.toLowerCase()));
               const querySnap = await getDocs(q);
               if (!querySnap.empty) {
                 const firstDoc = querySnap.docs[0];
                 if (firstDoc.exists() && firstDoc.data()?.role) {
                   const data: any = { uid: firstDoc.id, ...firstDoc.data() };
+                  try {
+                    safeStorage.setItem('focuson_cached_user_data', JSON.stringify(data));
+                  } catch (e) {}
                   setActualUserData(data);
                   setLoading(false);
                   return;
@@ -176,6 +222,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
 
+          safeStorage.removeItem('focuson_cached_user_data');
           setActualUserData(null);
           setLoading(false);
         };
@@ -187,17 +234,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Wait 500ms and retry once with getDoc in case of initial token sync latency
           setTimeout(async () => {
             try {
-              const { getDoc } = await import('firebase/firestore');
               const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
               await loadUserData(userDoc);
             } catch (retryErr) {
               console.error("AuthContext user doc retry failed:", retryErr);
+              safeStorage.removeItem('focuson_cached_user_data');
               setActualUserData(null);
               setLoading(false);
             }
           }, 500);
         });
       } else {
+        safeStorage.removeItem('focuson_cached_user_data');
         setActualUserData(null);
         setLoading(false);
       }
@@ -216,6 +264,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await sessionTracker.logLogout(user.uid);
       safeStorage.removeSessionItem(`session_logged_${user.uid}`);
     }
+    safeStorage.removeItem('focuson_cached_user_data');
     safeStorage.removeItem('coach_selected_student');
     safeStorage.removeItem('admin_impersonated_student');
     setImpersonatedStudentState(null);
@@ -240,6 +289,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <AuthContext.Provider value={{ 
       user: effectiveUser as User | null, 
       userData: effectiveUserData,
+      actualUserData,
       realUser: user,
       realUserData: actualUserData,
       systemSettings, 

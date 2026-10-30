@@ -28,6 +28,7 @@ import { isSubscriptionActive, syncExpiredSubscriptionStatus } from '../../servi
 
 import { notificationService } from '../../services/notificationService';
 import { fcmService } from '../../services/fcmService';
+import { getSafePercentage } from '../../utils/bookProgress';
 
 export default function Summary() {
   const { userData, user } = useAuth();
@@ -138,9 +139,9 @@ export default function Summary() {
           eventService.getStudentRSVPs(userData.uid)
         ]);
         
-        const todayTasks = dailyRes[0]?.tasks || [];
-        setBooks(booksRes || []);
-        setExams(examsRes || []);
+        const todayTasks = Array.isArray(dailyRes?.[0]?.tasks) ? dailyRes[0].tasks : [];
+        setBooks(Array.isArray(booksRes) ? booksRes : []);
+        setExams(Array.isArray(examsRes) ? examsRes : []);
         setDailyTasks(todayTasks);
         
         // Client-side automatic checks (simulate cron for now)
@@ -184,10 +185,11 @@ export default function Summary() {
                  
                  if (missingDates.length > 0) {
                      const missingProgs = await studentDataService.getDailyPrograms(userData.uid, missingDates);
+                     const safeMissing = Array.isArray(missingProgs) ? missingProgs : [];
                      missingDates.forEach(date => {
-                         const prog = missingProgs.find(p => p.date === date);
-                         const pTasks = prog?.tasks || [];
-                         const pComps = pTasks.filter((t:any) => t.isDone).length;
+                         const prog = safeMissing.find(p => p && p.date === date);
+                         const pTasks = Array.isArray(prog?.tasks) ? prog.tasks : [];
+                         const pComps = pTasks.filter((t:any) => t && t.isDone).length;
                          const pct = pTasks.length > 0 ? (pComps / pTasks.length) * 100 : 0;
                          
                          if (pct >= 85) {
@@ -227,7 +229,7 @@ export default function Summary() {
             pastProgs.forEach(prog => {
                 const progDate = new Date(prog.date);
                 const diffDays = Math.floor((nowTime.getTime() - progDate.getTime()) / (1000 * 3600 * 24));
-                if (diffDays >= 2) { // 2 days or more (if it was day before yesterday, it's 2 days ago. We'll give them 2 days)
+                if (diffDays >= 5) { // 5 days or more
                     if (prog.tasks?.some((t:any) => t.isWaitingResult)) {
                         hasExpiredWaiting = true;
                     }
@@ -261,7 +263,7 @@ export default function Summary() {
                 // Also add a notification?
                 await notificationService.addNotification(userData.uid, {
                     title: 'Seriniz Sıfırlandı',
-                    message: '2 günden fazla süredir sonuç bekleyen denemeleriniz olduğu için çalışma seriniz sıfırlandı.',
+                    message: '5 günden fazla süredir sonuç bekleyen denemeleriniz olduğu için çalışma seriniz sıfırlandı.',
                     type: 'system',
                 });
             }
@@ -283,15 +285,8 @@ export default function Summary() {
                const subWarnKey = `sub_warn_${userData.uid}_${daysToSubEnd}`;
                if (!safeStorage.getItem(subWarnKey)) {
                   if (daysToSubEnd <= 3 && daysToSubEnd > 0) {
-                     if (userData.autoRenew === false) {
-                        safeStorage.setItem(subWarnKey, 'true');
-                        await notificationService.addNotification(userData.uid, {
-                           title: 'Abonelik Sona Eriyor',
-                           message: `Dikkat! ${userData.subscriptionPlan} aboneliğinin süresinin dolmasına son ${daysToSubEnd} gün kaldı. Yenilemeyi unutma!`,
-                           type: 'system',
-                           link: '/panel/ogrenci/abonelik'
-                        });
-                     } else {
+                     // Sadece otomatik yenilemesi acik olan ogrenciler icin bakiye uyarisi gonderilir
+                     if (userData.autoRenew !== false) {
                         // Check if balance is enough
                         const currentPkg = SUBSCRIPTION_PACKAGES.find((p: any) => p.name === userData.subscriptionPlan);
                         if (currentPkg && (userData.walletBalance || 0) < currentPkg.price) {
@@ -399,7 +394,7 @@ export default function Summary() {
             }
 
             // check for tomorrow empty program
-            const tomorrowTasks = tomorrowRes[0]?.tasks || [];
+            const tomorrowTasks = Array.isArray(tomorrowRes?.[0]?.tasks) ? tomorrowRes[0].tasks : [];
             if (tomorrowTasks.length === 0) {
                 const lastEmptyWarningDate = safeStorage.getItem(`lastEmptyWarning_${userData.uid}`);
                 if (lastEmptyWarningDate !== tomorrow) {
@@ -474,7 +469,7 @@ export default function Summary() {
     }
   };
 
-  const completedBooks = books.filter(b => b.completionPercentage === 100).length;
+  const completedBooks = books.filter(b => getSafePercentage(b.completionPercentage) >= 100).length;
   const totalExams = exams.length;
   const filteredExams = exams.filter(e => e.examType === activeExamTab || e.examType === 'YKS').map(e => ({
       ...e,
@@ -899,12 +894,12 @@ export default function Summary() {
                         <span className="text-[10px] text-slate-400 uppercase tracking-widest block mb-0.5">{book.subject}</span>
                         <span className="text-sm font-bold text-white truncate block">{book.bookName}</span>
                       </div>
-                      <span className="text-sm font-black text-blue-400 shrink-0">%{book.completionPercentage || 0}</span>
+                      <span className="text-sm font-black text-blue-400 shrink-0">%{getSafePercentage(book.completionPercentage)}</span>
                     </div>
                     <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
                       <div 
                         className="h-full bg-gradient-to-r from-blue-500 to-indigo-400 rounded-full transition-all duration-1000 relative" 
-                        style={{ width: `${book.completionPercentage || 0}%` }}
+                        style={{ width: `${getSafePercentage(book.completionPercentage)}%` }}
                       >
                         <div className="absolute inset-0 bg-white/20 w-full h-full" style={{ backgroundImage: 'linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent)', backgroundSize: '1rem 1rem' }}></div>
                       </div>

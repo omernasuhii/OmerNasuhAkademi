@@ -26,8 +26,85 @@ import { fcmService } from '../services/fcmService';
 
 export function NotificationListener() {
   const { userData } = useAuth();
+  const isArchived = Boolean(userData?.isArchived || (userData as any)?.archived);
   const navigate = useNavigate();
   const lastNotificationTime = useRef<number>(Date.now());
+  const seenNotificationKeys = useRef<Set<string>>(new Set());
+
+  // Helper to generate a robust normalized fingerprint for any notification
+  const getNotificationFingerprint = (title: string, message: string, id?: string): string[] => {
+    const keys: string[] = [];
+    if (id) keys.push(`id:${id}`);
+    const cleanTitle = (title || '').trim().toLowerCase().replace(/^[📢🚨⏳☀️🌙🎯🎟️\s]+/, '');
+    const cleanMessage = (message || '').trim().toLowerCase().replace(/[^a-z0-9ğüşıöç]/gi, '').slice(0, 60);
+    keys.push(`text:${cleanTitle}:::${cleanMessage}`);
+    return keys;
+  };
+
+  // Helper to safely trigger only ONE single system notification with deduplication
+  const showSingleSystemNotification = (title: string, message: string, notifObj?: any) => {
+    const fingerprints = getNotificationFingerprint(title, message, notifObj?.id);
+
+    // If any fingerprint was seen in the last 30 seconds, strictly suppress duplicate
+    const isDuplicate = fingerprints.some(k => seenNotificationKeys.current.has(k));
+    if (isDuplicate) {
+      return;
+    }
+
+    // Register all fingerprints for 30 seconds
+    fingerprints.forEach(k => {
+      seenNotificationKeys.current.add(k);
+      setTimeout(() => seenNotificationKeys.current.delete(k), 30000);
+    });
+
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+      return;
+    }
+
+    // Deterministic tag so the OS notification center collapses duplicates into one
+    const tag = 'focuson-notif-' + (notifObj?.id || fingerprints[1] || 'general');
+
+    try {
+      // Use Service Worker showNotification if available, otherwise fallback to window Notification
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.ready.then((reg) => {
+          if (reg && reg.showNotification) {
+            reg.showNotification(title, {
+              body: message,
+              icon: '/images/ON-Logo.png',
+              badge: '/images/ON-Logo.png',
+              tag: tag,
+              renotify: false,
+              data: {
+                link: notifObj?.link || '/'
+              },
+              vibrate: [200, 100, 200] as any
+            } as any).catch(() => {});
+          }
+        }).catch(() => {});
+      } else {
+        const browserNotif = new Notification(title, {
+          body: message,
+          icon: '/images/ON-Logo.png',
+          badge: '/images/ON-Logo.png',
+          tag: tag
+        });
+
+        browserNotif.onclick = () => {
+          window.focus();
+          browserNotif.close();
+          if (notifObj) {
+            setSelectedNotification(notifObj);
+            if (!notifObj.isRead && notifObj.id) {
+              notificationService.markAsRead(notifObj.id).catch(() => {});
+            }
+          }
+        };
+      }
+    } catch (e) {
+      console.warn('System notification error:', e);
+    }
+  };
 
   // State Management for Notification Modal & Toast
   const [selectedNotification, setSelectedNotification] = useState<AppNotification | null>(null);
@@ -35,6 +112,7 @@ export function NotificationListener() {
 
   // Redirect Action Logic
   const handleRedirect = (notif: AppNotification) => {
+    if (!notif) return;
     if (notif.id && !notif.id.startsWith('fcm-')) {
       notificationService.markAsRead(notif.id).catch(() => {});
     }
@@ -43,7 +121,7 @@ export function NotificationListener() {
     setToastNotification(null);
 
     const targetUrl = notif.actionUrl || notif.link;
-    if (targetUrl && targetUrl.trim().length > 0 && targetUrl.trim() !== '#' && targetUrl.trim() !== '/') {
+    if (targetUrl && typeof targetUrl === 'string' && targetUrl.trim().length > 0 && targetUrl.trim() !== '#' && targetUrl.trim() !== '/') {
       if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
         window.open(targetUrl, '_blank');
       } else {
@@ -73,7 +151,7 @@ export function NotificationListener() {
       return;
     }
 
-    if (notif.link) {
+    if (notif.link && typeof notif.link === 'string') {
       navigate(notif.link);
     } else {
       navigate('/panel');
@@ -82,6 +160,8 @@ export function NotificationListener() {
 
   // Global window event listener to open notification modal from anywhere
   useEffect(() => {
+    if (isArchived) return;
+
     const handleOpenModal = (e: Event) => {
       const customEvent = e as CustomEvent<AppNotification>;
       if (customEvent.detail) {
@@ -101,11 +181,11 @@ export function NotificationListener() {
 
     window.addEventListener('open-notification-modal', handleOpenModal);
     return () => window.removeEventListener('open-notification-modal', handleOpenModal);
-  }, [userData, navigate]);
+  }, [userData, navigate, isArchived]);
 
   // Real-time listener for the active selected announcement (live updates on edit)
   useEffect(() => {
-    if (!selectedNotification?.announcementId) return;
+    if (isArchived || !selectedNotification?.announcementId) return;
 
     const annRef = doc(db, 'announcements', selectedNotification.announcementId);
     const unsubscribe = onSnapshot(annRef, (snap) => {
@@ -131,18 +211,18 @@ export function NotificationListener() {
     }, (err) => console.warn("Live announcement sync warning:", err));
 
     return () => unsubscribe();
-  }, [selectedNotification?.announcementId]);
+  }, [selectedNotification?.announcementId, isArchived]);
 
   // Firestore Notification Listener
   useEffect(() => {
-    if (!userData?.uid) return;
+    if (isArchived || !userData?.uid) return;
 
     const unsubscribe = notificationService.onNotificationsChange(userData.uid, (notifications) => {
       const now = Date.now();
       
       // Sadece yeni gelen ve okunmamış bildirimleri filtrele
       const newNotifications = (notifications || []).filter(
-        notif => notif && !notif.isRead && new Date(notif.createdAt).getTime() > lastNotificationTime.current
+        notif => notif && !notif.isRead && notif.createdAt && new Date(notif.createdAt).getTime() > lastNotificationTime.current
       );
 
       if (newNotifications.length > 0) {
@@ -151,27 +231,19 @@ export function NotificationListener() {
         // Ekran içi anlık toast göster
         setToastNotification(latestNotif);
 
-        // Tarayıcı push bildirimi gönder (varsa ve izin verildiyse)
-        if ('Notification' in window && Notification.permission === 'granted') {
+        // Titreşim (mobil cihazlar)
+        if (navigator.vibrate) {
           try {
-            const browserNotif = new Notification(latestNotif.title || 'FocusON Akademi', {
-              body: latestNotif.message,
-              icon: '/images/ON-Logo.png',
-              badge: '/images/ON-Logo.png'
-            });
-
-            browserNotif.onclick = () => {
-              window.focus();
-              browserNotif.close();
-              setSelectedNotification(latestNotif);
-              if (!latestNotif.isRead && latestNotif.id) {
-                notificationService.markAsRead(latestNotif.id).catch(() => {});
-              }
-            };
-          } catch (e) {
-            console.error("Tarayıcı bildirimi tetiklenemedi:", e);
-          }
+            navigator.vibrate([150, 75, 150]);
+          } catch (e) {}
         }
+
+        // Sadece tekil sistem bildirimi tetikle
+        showSingleSystemNotification(
+          latestNotif.title || 'FocusON Akademi',
+          latestNotif.message || '',
+          latestNotif
+        );
         
         lastNotificationTime.current = now;
       }
@@ -181,31 +253,36 @@ export function NotificationListener() {
     const listenToFCM = async () => {
       try {
         const payload: any = await fcmService.onMessageListener();
-        if (payload?.notification) {
-          const fcmNotif: AppNotification = {
-            id: 'fcm-' + Date.now(),
-            userId: userData.uid,
-            title: payload.notification.title || 'FocusON Akademi',
-            message: payload.notification.body || '',
-            type: 'system',
-            isRead: false,
-            createdAt: new Date().toISOString(),
-            link: payload.data?.link || '/'
-          };
+        if (payload?.notification || payload?.data) {
+          const title = payload.notification?.title || payload.data?.title || 'FocusON Akademi';
+          const message = payload.notification?.body || payload.data?.body || '';
+          const fcmId = payload.data?.id || payload.messageId;
 
-          setToastNotification(fcmNotif);
+          const fingerprints = getNotificationFingerprint(title, message, fcmId);
 
-          if ('Notification' in window && Notification.permission === 'granted') {
-            const browserNotif = new Notification(fcmNotif.title, {
-              body: fcmNotif.message,
-              icon: '/images/ON-Logo.png',
-              badge: '/images/ON-Logo.png'
+          // If this notification was already shown via Firestore or a previous trigger, suppress duplicate
+          const isDuplicate = fingerprints.some(k => seenNotificationKeys.current.has(k));
+          if (!isDuplicate) {
+            fingerprints.forEach(k => {
+              seenNotificationKeys.current.add(k);
+              setTimeout(() => seenNotificationKeys.current.delete(k), 30000);
             });
-            browserNotif.onclick = () => {
-              window.focus();
-              browserNotif.close();
-              setSelectedNotification(fcmNotif);
+
+            const fcmNotif: AppNotification = {
+              id: fcmId || 'fcm-' + Date.now(),
+              userId: userData.uid,
+              title,
+              message,
+              type: 'system',
+              isRead: false,
+              createdAt: new Date().toISOString(),
+              link: payload.data?.link || '/'
             };
+
+            setToastNotification(fcmNotif);
+            showSingleSystemNotification(title, message, fcmNotif);
+          } else {
+            console.log('[NotificationListener] Duplicate FCM notification suppressed:', title);
           }
         }
         listenToFCM();
@@ -216,8 +293,15 @@ export function NotificationListener() {
 
     listenToFCM();
 
+    // Auto-sync FCM Token if permission was already granted in browser
+    if ('Notification' in window && Notification.permission === 'granted') {
+      fcmService.requestPermissionAndGetToken(userData.uid).catch(err => {
+        console.warn('Auto FCM token registration error:', err);
+      });
+    }
+
     return () => unsubscribe();
-  }, [userData?.uid]);
+  }, [userData?.uid, isArchived]);
 
   // Auto hide toast banner after 7 seconds
   useEffect(() => {
@@ -231,13 +315,15 @@ export function NotificationListener() {
 
   // Classification Helpers
   const isAnnouncement = (notif: AppNotification) => {
+    if (!notif) return false;
     if (notif.announcementId || notif.category) return true;
-    const text = (notif.title + ' ' + notif.message + ' ' + (notif.link || '')).toLowerCase();
+    const text = ((notif.title || '') + ' ' + (notif.message || '') + ' ' + (notif.link || '')).toLowerCase();
     return text.includes('duyuru') || text.includes('announcement') || notif.link?.includes('duyurular');
   };
 
   const isProgram = (notif: AppNotification) => {
-    const text = (notif.title + ' ' + notif.message + ' ' + (notif.link || '')).toLowerCase();
+    if (!notif) return false;
+    const text = ((notif.title || '') + ' ' + (notif.message || '') + ' ' + (notif.link || '')).toLowerCase();
     return text.includes('program') || text.includes('ders takvimi') || text.includes('haftalık') || notif.link?.includes('program');
   };
 
@@ -352,6 +438,10 @@ export function NotificationListener() {
 
   const isParentRole = userData?.role === 'parent';
 
+  if (isArchived) {
+    return null;
+  }
+
   return (
     <>
       {/* Floating In-App Toast Banner */}
@@ -409,7 +499,7 @@ export function NotificationListener() {
           const prioConfig = getPriorityConfig(selectedNotification.priority);
           const actionTarget = getActionTarget(selectedNotification);
           const banner = (selectedNotification.bannerUrl || '').trim();
-          const cleanTitle = selectedNotification.title.replace(/^📢\s*/, '');
+          const cleanTitle = (selectedNotification.title || '').replace(/^📢\s*/, '');
 
           return (
             <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">

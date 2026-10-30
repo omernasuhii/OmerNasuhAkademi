@@ -16,7 +16,9 @@ import {
   CheckCircle2,
   Trash2,
   Play,
-  ChevronRight
+  ChevronRight,
+  Gift,
+  Sparkles
 } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
 import { studentDataService } from '../../services/studentDataService';
@@ -139,8 +141,13 @@ export default function Subscription() {
   // Modal states
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPackage | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [selectedTrialPlan, setSelectedTrialPlan] = useState<SubscriptionPackage | null>(null);
+  const [showTrialModal, setShowTrialModal] = useState(false);
+  const [startingTrial, setStartingTrial] = useState(false);
   const [displayPackages, setDisplayPackages] = useState<SubscriptionPackage[]>(SUBSCRIPTION_PACKAGES);
   const [loadingPricing, setLoadingPricing] = useState(true);
+
+  const isEligibleForTrial = !userData?.hasUsedTrial && !userData?.hasUsedSubscriptionTrial && !isSubscriptionActive(userData);
 
   useEffect(() => {
     async function loadPricing() {
@@ -168,9 +175,9 @@ export default function Subscription() {
           const coachDoc = await getDoc(doc(db, 'users', coachId));
           if (coachDoc.exists()) {
             const data = coachDoc.data();
-            pBronze = data.bronzePrice || 3000;
-            pSilver = data.silverPrice || 4500;
-            pGold = data.goldPrice || 6000;
+            pBronze = data.bronzePrice !== undefined && data.bronzePrice !== null ? data.bronzePrice : 3000;
+            pSilver = data.silverPrice !== undefined && data.silverPrice !== null ? data.silverPrice : 4500;
+            pGold = data.goldPrice !== undefined && data.goldPrice !== null ? data.goldPrice : 6000;
             if (data.specialDeductionRate !== undefined) rate = data.specialDeductionRate;
             if (data.specialMinDeductionBronze !== undefined) minRateBronze = data.specialMinDeductionBronze;
             if (data.specialMinDeductionSilver !== undefined) minRateSilver = data.specialMinDeductionSilver;
@@ -185,15 +192,15 @@ export default function Subscription() {
           snapshot.forEach(d_doc => {
              const d = d_doc.data();
              foundCoach = true;
-             if (d.bronzePrice && d.bronzePrice < minB) minB = d.bronzePrice;
-             if (d.silverPrice && d.silverPrice < minS) minS = d.silverPrice;
-             if (d.goldPrice && d.goldPrice < minG) minG = d.goldPrice;
+             if (d.bronzePrice !== undefined && d.bronzePrice < minB) minB = d.bronzePrice;
+             if (d.silverPrice !== undefined && d.silverPrice < minS) minS = d.silverPrice;
+             if (d.goldPrice !== undefined && d.goldPrice < minG) minG = d.goldPrice;
           });
           
           if (foundCoach) {
-             pBronze = Math.max(1000, minB);
-             pSilver = Math.max(1500, minS);
-             pGold = Math.max(2000, minG);
+             pBronze = Math.max(0, minB);
+             pSilver = Math.max(0, minS);
+             pGold = Math.max(0, minG);
           } else {
              pBronze = 3000;
              pSilver = 4500;
@@ -207,9 +214,24 @@ export default function Subscription() {
         const dGold = specialDiscounts.gold ? Math.floor(pGold * (specialDiscounts.gold / 100)) : 0;
 
         const newPackages = [
-          { ...SUBSCRIPTION_PACKAGES[0], price: pBronze - dBronze, originalPrice: pBronze, systemDeduction: Math.max(Math.floor(pBronze * (rate / 100)), minRateBronze) },
-          { ...SUBSCRIPTION_PACKAGES[1], price: pSilver - dSilver, originalPrice: pSilver, systemDeduction: Math.max(Math.floor(pSilver * (rate / 100)), minRateSilver) },
-          { ...SUBSCRIPTION_PACKAGES[2], price: pGold - dGold, originalPrice: pGold, systemDeduction: Math.max(Math.floor(pGold * (rate / 100)), minRateGold) }
+          { 
+            ...SUBSCRIPTION_PACKAGES[0], 
+            price: Math.max(0, pBronze - dBronze), 
+            originalPrice: pBronze, 
+            systemDeduction: Math.max(Math.floor(pBronze * (rate / 100)), minRateBronze) 
+          },
+          { 
+            ...SUBSCRIPTION_PACKAGES[1], 
+            price: Math.max(0, pSilver - dSilver), 
+            originalPrice: pSilver, 
+            systemDeduction: Math.max(Math.floor(pSilver * (rate / 100)), minRateSilver) 
+          },
+          { 
+            ...SUBSCRIPTION_PACKAGES[2], 
+            price: Math.max(0, pGold - dGold), 
+            originalPrice: pGold, 
+            systemDeduction: Math.max(Math.floor(pGold * (rate / 100)), minRateGold) 
+          }
         ];
         setDisplayPackages(newPackages);
         
@@ -259,7 +281,44 @@ export default function Subscription() {
     setShowConfirmModal(true);
   };
 
-  const executeSubscription = async () => {
+  const handleStartTrialClick = (pkg: SubscriptionPackage) => {
+    setSelectedTrialPlan(pkg);
+    setShowTrialModal(true);
+  };
+
+  const executeTrialStart = async () => {
+    if (!selectedTrialPlan || !user || !userData) return;
+    try {
+      setStartingTrial(true);
+      setError(null);
+      const studentName = `${userData?.firstName || ''} ${userData?.lastName || ''}`.trim() || 'Öğrenci';
+      await studentDataService.startTrialSubscription(user.uid, selectedTrialPlan.name, studentName);
+      
+      setShowTrialModal(false);
+      setSuccess(`🎉 Tebrikler! ${selectedTrialPlan.name} için 7 günlük ücretsiz denemeniz başarıyla başlatıldı.`);
+      
+      // Update local state smoothly
+      const now = new Date();
+      const trialEndDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      await studentDataService.updateStudentProfile(user.uid, {
+        subscriptionPlan: selectedTrialPlan.name,
+        subscriptionStartDate: now.toISOString(),
+        subscriptionEndDate: trialEndDate.toISOString(),
+        subscriptionStatus: 'active',
+        isTrial: true,
+        hasUsedTrial: true
+      });
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (err: any) {
+      setError(err.message || 'Deneme süresi başlatılırken bir hata oluştu.');
+    } finally {
+      setStartingTrial(false);
+    }
+  };
+
+  const executeSubscription = () => {
     if (!selectedPlan || !user || !userData) return;
 
     addToCart({
@@ -270,7 +329,8 @@ export default function Subscription() {
       quantity: 1,
       metadata: {
         durationDays: selectedPlan.durationDays,
-        originalPrice: selectedPlan.originalPrice
+        originalPrice: selectedPlan.originalPrice,
+        systemDeduction: selectedPlan.systemDeduction
       }
     });
 
@@ -385,6 +445,39 @@ export default function Subscription() {
         </div>
       </div>
 
+      {/* First-Time 7-Day Trial Announcement Banner */}
+      {isEligibleForTrial && (
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-gradient-to-r from-amber-500/20 via-indigo-900/30 to-purple-900/20 border border-amber-500/40 rounded-[32px] p-6 md:p-8 relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6 shadow-2xl shadow-amber-500/5"
+        >
+          <div className="absolute top-0 right-0 w-72 h-72 bg-amber-500/10 blur-[90px] pointer-events-none" />
+          <div className="flex items-start md:items-center gap-5 relative z-10">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 flex items-center justify-center font-black shadow-lg shadow-amber-500/20 shrink-0">
+              <Sparkles size={28} />
+            </div>
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-black uppercase tracking-wider">
+                <Gift size={12} /> İLK ABONELİĞİNİZE ÖZEL FIRSAT
+              </div>
+              <h2 className="text-xl md:text-2xl font-black text-white tracking-tight">
+                7 Günlük Ücretsiz Deneme Süresi!
+              </h2>
+              <p className="text-slate-300 text-xs md:text-sm max-w-2xl leading-relaxed">
+                FocusOn Akademi ayrıcalıklarını deneyimlemeniz için ilk aboneliğinize özel olarak dilediğiniz paketi <strong>7 gün boyunca tamamen ücretsiz</strong> deneyebilirsiniz. Kredi kartı veya bakiye zorunluluğu yoktur.
+              </p>
+            </div>
+          </div>
+          <div className="shrink-0 relative z-10 w-full md:w-auto text-center md:text-right">
+            <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-400/20">
+              <Zap size={14} className="fill-slate-950" />
+              ₺0 ile 7 Gün Dene
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {hasActiveSub ? (
         /* CURRENT SUBSCRIPTION BANNER (BENTO GRID style) */
         <motion.div 
@@ -399,7 +492,14 @@ export default function Subscription() {
             
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-2">AKTİF ABONELİK PAKETİNİZ</p>
+                <div className="flex items-center gap-2 mb-2">
+                  <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest">AKTİF ABONELİK PAKETİNİZ</p>
+                  {userData?.isTrial && (
+                    <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                      <Sparkles size={11} /> 7 Günlük Ücretsiz Deneme
+                    </span>
+                  )}
+                </div>
                 <h2 className="text-3xl font-extrabold text-white tracking-tight leading-tight flex flex-col sm:flex-row sm:items-center gap-3">
                   <span>
                     {(() => {
@@ -415,13 +515,21 @@ export default function Subscription() {
                       return userData.subscriptionPlan;
                     })()}
                   </span>
-                  <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full self-start sm:self-auto">
-                    Abonelik Aktif
+                  <span className={`text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full self-start sm:self-auto border ${
+                    userData?.isTrial 
+                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' 
+                      : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  }`}>
+                    {userData?.isTrial ? 'Deneme Aktif' : 'Abonelik Aktif'}
                   </span>
                 </h2>
               </div>
-              <div className="p-3 bg-indigo-500/10 rounded-2xl border border-indigo-500/20 text-indigo-400">
-                <ShieldCheck size={28} />
+              <div className={`p-3 rounded-2xl border ${
+                userData?.isTrial 
+                  ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' 
+                  : 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400'
+              }`}>
+                {userData?.isTrial ? <Sparkles size={28} /> : <ShieldCheck size={28} />}
               </div>
             </div>
 
@@ -429,21 +537,29 @@ export default function Subscription() {
             <div className="my-6 space-y-2">
               <div className="flex items-center justify-between text-xs text-slate-400">
                 <span>Başlangıç: {new Date(userData.subscriptionStartDate).toLocaleDateString('tr-TR')}</span>
-                <span className="font-extrabold text-indigo-300">{daysRemaining} Gün Kaldı</span>
+                <span className={`font-extrabold ${userData?.isTrial ? 'text-amber-300' : 'text-indigo-300'}`}>
+                  {daysRemaining} Gün Kaldı {userData?.isTrial && '(Deneme Sürümü)'}
+                </span>
                 <span>Bitiş: {planExpiryDate?.toLocaleDateString('tr-TR')}</span>
               </div>
               <div className="w-full h-3 bg-black/40 rounded-full overflow-hidden border border-white/5">
                 <motion.div 
                   initial={{ width: 0 }}
-                  animate={{ width: `${Math.min(100, (daysRemaining / 28) * 100)}%` }}
-                  className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full"
+                  animate={{ width: `${Math.min(100, (daysRemaining / (userData?.isTrial ? 7 : 28)) * 100)}%` }}
+                  className={`h-full rounded-full ${
+                    userData?.isTrial 
+                      ? 'bg-gradient-to-r from-amber-400 to-amber-600' 
+                      : 'bg-gradient-to-r from-blue-500 to-indigo-500'
+                  }`}
                 />
               </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-white/5">
               <p className="text-xs text-slate-500 font-medium leading-relaxed max-w-md">
-                Aboneliğiniz 28 günde bir otomatik bakiye düşümü ile yenilenecektir. Cüzdan bakiyenizi takip etmeyi unutmayın.
+                {userData?.isTrial 
+                  ? `7 günlük ücretsiz denemeniz aktif. Süre bitiminde (${planExpiryDate?.toLocaleDateString('tr-TR')}) bakiyeniz yeterliyse paketiniz normal 28 günlük periyotta devam eder veya dilediğiniz an iptal edebilirsiniz.`
+                  : 'Aboneliğiniz 28 günde bir otomatik bakiye düşümü ile yenilenecektir. Cüzdan bakiyenizi takip etmeyi unutmayın.'}
               </p>
               
               <button 
@@ -485,7 +601,9 @@ export default function Subscription() {
               {/* Status Row */}
               <div className="flex items-center justify-between p-4 bg-white/[0.02] border border-white/5 rounded-2xl text-xs">
                 <span className="text-slate-400">Yenilenme Sıklığı</span>
-                <span className="text-slate-200 font-extrabold uppercase">Her 4 Haftada Bir</span>
+                <span className="text-slate-200 font-extrabold uppercase">
+                  {userData?.isTrial ? '7 Günlük Deneme / Sonrası 4 Hafta' : 'Her 4 Haftada Bir'}
+                </span>
               </div>
             </div>
 
@@ -512,7 +630,9 @@ export default function Subscription() {
           <p className="text-sm font-black text-indigo-400 uppercase tracking-widest justify-center mb-3">SİSTEM KULLANIM DURUMU</p>
           <h2 className="text-2xl md:text-3xl font-black text-white leading-tight mb-3">Abonelik Bulunamadı</h2>
           <p className="text-slate-400 text-sm md:text-base max-w-xl mx-auto leading-relaxed mb-6">
-            Herhangi bir aktif aboneliğiniz bulunmamaktadır. Aşağıdaki YKS uyumlu premium paketleri inceleyerek cüzdan bakiyeniz üzerinden anında üyeliğinizi başlatabilirsiniz.
+            {isEligibleForTrial 
+              ? 'İlk aboneliğinize özel 7 günlük ücretsiz deneme fırsatınız bulunmaktadır. Aşağıdaki paketlerden dilediğinizi seçerek hemen 7 gün ücretsiz deneyebilirsiniz.'
+              : 'Herhangi bir aktif aboneliğiniz bulunmamaktadır. Aşağıdaki YKS uyumlu premium paketleri inceleyerek cüzdan bakiyeniz üzerinden anında üyeliğinizi başlatabilirsiniz.'}
           </p>
           <div className="inline-flex items-center gap-3 px-4 py-2 bg-emerald-500/10 border border-emerald-500/25 rounded-2xl text-xs text-emerald-400 font-semibold">
             <Zap size={14} className="fill-emerald-400/20" />
@@ -570,21 +690,46 @@ export default function Subscription() {
                     })()}
                   </h3>
                   <div className="text-center mb-6 md:mb-8">
-                    <span className="text-xs md:text-sm text-slate-400 mr-1">₺</span>
-                    <span className="text-4xl md:text-5xl font-black text-white tracking-tight">{plan.price.toLocaleString('tr-TR')}</span>
+                    {plan.price === 0 ? (
+                      <span className="text-3xl md:text-4xl font-black text-emerald-400 tracking-tight">Ücretsiz</span>
+                    ) : (
+                      <>
+                        <span className="text-xs md:text-sm text-slate-400 mr-1">₺</span>
+                        <span className="text-4xl md:text-5xl font-black text-white tracking-tight">{plan.price.toLocaleString('tr-TR')}</span>
+                      </>
+                    )}
                     {!hasCoach && (
                         <span className="block text-[10px] md:text-xs font-bold text-emerald-400 mt-2 mb-1 lowercase">'den başlayan fiyatlarla</span>
                     )}
                     <span className="block text-[10px] md:text-xs font-bold uppercase tracking-widest text-slate-500 mt-2">4 haftalık kullanım için</span>
                   </div>
                   
-                  <button 
-                    onClick={() => handleSubscribeClick(plan)}
-                    disabled={isCurrent || processing}
-                    className={`w-full font-bold text-sm py-3 px-4 rounded-xl transition-all shadow-lg mb-6 md:mb-8 ${isCurrent ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed' : plan.buttonClass}`}
-                  >
-                    {isCurrent ? 'Mevcut Paketiniz' : (hasActiveSub ? 'Geçiş Yap / Yenile' : 'Abone Ol')}
-                  </button>
+                  {isEligibleForTrial && plan.price > 0 ? (
+                    <div className="space-y-2 mb-6 md:mb-8">
+                      <button 
+                        onClick={() => handleStartTrialClick(plan)}
+                        disabled={processing || startingTrial}
+                        className="w-full font-black text-xs md:text-sm py-3 px-4 rounded-xl transition-all shadow-lg bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 shadow-amber-500/25 flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98]"
+                      >
+                        <Sparkles size={16} /> 7 Gün Ücretsiz Dene
+                      </button>
+                      <button 
+                        onClick={() => handleSubscribeClick(plan)}
+                        disabled={processing || startingTrial}
+                        className="w-full text-center text-xs font-semibold py-2 px-3 text-slate-400 hover:text-white transition-colors flex items-center justify-center gap-1"
+                      >
+                        <span>Doğrudan Satın Al (4 Hafta)</span> <ChevronRight size={13} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button 
+                      onClick={() => handleSubscribeClick(plan)}
+                      disabled={isCurrent || processing}
+                      className={`w-full font-bold text-sm py-3 px-4 rounded-xl transition-all shadow-lg mb-6 md:mb-8 ${isCurrent ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed' : plan.buttonClass}`}
+                    >
+                      {isCurrent ? (userData?.isTrial ? 'Mevcut Deneme Paketiniz' : 'Mevcut Paketiniz') : (plan.price === 0 ? 'Ücretsiz Başlat' : (hasActiveSub ? 'Geçiş Yap / Yenile' : 'Abone Ol'))}
+                    </button>
+                  )}
                 </div>
                 
                 <div className="p-6 md:p-8 pt-0 flex-1">
@@ -634,10 +779,10 @@ export default function Subscription() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm text-slate-400 leading-relaxed">
           <div className="space-y-3">
             <p>
-              <strong className="text-slate-200">1. Sistem Özeti:</strong> Başlatacağınız abonelikler cüzdanınızdaki bakiye eşliğinde oluşturulur ve eğitim içeriklerine erişiminiz kesintisiz olarak aktif edilir.
+              <strong className="text-slate-200">1. Sistem Özeti & 7 Günlük Deneme:</strong> İlk kez abonelik başlatan tüm öğrencilerimiz için 7 günlük ücretsiz deneme imkanı sunulmaktadır. Deneme süresinde hiçbir bakiye kesintisi yapılmaz.
             </p>
             <p>
-              <strong className="text-slate-200">2. Otomatik Yenileme Periyodu:</strong> Üyelik süreleriniz 4 hafta (28 gün) olarak belirlenmiştir. Otomatik yenileme seçeneğiniz açık olduğu sürece süre dolduğunda bakiyeniz olması koşuluyla yenileme otomatik gerçekleşir.
+              <strong className="text-slate-200">2. Otomatik Yenileme Periyodu:</strong> Normal üyelik süreleriniz 4 hafta (28 gün) olarak belirlenmiştir. Otomatik yenileme seçeneğiniz açık olduğu sürece süre dolduğunda bakiyeniz olması koşuluyla yenileme otomatik gerçekleşir.
             </p>
           </div>
           <div className="space-y-3">
@@ -650,6 +795,82 @@ export default function Subscription() {
           </div>
         </div>
       </div>
+
+      {/* 7-DAY FREE TRIAL CONFIRMATION DIALOG MODAL */}
+      {showTrialModal && selectedTrialPlan && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-slate-900 border border-amber-500/30 rounded-[32px] p-8 max-w-lg w-full space-y-6 relative overflow-hidden shadow-2xl shadow-amber-500/10"
+          >
+            <div className="absolute top-0 right-0 w-40 h-40 bg-amber-500/10 blur-[60px] pointer-events-none" />
+            
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-amber-500/20 text-amber-300 rounded-2xl flex items-center justify-center border border-amber-500/30 shrink-0">
+                <Sparkles size={24} />
+              </div>
+              <div>
+                <div className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-amber-400 tracking-wider">
+                  <Gift size={11} /> SADECE İLK ABONELİKTE GEÇERLİ
+                </div>
+                <h3 className="text-lg font-black text-white uppercase tracking-tight">7 GÜNLÜK ÜCRETSİZ DENEME</h3>
+              </div>
+            </div>
+
+            <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-5 space-y-3 text-sm">
+              <div className="flex justify-between items-start">
+                <span className="text-slate-400">Seçilen Paket:</span>
+                <span className="text-white font-bold text-right">{selectedTrialPlan.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Deneme Süresi:</span>
+                <span className="text-emerald-400 font-extrabold">7 Gün Tam Erişim</span>
+              </div>
+              <div className="flex justify-between border-t border-white/5 pt-3">
+                <span className="text-slate-400">Şimdi Ödenecek Tutar:</span>
+                <span className="text-amber-400 font-black text-lg">₺0 (ÜCRETSİZ)</span>
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-300 bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl leading-relaxed flex items-start gap-3">
+              <Sparkles size={18} className="text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-amber-300 mb-1">Deneme Süresi Koşulları:</p>
+                <ul className="list-disc list-inside space-y-1 text-slate-300 text-[11px]">
+                  <li>7 gün boyunca paketin tüm özelliklerini ücretsiz deneyimleyebilirsiniz.</li>
+                  <li>Altın Paket 7 günlük deneme süresinde Yapay Zeka Soru Çözüm Asistanı'na toplam 21 soru sorma hakkı tanımlanır (Normal 4 haftalık abonelikte 140 soru).</li>
+                  <li>Cüzdanınızdan hiçbir ücret kesilmez.</li>
+                  <li>Deneme süresi bitiminde, cüzdanınızda bakiye olması durumunda aboneliğiniz normal periyotla devam eder. Dilediğiniz an tek tıkla iptal edebilirsiniz.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex gap-4">
+              <button
+                onClick={() => setShowTrialModal(false)}
+                disabled={startingTrial}
+                className="flex-1 py-3 border border-white/10 hover:bg-white/5 rounded-xl text-xs font-bold text-slate-400 transition-colors"
+              >
+                Vazgeç
+              </button>
+              <button
+                onClick={executeTrialStart}
+                disabled={startingTrial}
+                className="flex-1 py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 rounded-xl text-xs font-black shadow-lg shadow-amber-500/25 transition-all flex items-center justify-center gap-2"
+              >
+                {startingTrial ? (
+                  <RefreshCw size={16} className="animate-spin" />
+                ) : (
+                  <>
+                    <Sparkles size={16} /> 7 Günlük Denemeyi Başlat
+                  </>
+                )}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* CONFIRM PAY CONFIRMATION DIALOG MODAL */}
       {showConfirmModal && selectedPlan && (
@@ -688,7 +909,9 @@ export default function Subscription() {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Ücret (4 Hafta):</span>
-                <span className="text-yellow-400 font-extrabold">₺{selectedPlan.price.toLocaleString('tr-TR')}</span>
+                <span className={selectedPlan.price === 0 ? "text-emerald-400 font-extrabold" : "text-yellow-400 font-extrabold"}>
+                  {selectedPlan.price === 0 ? '₺0 (Ücretsiz)' : `₺${selectedPlan.price.toLocaleString('tr-TR')}`}
+                </span>
               </div>
               <div className="flex justify-between border-t border-white/5 pt-3 text-xs">
                 <span className="text-slate-500">Hesap Bakiyeniz:</span>
@@ -699,7 +922,11 @@ export default function Subscription() {
             <div className="text-xs text-indigo-400 bg-indigo-500/5 border border-indigo-500/10 p-4 rounded-xl leading-relaxed flex items-start gap-2">
               <Zap size={16} className="shrink-0 mt-0.5" />
               <span>
-                <strong>Bilgi:</strong> Paket sepete eklenecektir. Sepette kupon kullanabilir ve ardından ödemenizi tamamlayabilirsiniz.
+                {selectedPlan.price === 0 ? (
+                  <><strong>Bilgi:</strong> Paket sepete eklenecektir. Sepette 0 ₺ olarak işleminizi onaylayabilirsiniz.</>
+                ) : (
+                  <><strong>Bilgi:</strong> Paket sepete eklenecektir. Sepette kupon kullanabilir ve ardından ödemenizi tamamlayabilirsiniz.</>
+                )}
               </span>
             </div>
 
@@ -712,7 +939,7 @@ export default function Subscription() {
               </button>
               <button
                 onClick={executeSubscription}
-                className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold text-white shadow-lg shadow-indigo-600/25 transition-all flex items-center justify-center gap-2"
+                className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/25 rounded-xl text-xs font-bold text-white shadow-lg transition-all flex items-center justify-center gap-2"
               >
                 Onayla & Sepete Git <ChevronRight size={16} />
               </button>

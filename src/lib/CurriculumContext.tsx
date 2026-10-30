@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from '../lib/firebase';
 import { studentDataService } from '../services/studentDataService';
 import { CURRICULUM as DEFAULT_CURRICULUM } from '../constants/curriculum';
 import { SUBTOPICS as DEFAULT_SUBTOPICS } from '../constants/subtopics';
@@ -39,13 +41,20 @@ export function CurriculumProvider({ children }: { children: ReactNode }) {
     const dbData = await studentDataService.getCurriculum();
     
     if (dbData) {
-      const mergedCurriculum = dbData.subjects && Object.keys(dbData.subjects).length > 0
-        ? { ...DEFAULT_CURRICULUM, ...dbData.subjects }
-        : DEFAULT_CURRICULUM;
-      
-      const mergedSubtopics = dbData.subtopics && Object.keys(dbData.subtopics).length > 0
-        ? { ...DEFAULT_SUBTOPICS, ...dbData.subtopics }
-        : DEFAULT_SUBTOPICS;
+      const sanitizeListMap = (source: any, fallback: Record<string, string[]>): Record<string, string[]> => {
+        const result: Record<string, string[]> = { ...fallback };
+        if (source && typeof source === 'object') {
+          for (const [k, v] of Object.entries(source)) {
+            if (Array.isArray(v)) {
+              result[k] = v.filter(item => typeof item === 'string');
+            }
+          }
+        }
+        return result;
+      };
+
+      const mergedCurriculum = sanitizeListMap(dbData.subjects, DEFAULT_CURRICULUM);
+      const mergedSubtopics = sanitizeListMap(dbData.subtopics, DEFAULT_SUBTOPICS);
 
       setCurriculum(mergedCurriculum);
       setSubtopics(mergedSubtopics);
@@ -54,10 +63,7 @@ export function CurriculumProvider({ children }: { children: ReactNode }) {
       setSubtopics(DEFAULT_SUBTOPICS);
       // Seed db with defaults if authenticated
       try {
-        const { auth } = await import('../lib/firebase');
         if (auth.currentUser) {
-          const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
-          const { db } = await import('../lib/firebase');
           await setDoc(
             doc(db, 'settings', 'curriculum'), 
             { 

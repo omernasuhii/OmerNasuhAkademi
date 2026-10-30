@@ -56,9 +56,9 @@ export default function ParentSubscription() {
           const coachDoc = await getDoc(doc(db, 'users', coachId));
           if (coachDoc.exists()) {
             const data = coachDoc.data();
-            pBronze = data.bronzePrice || 3000;
-            pSilver = data.silverPrice || 4500;
-            pGold = data.goldPrice || 6000;
+            pBronze = data.bronzePrice !== undefined && data.bronzePrice !== null ? data.bronzePrice : 3000;
+            pSilver = data.silverPrice !== undefined && data.silverPrice !== null ? data.silverPrice : 4500;
+            pGold = data.goldPrice !== undefined && data.goldPrice !== null ? data.goldPrice : 6000;
             if (data.specialDeductionRate !== undefined) rate = data.specialDeductionRate;
             if (data.specialMinDeductionBronze !== undefined) minRateBronze = data.specialMinDeductionBronze;
             if (data.specialMinDeductionSilver !== undefined) minRateSilver = data.specialMinDeductionSilver;
@@ -72,9 +72,24 @@ export default function ParentSubscription() {
         const dGold = specialDiscounts.gold ? Math.floor(pGold * (specialDiscounts.gold / 100)) : 0;
 
         const newPackages = [
-          { ...SUBSCRIPTION_PACKAGES[0], price: pBronze - dBronze, originalPrice: pBronze, systemDeduction: Math.max(Math.floor(pBronze * (rate / 100)), minRateBronze) },
-          { ...SUBSCRIPTION_PACKAGES[1], price: pSilver - dSilver, originalPrice: pSilver, systemDeduction: Math.max(Math.floor(pSilver * (rate / 100)), minRateSilver) },
-          { ...SUBSCRIPTION_PACKAGES[2], price: pGold - dGold, originalPrice: pGold, systemDeduction: Math.max(Math.floor(pGold * (rate / 100)), minRateGold) }
+          { 
+            ...SUBSCRIPTION_PACKAGES[0], 
+            price: Math.max(0, pBronze - dBronze), 
+            originalPrice: pBronze, 
+            systemDeduction: Math.max(Math.floor(pBronze * (rate / 100)), minRateBronze) 
+          },
+          { 
+            ...SUBSCRIPTION_PACKAGES[1], 
+            price: Math.max(0, pSilver - dSilver), 
+            originalPrice: pSilver, 
+            systemDeduction: Math.max(Math.floor(pSilver * (rate / 100)), minRateSilver) 
+          },
+          { 
+            ...SUBSCRIPTION_PACKAGES[2], 
+            price: Math.max(0, pGold - dGold), 
+            originalPrice: pGold, 
+            systemDeduction: Math.max(Math.floor(pGold * (rate / 100)), minRateGold) 
+          }
         ];
         setDisplayPackages(newPackages);
         

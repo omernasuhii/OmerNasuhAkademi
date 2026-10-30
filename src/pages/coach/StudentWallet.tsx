@@ -412,7 +412,7 @@ export default function StudentWallet() {
                     <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1">Tarih</div>
                     <div className="font-medium text-white">{new Date(selectedTx.createdAt?.seconds ? selectedTx.createdAt.seconds * 1000 : selectedTx.date || Date.now()).toLocaleString('tr-TR')}</div>
                  </div>
-                 {selectedTx.items && selectedTx.items.length > 0 && (
+                 {Array.isArray(selectedTx.items) && selectedTx.items.length > 0 && (
                     <div>
                        <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-3">Harcanan Kalemler</div>
                        <div className="space-y-3">

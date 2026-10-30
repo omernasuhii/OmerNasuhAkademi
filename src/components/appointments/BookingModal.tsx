@@ -207,7 +207,7 @@ export default function BookingModal({ isOpen, onClose, initialBooking }: Bookin
     
     // Check if date is blocked completely
     let isDayCompletelyBlocked = false;
-    if (coachSchedule.blockedDates) {
+    if (Array.isArray(coachSchedule.blockedDates)) {
       const selectedTime = new Date(`${selectedDate}T00:00:00`).getTime();
       isDayCompletelyBlocked = coachSchedule.blockedDates.some(bd => {
          if (bd.isAllDay !== false) {
@@ -235,7 +235,7 @@ export default function BookingModal({ isOpen, onClose, initialBooking }: Bookin
         let isBooked = false;
         
         // Time-based blocked check
-        if (coachSchedule.blockedDates) {
+        if (Array.isArray(coachSchedule.blockedDates)) {
             const currentDayObj = new Date(`${selectedDate}T00:00:00`).getTime();
             const slotBlockedByTime = coachSchedule.blockedDates.some(bd => {
                 if (bd.isAllDay === false && bd.startTime && bd.endTime) {

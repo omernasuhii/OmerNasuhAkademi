@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { 
   LayoutDashboard, 
   User, 
@@ -31,8 +33,6 @@ import { isSubscriptionActive } from '../../services/subscriptionService';
 import { useStudent } from '../../lib/StudentContext';
 import NotificationBell from '../../components/layout/NotificationBell';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
 
 export default function ParentLayout() {
   const { userData, logout } = useAuth();
@@ -54,7 +54,6 @@ export default function ParentLayout() {
     const fetchActiveStudentData = async () => {
       if (selectedStudent?.uid) {
         try {
-          const { doc, getDoc } = await import('firebase/firestore');
           const studentDoc = await getDoc(doc(db, 'users', selectedStudent.uid));
           if (studentDoc.exists()) {
             setActiveStudentData(studentDoc.data());
@@ -207,7 +206,7 @@ export default function ParentLayout() {
   const isValidStudentSelected = selectedStudent && parentStudents.some(s => s.uid === selectedStudent.uid);
 
   return (
-    <div className="flex flex-1 h-full bg-slate-950 font-sans relative min-w-0">
+    <div className="flex flex-1 h-full bg-slate-950 font-sans relative min-w-0 print:bg-white print:block print:h-auto">
       {/* Mobile Drawer Backdrop */}
       <AnimatePresence>
         {isMobileDrawerOpen && (
@@ -216,14 +215,14 @@ export default function ParentLayout() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setIsMobileDrawerOpen(false)}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden print:hidden"
           />
         )}
       </AnimatePresence>
 
       {/* Sidebar */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 border-r border-white/5 flex flex-col transition-all duration-300
+        fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 border-r border-white/5 flex flex-col transition-all duration-300 print:hidden
         ${isMobileDrawerOpen ? 'translate-x-0' : '-translate-x-full'}
         lg:translate-x-0 lg:static lg:w-64
       `}>
@@ -358,9 +357,9 @@ export default function ParentLayout() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 print:block print:w-full print:p-0 print:m-0">
         {/* Mobile Sub-Header */}
-        <div className="flex lg:hidden items-center gap-3 p-4 bg-slate-900/40 backdrop-blur-xl border-b border-white/10 sticky top-[72px] z-20 shrink-0">
+        <div className="flex lg:hidden items-center gap-3 p-4 bg-slate-900/40 backdrop-blur-xl border-b border-white/10 sticky top-[72px] z-20 shrink-0 print:hidden">
           <button
             onClick={() => setIsMobileDrawerOpen(true)}
             className="p-2 bg-emerald-600/10 border border-emerald-500/20 rounded-xl text-emerald-500"
@@ -378,7 +377,7 @@ export default function ParentLayout() {
           </div>
         </div>
 
-        <div className="flex-1 px-4 md:px-10 pb-4 md:pb-10 pt-2 md:pt-4">
+        <div className="flex-1 px-4 md:px-10 pb-4 md:pb-10 pt-2 md:pt-4 print:p-0 print:m-0 print:w-full">
           {!isValidStudentSelected ? (
             <div className="h-full flex flex-col items-center justify-center text-center max-w-lg mx-auto mt-20">
               <div className="w-20 h-20 bg-emerald-500/10 rounded-3xl flex items-center justify-center text-emerald-500 mb-6 border border-emerald-500/20">

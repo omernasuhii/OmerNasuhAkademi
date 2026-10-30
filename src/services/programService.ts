@@ -113,13 +113,15 @@ export const programService = {
       
       try {
          const progSnap = await getDoc(docRef);
-         if (progSnap.exists() && updates.steps && updates.steps.length > progSnap.data().steps.length) {
+         const progData = progSnap.data();
+         const existingSteps = Array.isArray(progData?.steps) ? progData.steps : [];
+         if (progSnap.exists() && Array.isArray(updates.steps) && updates.steps.length > existingSteps.length) {
             const q = query(collection(db, 'program_enrollments'), where('programId', '==', id));
             const enrSnap = await getDocs(q);
             const notificationPromises = enrSnap.docs.map(doc => 
                notificationService.addNotification(doc.data().studentId, {
                   title: 'Eğitim Güncellendi',
-                  message: `Katıldığın "${progSnap.data().title}" programına yepyeni içerikler eklendi, hemen göz at!`,
+                  message: `Katıldığın "${progData?.title || 'Program'}" programına yepyeni içerikler eklendi, hemen göz at!`,
                   type: 'system',
                   link: '/panel/ogrenci/online-egitimler'
                })

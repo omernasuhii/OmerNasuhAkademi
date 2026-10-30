@@ -643,10 +643,10 @@ export default function ParentReports() {
     }
   };
 
-  exams.forEach((exam) => {
-    const type = (exam.examType || "").toUpperCase();
-    const name = (exam.examName || "").toUpperCase();
-    const net = Number(exam.totalNet) || 0;
+  (Array.isArray(exams) ? exams : []).forEach((exam) => {
+    const type = (exam?.examType || "").toUpperCase();
+    const name = (exam?.examName || "").toUpperCase();
+    const net = Number(exam?.totalNet) || 0;
 
     const isBrans = type === "BRANŞ" || type === "DERS";
 
@@ -694,15 +694,16 @@ export default function ParentReports() {
   });
 
   const getAvg = (list: any[]) => {
-    if (list.length === 0) return null;
-    const sum = list.reduce((acc, curr) => acc + curr.net, 0);
-    return parseFloat((sum / list.length).toFixed(2));
+    const safeList = Array.isArray(list) ? list : [];
+    if (safeList.length === 0) return null;
+    const sum = safeList.reduce((acc, curr) => acc + (Number(curr?.net) || 0), 0);
+    return parseFloat((sum / safeList.length).toFixed(2));
   };
 
   const avgGenelTyt = getAvg(examCategories.genel.TYT);
   const avgGenelAyt = getAvg(examCategories.genel.AYT);
   const avgGenelYdt = getAvg(examCategories.genel.YDT);
-  const avgGenelYks = examCategories.genel.YKS.length > 0 ? getAvg(examCategories.genel.YKS) : null;
+  const avgGenelYks = (examCategories.genel.YKS || []).length > 0 ? getAvg(examCategories.genel.YKS) : null;
 
   const avgBransTyt = getAvg(examCategories.brans.TYT);
   const avgBransAyt = getAvg(examCategories.brans.AYT);

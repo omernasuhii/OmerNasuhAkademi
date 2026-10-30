@@ -357,9 +357,9 @@ const YKS_RECOMMENDATIONS: Subject[] = [
 ];
 
 export default function ChannelRecommendations() {
-  const [activeSubject, setActiveSubject] = useState<string>(YKS_RECOMMENDATIONS[0].id);
+  const [activeSubject, setActiveSubject] = useState<string>(YKS_RECOMMENDATIONS[0]?.id || 'matematik');
 
-  const currentSubject = YKS_RECOMMENDATIONS.find(s => s.id === activeSubject)!;
+  const currentSubject = YKS_RECOMMENDATIONS.find(s => s.id === activeSubject) || YKS_RECOMMENDATIONS[0];
 
   return (
     <div className="px-[5%] sm:px-[8%] md:px-[12%] lg:px-[15%] max-w-[2000px] mx-auto py-12 space-y-12">
@@ -441,19 +441,19 @@ export default function ChannelRecommendations() {
             <Info size={24} />
           </div>
           <div>
-            <h3 className="text-white font-bold tracking-tight">Kıyaslama Konusu: {currentSubject.representativeTopic}</h3>
+            <h3 className="text-white font-bold tracking-tight">Kıyaslama Konusu: {currentSubject?.representativeTopic || ''}</h3>
             <p className="text-slate-500 text-sm">Tüm kanallar bu konu üzerinden örneklendirilmiştir.</p>
           </div>
         </div>
         <div className="px-4 py-2 bg-blue-500/10 text-blue-400 rounded-full text-xs font-black uppercase tracking-widest">
-          {currentSubject.recommendations.length} Öneri
+          {currentSubject?.recommendations?.length || 0} Öneri
         </div>
       </div>
 
       {/* Videos Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 gap-8">
         <AnimatePresence mode="wait">
-          {currentSubject.recommendations.map((rec, index) => (
+          {(currentSubject?.recommendations || []).map((rec, index) => (
             <motion.div
               key={rec.id}
               initial={{ opacity: 0, y: 20 }}

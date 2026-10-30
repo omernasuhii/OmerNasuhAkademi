@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../lib/AuthContext';
 import { studentDataService } from '../../services/studentDataService';
 import { useCurriculum } from '../../lib/CurriculumContext';
 import { formatSubjectName } from '../coach/StudentProgram';
+import { calculateBookProgress as calculateBookProgressUtil, getSafePercentage, getCurriculumTopicsForBook } from '../../utils/bookProgress';
 import { 
   BookOpen, 
   CheckCircle2, 
@@ -15,7 +17,11 @@ import {
   Sparkles, 
   ExternalLink,
   Layers,
-  ChevronRight
+  ChevronRight,
+  BookmarkCheck,
+  Target,
+  ClipboardCheck,
+  Trophy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -29,12 +35,12 @@ export default function BookTrackingDetail() {
   const [expandedSubtopics, setExpandedSubtopics] = useState<Record<string, boolean>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSubject, setFilterSubject] = useState('Hepsi');
-  const [activeTab, setActiveTab] = useState('soru');
-
-  const mergeBookData = (trackerList: any[], globalList: any[]) => {
-    return trackerList.map((tb: any) => {
+  const mergeBookData = (trackerList: any[] = [], globalList: any[] = []) => {
+    const safeTracker = Array.isArray(trackerList) ? trackerList : [];
+    const safeGlobal = Array.isArray(globalList) ? globalList : [];
+    return safeTracker.map((tb: any) => {
       let extraInfo: any = {};
-      const gb = globalList.find((g: any) => 
+      const gb = safeGlobal.find((g: any) => 
         (tb.globalBookId && g.id === tb.globalBookId) ||
         (tb.isbn && g.isbn && g.isbn.trim().toLowerCase() === tb.isbn.trim().toLowerCase()) ||
         ((g.name || '').trim().toLowerCase() === (tb.bookName || '').trim().toLowerCase() && (g.subject || '').trim().toLowerCase() === (tb.subject || '').trim().toLowerCase()) ||
@@ -45,9 +51,9 @@ export default function BookTrackingDetail() {
       );
       if (gb) {
         extraInfo = {
-          videos: (tb.videos && tb.videos.length > 0) ? tb.videos : (gb.videos || []),
+          videos: (Array.isArray(tb.videos) && tb.videos.length > 0) ? tb.videos : (Array.isArray(gb.videos) ? gb.videos : []),
           channelTitle: gb.channelTitle || tb.channelTitle || '',
-          totalVideos: gb.totalVideos || (gb.videos?.length || 0) || tb.totalVideos || 0,
+          totalVideos: gb.totalVideos || (Array.isArray(gb.videos) ? gb.videos.length : 0) || tb.totalVideos || 0,
           totalDurationFormatted: gb.totalDurationFormatted || tb.totalDurationFormatted || '',
           totalDurationMinutes: gb.totalDurationMinutes || tb.totalDurationMinutes || 0,
           topicQuestionCounts: (gb as any).topicQuestionCounts || tb.topicQuestionCounts || {}
@@ -60,9 +66,11 @@ export default function BookTrackingDetail() {
     });
   };
 
+  const [activeTab, setActiveTab] = useState('soru');
+
   const getBookVideos = (book: any) => {
-    if (book.resourceType === 'youtube' || (book.videos && book.videos.length > 0)) {
-      const vids = book.videos || [];
+    if (book?.resourceType === 'youtube' || (Array.isArray(book?.videos) && book.videos.length > 0)) {
+      const vids = Array.isArray(book?.videos) ? book.videos : [];
       if (vids.length > 0) {
         return vids.map((v: any, idx: number) => ({
           id: v.videoId || `vid-${idx}`,
@@ -78,37 +86,7 @@ export default function BookTrackingDetail() {
   };
 
   const calculateBookProgress = (book: any, completedTopics: string[] = []) => {
-    const isYoutube = book.resourceType === 'youtube' || (book.videos && book.videos.length > 0);
-    const validCompletedTopics = Array.isArray(completedTopics) ? completedTopics : [];
-
-    if (isYoutube) {
-      const vids = getBookVideos(book) || [];
-      if (vids.length === 0) return 0;
-      const doneCount = vids.filter(v => v && validCompletedTopics.includes(v.title)).length;
-      return Math.min(100, Math.round((doneCount / vids.length) * 100));
-    }
-
-    const curriculumTopics = CURRICULUM[book.subject as keyof typeof CURRICULUM] || [];
-    if (curriculumTopics.length === 0) return 0;
-
-    let totalWeight = 0;
-    curriculumTopics.forEach((topic: string) => {
-      const subs = SUBTOPICS_MAP?.[topic] || [];
-      if (subs.length > 0) {
-        const doneSubs = subs.filter(s => validCompletedTopics.includes(s)).length;
-        if (validCompletedTopics.includes(topic) || doneSubs === subs.length) {
-          totalWeight += 1;
-        } else {
-          totalWeight += doneSubs / subs.length;
-        }
-      } else {
-        if (validCompletedTopics.includes(topic)) {
-          totalWeight += 1;
-        }
-      }
-    });
-
-    return Math.min(100, Math.round((totalWeight / curriculumTopics.length) * 100));
+    return calculateBookProgressUtil(book, completedTopics, CURRICULUM, SUBTOPICS_MAP);
   };
 
   useEffect(() => {
@@ -118,19 +96,34 @@ export default function BookTrackingDetail() {
         studentDataService.getGlobalBooks()
       ]).then(([trackerData, globalBooksData]) => {
         const merged = mergeBookData(trackerData, globalBooksData);
-        setBooks(merged);
-        if (merged && merged.length > 0) {
-          setExpandedBook(merged[0].id);
+        // Otomatik normalizasyon ve %100'ü geçen eski verileri düzeltme
+        const normalized = merged.map((b: any) => {
+          const safePct = calculateBookProgressUtil(b, b.completedTopics || [], CURRICULUM, SUBTOPICS_MAP);
+          if ((b.completionPercentage || 0) > 100 || (b.completionPercentage || 0) !== safePct) {
+            studentDataService.updateBookProgress(b.id, {
+              ...b,
+              completionPercentage: safePct
+            }).catch(console.error);
+          }
+          return {
+            ...b,
+            completionPercentage: safePct
+          };
+        });
+        setBooks(normalized);
+        if (normalized && normalized.length > 0) {
+          setExpandedBook(normalized[0].id);
         }
         setLoading(false);
       });
     }
-  }, [currentUid]);
+  }, [currentUid, CURRICULUM, SUBTOPICS_MAP]);
 
   const getTaskXP = (type: string) => {
     switch (type) {
       case 'youtube': return 4;
       case 'konu': return 6;
+      case 'fasikul': return 5;
       default: return 20;
     }
   };
@@ -162,22 +155,50 @@ export default function BookTrackingDetail() {
     setBooks(prev => prev.map(b => b.id === book.id ? { ...b, completedTopics: updatedTopics, completionPercentage: percentage } : b));
   };
 
+  // Toggle Deneme (for physical deneme packages)
+  const toggleDeneme = async (book: any, denemeItem: string) => {
+    const currentTopics = Array.isArray(book.completedTopics) ? book.completedTopics : [];
+    const isNowCompleted = !currentTopics.includes(denemeItem);
+    const updatedTopics = isNowCompleted
+      ? [...currentTopics, denemeItem]
+      : currentTopics.filter((t: string) => t !== denemeItem);
+
+    if (currentUid) {
+      studentDataService.awardXP(
+        currentUid,
+        isNowCompleted ? 50 : -50,
+        isNowCompleted ? 'Deneme Tamamlandı' : 'Deneme İptal Edildi'
+      );
+    }
+
+    const percentage = calculateBookProgress(book, updatedTopics);
+
+    await studentDataService.updateBookProgress(book.id, {
+      ...book,
+      completedTopics: updatedTopics,
+      completionPercentage: percentage
+    });
+
+    setBooks(prev => prev.map(b => b.id === book.id ? { ...b, completedTopics: updatedTopics, completionPercentage: percentage } : b));
+  };
+
   // Toggle Main Topic and its subtopics
-  const toggleMainTopic = async (book: any, topic: string, subtopics: string[]) => {
-    const currentTopics = book.completedTopics || [];
-    const isTopicCompleted = currentTopics.includes(topic) || (subtopics.length > 0 && subtopics.every(s => currentTopics.includes(s)));
+  const toggleMainTopic = async (book: any, topic: string, subtopics: string[] = []) => {
+    const currentTopics = Array.isArray(book.completedTopics) ? book.completedTopics : [];
+    const validSubs = Array.isArray(subtopics) ? subtopics : [];
+    const isTopicCompleted = currentTopics.includes(topic) || (validSubs.length > 0 && validSubs.every(s => currentTopics.includes(s)));
     
     let updatedTopics: string[];
     if (isTopicCompleted) {
       // Unmark main topic and all its subtopics
-      const toRemove = new Set([topic, ...subtopics]);
+      const toRemove = new Set([topic, ...validSubs]);
       updatedTopics = currentTopics.filter(t => !toRemove.has(t));
       if (currentUid) {
         studentDataService.awardXP(currentUid, -getTaskXP(book.resourceType), 'Konu İptal Edildi');
       }
     } else {
       // Mark main topic and all its subtopics
-      const toAdd = [topic, ...subtopics];
+      const toAdd = [topic, ...validSubs];
       updatedTopics = Array.from(new Set([...currentTopics, ...toAdd]));
       if (currentUid) {
         studentDataService.awardXP(currentUid, getTaskXP(book.resourceType), 'Konu Tamamlandı');
@@ -196,9 +217,10 @@ export default function BookTrackingDetail() {
   };
 
   // Toggle Single Subtopic
-  const toggleSubtopic = async (book: any, mainTopic: string, subtopic: string, allSubtopics: string[]) => {
-    const currentTopics = book.completedTopics || [];
+  const toggleSubtopic = async (book: any, mainTopic: string, subtopic: string, allSubtopics: string[] = []) => {
+    const currentTopics = Array.isArray(book.completedTopics) ? book.completedTopics : [];
     const isSubCompleted = currentTopics.includes(subtopic);
+    const validSubs = Array.isArray(allSubtopics) ? allSubtopics : [];
     
     let updatedTopics: string[];
     if (isSubCompleted) {
@@ -208,7 +230,7 @@ export default function BookTrackingDetail() {
       // Add subtopic
       const newSubs = [...currentTopics, subtopic];
       // Check if all subtopics are now done
-      const allDone = allSubtopics.every(s => s === subtopic || newSubs.includes(s));
+      const allDone = validSubs.length > 0 && validSubs.every(s => s === subtopic || newSubs.includes(s));
       if (allDone) {
         updatedTopics = Array.from(new Set([...newSubs, mainTopic]));
       } else {
@@ -235,7 +257,7 @@ export default function BookTrackingDetail() {
 
   // Toggle all subtopics expand for a book
   const toggleAllSubtopicsExpand = (book: any, expand: boolean) => {
-    const curriculumTopics = CURRICULUM[book.subject as keyof typeof CURRICULUM] || [];
+    const curriculumTopics = getCurriculumTopicsForBook(book, CURRICULUM) || [];
     const updates: Record<string, boolean> = {};
     curriculumTopics.forEach((t: string) => {
       updates[`${book.id}-${t}`] = expand;
@@ -291,24 +313,37 @@ export default function BookTrackingDetail() {
         </div>
       </div>
 
-      <div className="flex bg-slate-900 border border-white/5 rounded-xl p-1 mb-6">
+      <div className="flex bg-slate-900 border border-white/5 rounded-xl p-1 mb-6 gap-1 flex-wrap">
          <button 
             onClick={() => setActiveTab('soru')}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-bold rounded-lg transition-all ${activeTab === 'soru' ? 'bg-indigo-500 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+            className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-3 text-xs sm:text-sm font-bold rounded-lg transition-all ${activeTab === 'soru' ? 'bg-indigo-500 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
          >
             Soru Bankası
          </button>
          <button 
+            onClick={() => setActiveTab('fasikul')}
+            className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-3 text-xs sm:text-sm font-bold rounded-lg transition-all ${activeTab === 'fasikul' ? 'bg-purple-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+         >
+            Soru Fasikülü
+         </button>
+         <button 
+            onClick={() => setActiveTab('konu')}
+            className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-3 text-xs sm:text-sm font-bold rounded-lg transition-all ${activeTab === 'konu' ? 'bg-orange-500 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+         >
+            Konu Anlatımı
+         </button>
+         <button 
             onClick={() => setActiveTab('youtube')}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-bold rounded-lg transition-all ${activeTab === 'youtube' ? 'bg-red-500 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+            className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-3 text-xs sm:text-sm font-bold rounded-lg transition-all ${activeTab === 'youtube' ? 'bg-red-500 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
          >
             YouTube Kanalı
          </button>
          <button 
-            onClick={() => setActiveTab('konu')}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-bold rounded-lg transition-all ${activeTab === 'konu' ? 'bg-orange-500 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+            onClick={() => setActiveTab('deneme')}
+            className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 py-3 text-xs sm:text-sm font-bold rounded-lg transition-all ${activeTab === 'deneme' ? 'bg-rose-500 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
          >
-            Konu Çalışması
+            <Target size={15} />
+            Deneme Paketleri
          </button>
       </div>
 
@@ -316,34 +351,38 @@ export default function BookTrackingDetail() {
       <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center gap-3 text-xs text-indigo-300">
         <Sparkles size={20} className="text-indigo-400 shrink-0 animate-pulse" />
         <div>
-          <span className="font-bold text-white block">Ana Başlık & Alt Başlık Takip Sistemi</span>
+          <span className="font-bold text-white block">Ana Başlık, Alt Başlık & Deneme Takip Sistemi</span>
           <span className="text-slate-300">
-            Konuların önce ana başlıklarını görebilir, dilediğinizde alt başlıkları açarak detaylı takip yapabilirsiniz. Programda tamamlanan görevler buraya otomatik yansır.
+            Soru bankaları, konu anlatımları ve fiziksel deneme paketlerindeki ilerlemenizi buradan takip edebilirsiniz. Deneme görevlerini tamamlarken netlerinizi girerek anlık gelişim grafiklerinizi güncelleyebilirsiniz.
           </span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6">
         {filteredBooks.map((book) => {
-          const isYoutube = book.resourceType === 'youtube' || (book.videos && book.videos.length > 0);
-          const videos = isYoutube ? getBookVideos(book) : [];
-          const curriculumTopics = !isYoutube ? (CURRICULUM[book.subject as keyof typeof CURRICULUM] || []) : [];
-          const completedTopicsList = book.completedTopics || [];
+          const isYoutube = book.resourceType === 'youtube' || (Array.isArray(book.videos) && book.videos.length > 0);
+          const isDeneme = book.resourceType === 'deneme';
+          const videos = isYoutube ? (getBookVideos(book) || []) : [];
+          const curriculumTopics = !isYoutube ? (getCurriculumTopicsForBook(book, CURRICULUM) || []) : [];
+          const completedTopicsList = Array.isArray(book.completedTopics) ? book.completedTopics : [];
 
           // Calculate completed main topics count
           let completedMainCount = 0;
-          if (!isYoutube) {
+          if (isDeneme) {
+            completedMainCount = curriculumTopics.filter((t: string) => completedTopicsList.includes(t)).length;
+          } else if (!isYoutube) {
             curriculumTopics.forEach((t: string) => {
-              const subs = SUBTOPICS_MAP?.[t] || [];
+              const subs = Array.isArray(SUBTOPICS_MAP?.[t]) ? SUBTOPICS_MAP[t] : [];
               if (completedTopicsList.includes(t) || (subs.length > 0 && subs.every(s => completedTopicsList.includes(s)))) {
                 completedMainCount++;
               }
             });
           } else {
-            completedMainCount = videos.filter(v => completedTopicsList.includes(v.title)).length;
+            completedMainCount = (videos || []).filter((v: any) => completedTopicsList.includes(v?.title)).length;
           }
 
-          const totalItemsCount = isYoutube ? videos.length : curriculumTopics.length;
+          const totalItemsCount = isYoutube ? (videos?.length || 0) : (curriculumTopics?.length || 0);
+          const safeMainCount = Math.min(totalItemsCount, Math.max(0, completedMainCount));
           
           return (
             <div key={book.id} className="bg-slate-900/40 border border-white/5 rounded-3xl overflow-hidden group">
@@ -352,18 +391,38 @@ export default function BookTrackingDetail() {
                 onClick={() => setExpandedBook(expandedBook === book.id ? null : book.id)}
               >
                 <div className="flex items-center gap-6">
-                  <div className={`flex items-center justify-center p-3 rounded-2xl w-12 h-12 ${isYoutube ? 'bg-red-500/10 text-red-500' : book.resourceType === 'konu' ? 'bg-orange-500/10 text-orange-400' : 'bg-indigo-500/10 text-indigo-400'}`}>
-                    {isYoutube ? <Youtube size={24} /> : book.resourceType === 'konu' ? <FileText size={24} /> : <BookOpen size={24} />}
+                  <div className={`flex items-center justify-center p-3 rounded-2xl w-12 h-12 ${
+                    isYoutube 
+                      ? 'bg-red-500/10 text-red-500' 
+                      : isDeneme
+                        ? 'bg-rose-500/10 text-rose-400'
+                        : book.resourceType === 'fasikul'
+                          ? 'bg-purple-500/10 text-purple-400'
+                          : book.resourceType === 'konu' 
+                            ? 'bg-orange-500/10 text-orange-400' 
+                            : 'bg-indigo-500/10 text-indigo-400'
+                  }`}>
+                    {isYoutube ? <Youtube size={24} /> : isDeneme ? <Target size={24} /> : book.resourceType === 'fasikul' ? <BookmarkCheck size={24} /> : book.resourceType === 'konu' ? <FileText size={24} /> : <BookOpen size={24} />}
                   </div>
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">{formatSubjectName(book.subject, book.type)}</span>
                       <span className="text-[10px] font-bold text-slate-600">•</span>
-                      <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${isYoutube ? 'bg-red-500/10 text-red-500' : book.resourceType === 'konu' ? 'bg-orange-500/10 text-orange-500' : 'bg-slate-500/10 text-slate-400'}`}>
-                         {isYoutube ? 'YOUTUBE' : book.resourceType === 'konu' ? 'KONU' : 'SORU'}
+                      <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${
+                        isYoutube 
+                          ? 'bg-red-500/10 text-red-500' 
+                          : isDeneme
+                            ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                            : book.resourceType === 'fasikul'
+                              ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30'
+                              : book.resourceType === 'konu' 
+                                ? 'bg-orange-500/10 text-orange-500' 
+                                : 'bg-slate-500/10 text-slate-400'
+                      }`}>
+                         {isYoutube ? 'YOUTUBE' : isDeneme ? 'DENEME' : book.resourceType === 'fasikul' ? 'FASİKÜL' : book.resourceType === 'konu' ? 'KONU' : 'SORU'}
                       </span>
                       <span className="text-[10px] font-bold text-slate-600">•</span>
-                      <span className="text-[10px] font-bold text-slate-500 uppercase">{completedMainCount} / {totalItemsCount} {isYoutube ? 'Video' : 'Ana Konu'}</span>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase">{safeMainCount} / {totalItemsCount} {isYoutube ? 'Video' : isDeneme ? 'Deneme' : 'Ana Konu'}</span>
                       {isYoutube && book.totalDurationFormatted && (
                         <>
                           <span className="text-[10px] font-bold text-slate-600">•</span>
@@ -372,6 +431,18 @@ export default function BookTrackingDetail() {
                       )}
                     </div>
                     <h4 className="text-lg font-bold text-white mt-1 uppercase">{book.bookName}</h4>
+                    {isDeneme && (
+                      <p className="text-xs font-semibold text-rose-300 mt-1 flex items-center gap-1.5">
+                        <Trophy size={13} className="text-rose-400 shrink-0" />
+                        <span>Toplam {book.totalExamCount || totalItemsCount || 10} Deneme Paketi</span>
+                      </p>
+                    )}
+                    {book.resourceType === 'fasikul' && Array.isArray(book.coveredTopics) && book.coveredTopics.length > 0 && (
+                      <p className="text-xs font-semibold text-purple-300 mt-1 flex items-center gap-1.5">
+                        <BookmarkCheck size={13} className="text-purple-400 shrink-0" />
+                        <span>Kapsam: {book.coveredTopics.join(', ')}</span>
+                      </p>
+                    )}
                     {isYoutube && book.channelTitle && book.channelTitle !== book.bookName && (
                       <p className="text-xs font-semibold text-red-400/80 mt-0.5">{book.channelTitle}</p>
                     )}
@@ -385,11 +456,11 @@ export default function BookTrackingDetail() {
                     <div className="flex items-center gap-3">
                       <div className="w-32 h-1.5 bg-white/5 rounded-full overflow-hidden">
                         <div 
-                          className="h-full bg-emerald-500 transition-all duration-500"
-                          style={{ width: `${book.completionPercentage || 0}%` }}
+                          className={`h-full transition-all duration-500 ${isDeneme ? 'bg-rose-500' : 'bg-emerald-500'}`}
+                          style={{ width: `${getSafePercentage(book.completionPercentage)}%` }}
                         />
                       </div>
-                      <span className="text-xl font-black text-white">%{book.completionPercentage || 0}</span>
+                      <span className="text-xl font-black text-white">%{getSafePercentage(book.completionPercentage)}</span>
                     </div>
                   </div>
                   {expandedBook === book.id ? <ChevronUp className="text-slate-500" /> : <ChevronDown className="text-slate-500" />}
@@ -407,16 +478,20 @@ export default function BookTrackingDetail() {
                     <div className="p-6">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 pb-3 border-b border-white/5">
                         <div className="flex items-center gap-2">
-                          <Sparkles size={16} className="text-emerald-400" />
+                          <Sparkles size={16} className={isDeneme ? 'text-rose-400' : 'text-emerald-400'} />
                           <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                            {isYoutube ? 'Video / Kamp Takip Listesi' : 'Ana Konu & Alt Başlık Takibi'}
+                            {isYoutube ? 'Video / Kamp Takip Listesi' : isDeneme ? 'Deneme Sınavları & Net Girişi' : 'Ana Konu & Alt Başlık Takibi'}
                           </span>
-                          <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                            {completedMainCount} / {totalItemsCount} Tamamlandı
+                          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                            isDeneme 
+                              ? 'text-rose-400 bg-rose-500/10 border-rose-500/20' 
+                              : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+                          }`}>
+                            {completedMainCount} / {totalItemsCount} {isDeneme ? 'Deneme Çözüldü' : 'Tamamlandı'}
                           </span>
                         </div>
 
-                        {!isYoutube && (
+                        {!isYoutube && !isDeneme && (
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
@@ -435,6 +510,87 @@ export default function BookTrackingDetail() {
                           </div>
                         )}
                       </div>
+
+                      {/* Deneme Paketleri Sınav Listesi */}
+                      {isDeneme && (
+                        <div className="space-y-3">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-rose-500/5 border border-rose-500/20">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shrink-0">
+                                <Target size={16} />
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold text-white">Deneme Takibi & Sonuç Girişi</p>
+                                <p className="text-[11px] text-slate-400">
+                                  Çözdüğünüz denemeleri doğrudan işaretleyebilir veya detaylı net analizi girmek için Denemeler alanını kullanabilirsiniz.
+                                </p>
+                              </div>
+                            </div>
+                            <Link
+                              to={`/panel/ogrenci/denemeler?packageId=${encodeURIComponent(book.id)}&action=new`}
+                              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-bold border border-rose-500/30 transition-all shrink-0 shadow-sm"
+                            >
+                              <Trophy size={13} />
+                              <span>Deneme Sonucu Gir</span>
+                            </Link>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                            {curriculumTopics.map((denemeItem: string, dIdx: number) => {
+                              const isCompleted = completedTopicsList.includes(denemeItem);
+                              return (
+                                <div
+                                  key={denemeItem || dIdx}
+                                  onClick={() => toggleDeneme(book, denemeItem)}
+                                  className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-3 text-left group/topic cursor-pointer ${
+                                    isCompleted
+                                      ? 'bg-rose-500/10 border-rose-500/30 text-rose-300 shadow-sm'
+                                      : 'bg-white/5 border-white/5 text-slate-300 hover:border-rose-500/40 hover:bg-rose-500/5'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                                    <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all shrink-0 ${
+                                      isCompleted ? 'bg-rose-500 border-rose-500 text-white font-bold' : 'border-white/20 group-hover/topic:border-rose-400'
+                                    }`}>
+                                      {isCompleted ? <ClipboardCheck size={13} className="stroke-[3]" /> : <Target size={11} className="text-slate-500" />}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-[10px] font-mono text-slate-500">#{dIdx + 1}</span>
+                                        <span className={`text-xs font-bold truncate ${isCompleted ? 'text-rose-200' : 'text-white'}`}>
+                                          {denemeItem}
+                                        </span>
+                                      </div>
+                                      <span className="text-[10px] text-slate-500 block">
+                                        {isCompleted ? 'Çözüldü olarak işaretlendi' : 'Çözüldü olarak işaretle'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="shrink-0 flex items-center gap-1.5">
+                                    <Link
+                                      to={`/panel/ogrenci/denemeler?packageId=${encodeURIComponent(book.id)}&topic=${encodeURIComponent(denemeItem)}&action=new`}
+                                      onClick={(e) => e.stopPropagation()}
+                                      title="Bu denemenin net sonucunu gir"
+                                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-300 hover:bg-rose-500/20 border border-white/5 hover:border-rose-500/30 transition-all"
+                                    >
+                                      <Trophy size={12} />
+                                    </Link>
+                                    {isCompleted ? (
+                                      <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                        ✓ Çözüldü
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] font-bold text-slate-400 group-hover/topic:text-rose-300 bg-white/5 px-2 py-1 rounded-lg border border-white/10 flex items-center gap-1">
+                                        <span>İşaretle</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
 
                       {/* YouTube Video List */}
                       {isYoutube && (
@@ -496,10 +652,10 @@ export default function BookTrackingDetail() {
                       )}
 
                       {/* Standard Book Curriculum Topics with Subtopics */}
-                      {!isYoutube && (
+                      {!isYoutube && !isDeneme && (
                         <div className="space-y-3">
-                          {curriculumTopics.map((topic: string, idx: number) => {
-                            const subtopics = SUBTOPICS_MAP?.[topic] || [];
+                          {(curriculumTopics || []).map((topic: string, idx: number) => {
+                            const subtopics = Array.isArray(SUBTOPICS_MAP?.[topic]) ? SUBTOPICS_MAP[topic] : [];
                             const doneSubCount = subtopics.filter(s => completedTopicsList.includes(s)).length;
                             const isTopicCompleted = completedTopicsList.includes(topic) || (subtopics.length > 0 && doneSubCount === subtopics.length);
                             const isPartial = !isTopicCompleted && doneSubCount > 0;
@@ -653,7 +809,9 @@ export default function BookTrackingDetail() {
         {filteredBooks.length === 0 && (
           <div className="bg-white/5 border border-white/5 border-dashed rounded-3xl p-20 text-center">
             <BookOpen className="mx-auto text-slate-700 mb-4" size={48} />
-            <p className="text-slate-500 font-bold italic uppercase tracking-widest text-sm">Takip edilen kitap bulunamadı</p>
+            <p className="text-slate-500 font-bold italic uppercase tracking-widest text-sm">
+              {activeTab === 'deneme' ? 'Takip edilen fiziksel deneme paketi bulunamadı' : 'Takip edilen kitap bulunamadı'}
+            </p>
           </div>
         )}
       </div>

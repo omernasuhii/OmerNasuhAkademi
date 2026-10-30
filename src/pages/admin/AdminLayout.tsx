@@ -267,13 +267,14 @@ export default function AdminLayout() {
       group: 'Sistem',
       items: [
         { title: 'Sistem Ayarları', path: 'ayarlar', icon: Settings },
+        { title: 'Hata Logları & Teşhis', path: 'hata-loglari', icon: ShieldAlert },
         { title: 'CMS', path: 'cms', icon: Globe },
       ]
     }
   ];
 
   return (
-    <div className="flex flex-1 h-full bg-[#070b14] font-sans relative min-w-0">
+    <div className="flex flex-1 min-h-screen bg-[#070b14] font-sans relative min-w-0">
       {/* Sidebar Toggle Trigger (Visible when collapsed on desktop) */}
       <AnimatePresence>
         {isSidebarCollapsed && (
@@ -307,7 +308,7 @@ export default function AdminLayout() {
         bg-[#070b14]/95 border-r border-white/5 flex flex-col shrink-0 z-50 transition-all duration-300 print:hidden
         fixed inset-y-0 left-0 w-80 max-w-[calc(100vw-3rem)]
         ${isMobileDrawerOpen ? 'translate-x-0' : '-translate-x-full'}
-        lg:translate-x-0 lg:static
+        lg:translate-x-0 lg:static lg:h-auto lg:min-h-full
         ${isSidebarCollapsed ? 'lg:w-0 lg:opacity-0 lg:pointer-events-none' : 'lg:w-80 lg:opacity-100'}
       `}>
         {/* Toggle Button Inside Sidebar (Desktop only) */}
@@ -353,7 +354,7 @@ export default function AdminLayout() {
           </div>
         </div>
 
-        <nav className="px-4 pb-10 space-y-8 overflow-y-auto custom-scrollbar flex-1">
+        <nav className="px-4 pb-16 space-y-8 overflow-y-auto lg:overflow-y-visible lg:h-auto flex-1 lg:flex-none no-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {menuGroups.map((group) => (
             <div key={group.group}>
               <h3 className="px-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-600 mb-4 flex items-center justify-between">
@@ -471,7 +472,11 @@ export default function AdminLayout() {
           </div>
         </div>
 
-        <div className={location.pathname.includes('/randevular') ? "flex-1 w-full relative min-h-[calc(100vh-96px)]" : "px-4 md:px-8 lg:px-12 w-full pb-8 pt-2 md:pt-4"}>
+        <div className={
+          location.pathname.includes('/randevular') || location.pathname.includes('/sosyal-medya-ajansi') || location.pathname.includes('/ai-ajans')
+            ? "flex-1 w-full relative h-[calc(100vh-73px)] overflow-hidden p-2 md:p-3" 
+            : "px-4 md:px-8 lg:px-12 w-full pb-8 pt-2 md:pt-4"
+        }>
           <Outlet />
         </div>
       </main>

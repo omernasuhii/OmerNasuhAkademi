@@ -32,6 +32,7 @@ import AdminCoupons from "./pages/admin/AdminCoupons";
 import AdminAutoDiscounts from "./pages/admin/AdminAutoDiscounts";
 import ProductsManagement from "./pages/admin/ProductsManagement";
 import CMSManagement from "./pages/admin/CMSManagement";
+import AdminErrorLogs from "./pages/admin/AdminErrorLogs";
 import ReferralSettings from "./pages/admin/ReferralSettings";
 import FinancialStatus from "./pages/admin/FinancialStatus";
 import StudentLayout from "./pages/students/StudentLayout";
@@ -248,8 +249,6 @@ export default function App() {
               <Route path="/rapor/*" element={<PublicReportViewer />} />
               <Route path="/pdf/:reportId" element={<PublicReportViewer />} />
               <Route path="/pdf/*" element={<PublicReportViewer />} />
-              <Route path="/api/reports/pdf/:reportId" element={<PublicReportViewer />} />
-              <Route path="/api/reports/pdf/*" element={<PublicReportViewer />} />
               <Route
                 path="/kanal-onerileri"
                 element={<ChannelRecommendations />}
@@ -362,6 +361,7 @@ export default function App() {
                 <Route path="otomasyonlar" element={<ComingSoonAdmin />} />
                 <Route path="ayarlar" element={<SystemSettings />} />
                 <Route path="sistem-ayarlari" element={<SystemSettings />} />
+                <Route path="hata-loglari" element={<AdminErrorLogs />} />
                 <Route path="cms" element={<CMSManagement />} />
 
                 {/* Akademik Araçlar */}
@@ -565,6 +565,12 @@ export default function App() {
                 path="/panel/koc/veri-girisi"
                 element={
                   <Navigate to="/panel/koc/ogrenci/veri-girisi" replace />
+                }
+              />
+              <Route
+                path="/student/exams"
+                element={
+                  <Navigate to="/panel/ogrenci/denemeler" replace />
                 }
               />
             </Routes>

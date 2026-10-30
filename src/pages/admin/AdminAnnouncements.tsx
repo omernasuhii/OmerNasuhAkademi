@@ -26,7 +26,9 @@ import {
   Check,
   RefreshCw,
   BarChart2,
-  FileText
+  FileText,
+  Sliders,
+  Zap
 } from 'lucide-react';
 import { 
   collection, 
@@ -44,6 +46,7 @@ import {
 import { db } from '../../lib/firebase';
 import { notificationService } from '../../services/notificationService';
 import { motion, AnimatePresence } from 'motion/react';
+import NotificationSettingsTab from '../../components/admin/NotificationSettingsTab';
 
 export interface Announcement {
   id: string;
@@ -66,6 +69,7 @@ export interface Announcement {
 }
 
 export default function AdminAnnouncements() {
+  const [activeMainTab, setActiveMainTab] = useState<'announcements' | 'notifications'>('announcements');
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -387,43 +391,75 @@ export default function AdminAnnouncements() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
-      {/* Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-purple-950/40 border border-white/10 rounded-3xl p-6 md:p-8 shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full flex items-center gap-1.5">
-                <Megaphone size={14} /> Bilgilendirme & Duyuru Portalı
-              </span>
-            </div>
-            <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight uppercase">
-              Duyuru Yönetimi
-            </h1>
-            <p className="text-slate-400 text-xs md:text-sm mt-1 font-medium max-w-xl">
-              Öğrencilere, koçlara, velilere veya tüm ekosisteme yönelik duyuru yayınlayın, öne çıkarın ve anlık sistem bildirimleri gönderin.
-            </p>
-          </div>
+      {/* Top Main Tab Navigation */}
+      <div className="flex flex-wrap items-center gap-3 p-1.5 bg-slate-900/80 border border-white/10 rounded-2xl w-fit backdrop-blur-md">
+        <button
+          onClick={() => setActiveMainTab('announcements')}
+          className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+            activeMainTab === 'announcements'
+              ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/25'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <Megaphone size={16} />
+          <span>Duyurular & Bildirimler</span>
+        </button>
 
-          <div className="flex items-center gap-3 shrink-0">
-            <button
-              onClick={fetchAnnouncements}
-              disabled={loading}
-              className="px-4 py-2.5 bg-slate-950 hover:bg-slate-800 border border-white/10 text-white rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
-            >
-              <RefreshCw size={14} className={loading ? "animate-spin text-purple-400" : "text-slate-400"} />
-              <span>Yenile</span>
-            </button>
-            <button
-              onClick={handleOpenCreate}
-              className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-2xl text-xs font-black transition-all flex items-center gap-2 shadow-lg shadow-purple-600/20 cursor-pointer active:scale-95"
-            >
-              <Plus size={16} />
-              <span>Yeni Duyuru Oluştur</span>
-            </button>
-          </div>
-        </div>
+        <button
+          onClick={() => setActiveMainTab('notifications')}
+          className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+            activeMainTab === 'notifications'
+              ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/25'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <Sliders size={16} />
+          <span>Otomatik Bildirim & Zamanlayıcı Ayarları</span>
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+        </button>
       </div>
+
+      {activeMainTab === 'notifications' ? (
+        <NotificationSettingsTab />
+      ) : (
+        <>
+          {/* Header Banner */}
+          <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-purple-950/40 border border-white/10 rounded-3xl p-6 md:p-8 shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full flex items-center gap-1.5">
+                    <Megaphone size={14} /> Bilgilendirme & Duyuru Portalı
+                  </span>
+                </div>
+                <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight uppercase">
+                  Duyuru Yönetimi
+                </h1>
+                <p className="text-slate-400 text-xs md:text-sm mt-1 font-medium max-w-xl">
+                  Öğrencilere, koçlara, velilere veya tüm ekosisteme yönelik duyuru yayınlayın, öne çıkarın ve anlık sistem bildirimleri gönderin.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  onClick={fetchAnnouncements}
+                  disabled={loading}
+                  className="px-4 py-2.5 bg-slate-950 hover:bg-slate-800 border border-white/10 text-white rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={loading ? "animate-spin text-purple-400" : "text-slate-400"} />
+                  <span>Yenile</span>
+                </button>
+                <button
+                  onClick={handleOpenCreate}
+                  className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-2xl text-xs font-black transition-all flex items-center gap-2 shadow-lg shadow-purple-600/20 cursor-pointer active:scale-95"
+                >
+                  <Plus size={16} />
+                  <span>Yeni Duyuru Oluştur</span>
+                </button>
+              </div>
+            </div>
+          </div>
 
       {/* KPI Stat Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -928,6 +964,8 @@ export default function AdminAnnouncements() {
           </div>
         )}
       </AnimatePresence>
+        </>
+      )}
     </div>
   );
 }

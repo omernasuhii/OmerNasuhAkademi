@@ -48,6 +48,7 @@ const TITLE_MAP: Record<string, string> = {
   '/panel/admin/ucretli-abonelikler': 'Finans & Kesinti Ayarları',
   '/panel/admin/ayarlar': 'Sistem Ayarları',
   '/panel/admin/sistem-ayarlari': 'Sistem Ayarları',
+  '/panel/admin/hata-loglari': 'Sistem Hata Logları & Teşhis',
   '/panel/admin/duyurular': 'Duyuru Yönetimi',
   '/panel/admin/etkinlikler': 'Etkinlik Yönetimi',
   '/panel/admin/programlar': 'Program Yönetimi',

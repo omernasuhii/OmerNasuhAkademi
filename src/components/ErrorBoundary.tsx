@@ -1,4 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from "react";
+import { systemLogger } from "../services/systemLogger";
 
 interface Props {
   children?: ReactNode;
@@ -44,6 +45,15 @@ export class ErrorBoundary extends Component<Props, State> {
       error,
       errorInfo
     });
+
+    // Safely log crash to system error logs infrastructure
+    try {
+      systemLogger.logCrash("ReactErrorBoundary", error, {
+        componentStack: errorInfo?.componentStack
+      });
+    } catch (e) {
+      console.warn("Could not log crash via systemLogger:", e);
+    }
   }
 
   private handleReset = () => {

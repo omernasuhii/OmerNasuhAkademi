@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Mail, Lock, User, Phone, LogIn, ChevronLeft, Loader2, AlertCircle, CheckCircle2, GraduationCap, RefreshCw, MessageCircle } from "lucide-react";
+import { Mail, Lock, User, Phone, LogIn, ChevronLeft, Loader2, AlertCircle, CheckCircle2, GraduationCap, RefreshCw, MessageCircle, Gift, Sparkles } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, fetchSignInMethodsForEmail } from "firebase/auth";
 import { doc, setDoc, serverTimestamp, collection, query, where, getDocs, getDoc } from "firebase/firestore";
@@ -112,7 +112,7 @@ export default function Register() {
       if (userDoc.exists() && userDoc.data()?.role) {
         // Zaten kayıtlı
         const r = userDoc.data()?.role;
-        if (r === "admin") navigate("/panel/admin");
+        if (r === "admin") navigate("/");
         else if (r === "coach") navigate("/panel/koc");
         else if (r === "parent") navigate("/panel/veli");
         else navigate("/panel/ogrenci");
@@ -146,9 +146,21 @@ export default function Register() {
         userData.registrationStep = 1;
       } else {
         userData.approved = false;
+        userData.systemBalance = 1500;
+        userData.hasReceivedWelcomeGift = true;
+        userData.welcomeGiftAmount = 1500;
       }
 
       await setDoc(doc(db, "users", user.uid), userData);
+
+      if (intendedRole === "coach") {
+        try {
+          await referralService.grantCoachWelcomeGift(user.uid, 1500);
+        } catch (giftErr) {
+          console.error("Coach welcome gift grant error:", giftErr);
+        }
+      }
+
       navigate(intendedRole === "coach" ? "/koc-onay-bekliyor" : "/kayit-tamamla");
       
     } catch (err: any) {
@@ -187,6 +199,9 @@ export default function Register() {
         userData.registrationStep = 2; // Formda 1. adımı aldık sayılır, 2. adıma geçebiliriz
       } else {
         userData.approved = false;
+        userData.systemBalance = 1500;
+        userData.hasReceivedWelcomeGift = true;
+        userData.welcomeGiftAmount = 1500;
       }
 
       userData.uid = user.uid;
@@ -196,6 +211,14 @@ export default function Register() {
       }
 
       await setDoc(doc(db, "users", user.uid), userData);
+
+      if (isCoach) {
+        try {
+          await referralService.grantCoachWelcomeGift(user.uid, 1500);
+        } catch (giftErr) {
+          console.error("Coach welcome gift grant error:", giftErr);
+        }
+      }
 
       if (isCoach && referralCode.trim()) {
         try {
@@ -479,6 +502,23 @@ export default function Register() {
           </div>
           <h1 className="text-3xl font-bold text-white mb-2 tracking-tight">{roleTitle} Kaydı</h1>
           <p className="text-slate-400">Yeni bir hesap oluşturun</p>
+
+          {isCoach && (
+            <div className="mt-4 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-amber-500/15 border border-emerald-500/30 flex items-center gap-3 text-left shadow-lg shadow-emerald-950/20">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+                <Gift className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black uppercase tracking-wider text-emerald-300">1.500 TL Hoş Geldin Hediyesi</span>
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-amber-400/20 text-amber-300 border border-amber-400/30">HEDİYE</span>
+                </div>
+                <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">
+                  Yeni kaydolan koçlarımızın hesabına <strong className="text-emerald-300">1.500 TL sistem bakiyesi</strong> hediye olarak tanımlanır.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {error && (

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useCurriculum } from "../../lib/CurriculumContext";
+import { studentDataService } from "../../services/studentDataService";
 import { 
   Layers, 
   Search, 
@@ -47,6 +48,93 @@ export default function AdminTopics() {
   const [isAddingSubject, setIsAddingSubject] = useState(false);
   const [newSubjectName, setNewSubjectName] = useState("");
   const [newSubjectCategory, setNewSubjectCategory] = useState("TYT");
+  const [isSyncingCurriculum, setIsSyncingCurriculum] = useState<string | null>(null);
+
+  const isSyncSupported = (subj: string) => {
+    return [
+      "9. Sınıf Biyoloji", "10. Sınıf Biyoloji", "11. Sınıf Biyoloji",
+      "9. Sınıf Tarih", "10. Sınıf Tarih", "11. Sınıf Tarih",
+      "9. Sınıf Kimya", "10. Sınıf Kimya", "11. Sınıf Kimya",
+      "9. Sınıf Fizik", "10. Sınıf Fizik", "11. Sınıf Fizik",
+      "9. Sınıf Matematik", "10. Sınıf Matematik", "11. Sınıf Matematik",
+      "9. Sınıf Coğrafya", "10. Sınıf Coğrafya", "11. Sınıf Coğrafya",
+      "9. Sınıf Edebiyat", "10. Sınıf Edebiyat", "11. Sınıf Edebiyat",
+      "9. Sınıf Türk Dili ve Edebiyatı", "10. Sınıf Türk Dili ve Edebiyatı", "11. Sınıf Türk Dili ve Edebiyatı",
+      "M Biyoloji", "M Coğrafya", "M Fizik", "M Kimya", "M Matematik", "M Tarih", "M Türkçe",
+      "Yeni TYT Biyoloji", "Yeni TYT Coğrafya", "Yeni TYT Fizik", "Yeni TYT Kimya", "Yeni TYT Matematik", "Yeni TYT Tarih", "Yeni TYT Türkçe"
+    ].includes(subj);
+  };
+
+  const handleSyncSubject = async (subj: string) => {
+    setIsSyncingCurriculum(subj);
+    try {
+      let endpoint = "";
+      let body: any = undefined;
+
+      if (subj === "9. Sınıf Biyoloji") {
+        endpoint = "/api/admin/curriculum/sync-9-biyoloji";
+      } else if (subj === "10. Sınıf Biyoloji" || subj === "11. Sınıf Biyoloji") {
+        endpoint = "/api/admin/curriculum/sync-10-11-biyoloji";
+      } else if (["9. Sınıf Tarih", "10. Sınıf Tarih", "11. Sınıf Tarih"].includes(subj)) {
+        endpoint = "/api/admin/curriculum/sync-tarih";
+        body = JSON.stringify({ subject: subj });
+      } else if (["9. Sınıf Kimya", "10. Sınıf Kimya", "11. Sınıf Kimya"].includes(subj)) {
+        endpoint = "/api/admin/curriculum/sync-kimya";
+        body = JSON.stringify({ subject: subj });
+      } else if (["9. Sınıf Fizik", "10. Sınıf Fizik", "11. Sınıf Fizik"].includes(subj)) {
+        endpoint = "/api/admin/curriculum/sync-fizik";
+        body = JSON.stringify({ subject: subj });
+      } else if (["9. Sınıf Matematik", "10. Sınıf Matematik", "11. Sınıf Matematik"].includes(subj)) {
+        endpoint = "/api/admin/curriculum/sync-matematik";
+        body = JSON.stringify({ subject: subj });
+      } else if (["9. Sınıf Coğrafya", "10. Sınıf Coğrafya", "11. Sınıf Coğrafya"].includes(subj)) {
+        endpoint = "/api/admin/curriculum/sync-cografya";
+        body = JSON.stringify({ targetSubject: subj });
+      } else if (["9. Sınıf Edebiyat", "10. Sınıf Edebiyat", "11. Sınıf Edebiyat", "9. Sınıf Türk Dili ve Edebiyatı", "10. Sınıf Türk Dili ve Edebiyatı", "11. Sınıf Türk Dili ve Edebiyatı"].includes(subj)) {
+        endpoint = "/api/admin/curriculum/sync-edebiyat";
+        body = JSON.stringify({ targetSubject: subj });
+      } else if (subj.startsWith("M ") || subj.startsWith("Yeni TYT")) {
+        endpoint = "/api/admin/curriculum/sync-yeni-tyt";
+        body = JSON.stringify({ subject: subj });
+      }
+
+      if (!endpoint) return;
+
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        ...(body ? { body } : {})
+      });
+      const data = await res.json();
+      if (data.success) {
+        await refreshCurriculum();
+        const freshCurriculum = await studentDataService.getCurriculum();
+        if (freshCurriculum && freshCurriculum.subjects && freshCurriculum.subjects[subj]) {
+          const freshTopics = freshCurriculum.subjects[subj] || [];
+          setEditingTopics([...freshTopics]);
+          const subsMap: Record<string, string[]> = {};
+          freshTopics.forEach((t: string) => {
+            subsMap[t] = freshCurriculum.subtopics?.[t] ? [...freshCurriculum.subtopics[t]] : [];
+          });
+          setEditingSubtopicsMap(subsMap);
+          const exp: Record<string, boolean> = {};
+          freshTopics.forEach((t: string) => {
+            if ((freshCurriculum.subtopics?.[t] || []).length > 0) {
+              exp[t] = true;
+            }
+          });
+          setExpandedTopics(exp);
+        }
+        alert(`${subj} müfredatı (2026-2027 Çerçeve Yıllık Planına göre) başarıyla yüklendi!`);
+      } else {
+        alert("Güncelleme sırasında hata oluştu: " + (data.error || "Bilinmeyen hata"));
+      }
+    } catch (e: any) {
+      alert("Bağlantı hatası: " + e.message);
+    } finally {
+      setIsSyncingCurriculum(null);
+    }
+  };
 
   const allSubjects = Object.keys(curriculum).sort();
 
@@ -54,6 +142,7 @@ export default function AdminTopics() {
     if (subject.startsWith("9. Sınıf")) return "9. Sınıf";
     if (subject.startsWith("10. Sınıf")) return "10. Sınıf";
     if (subject.startsWith("11. Sınıf")) return "11. Sınıf";
+    if (subject.startsWith("M ") || subject.startsWith("Yeni TYT") || subject.includes("Yeni Müfredat")) return "M Müfredat";
     if (
       subject.startsWith("AYT") ||
       subject === "Edebiyat" ||
@@ -99,6 +188,7 @@ export default function AdminTopics() {
 
   const CATEGORY_ORDER = [
     "TYT",
+    "M Müfredat",
     "AYT",
     "YDT",
     "9. Sınıf",
@@ -484,36 +574,49 @@ export default function AdminTopics() {
                 <div className="flex items-center gap-2">
                   {isEditing ? (
                     <>
+                      {isSyncSupported(subject) && (
+                        <button
+                          onClick={() => handleSyncSubject(subject)}
+                          disabled={isSyncingCurriculum === subject || isSaving}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:text-white bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-xl transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                          title="2026-2027 Maarif Modeli Çerçeve Yıllık Planına Göre Konu ve Alt Başlıkları Sıfırla / Yükle"
+                        >
+                          <Sparkles size={13} className={isSyncingCurriculum === subject ? "animate-spin" : "text-emerald-400"} />
+                          <span>{isSyncingCurriculum === subject ? "Yükleniyor..." : "Çerçeve Plandan Yükle"}</span>
+                        </button>
+                      )}
                       <button
                         onClick={() => handleDeleteSubject(subject)}
-                        className="p-2 text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 rounded-xl transition-colors"
+                        className="p-2 text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 rounded-xl transition-colors cursor-pointer"
                         title="Dersi ve Konuları Sil"
                       >
                         <Trash2 size={16} />
                       </button>
                       <button
                         onClick={() => setEditingSubject(null)}
-                        className="px-3 py-1.5 text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl text-xs font-bold transition-colors"
+                        className="px-3 py-1.5 text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl text-xs font-bold transition-colors cursor-pointer"
                       >
                         İptal
                       </button>
                       <button
                         onClick={handleSaveSubjectChanges}
                         disabled={isSaving}
-                        className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors shadow-md shadow-emerald-500/20"
+                        className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors shadow-md shadow-emerald-500/20 cursor-pointer disabled:opacity-50"
                       >
                         <Save size={14} />
                         {isSaving ? "Kaydediliyor..." : "Kaydet"}
                       </button>
                     </>
                   ) : (
-                    <button
-                      onClick={() => handleStartEditSubject(subject)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-colors"
-                    >
-                      <Edit2 size={13} />
-                      Düzenle
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleStartEditSubject(subject)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-colors cursor-pointer"
+                      >
+                        <Edit2 size={13} />
+                        Düzenle
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

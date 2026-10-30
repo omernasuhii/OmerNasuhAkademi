@@ -1091,6 +1091,7 @@ export default function DeepAnalysis() {
     branchName: string,
     analysisBranchArray: any[],
   ) => {
+    const safeBranchArray = Array.isArray(analysisBranchArray) ? analysisBranchArray : [];
     let c = 0;
     const pureName = branchName
       .replace(" (TYT)", "")
@@ -1109,7 +1110,7 @@ export default function DeepAnalysis() {
     ].filter(Boolean) as string[];
 
     let scoreFound = false;
-    if (exam.scores) {
+    if (exam && exam.scores) {
       for (const pn of possibleNames) {
         if (exam.scores[pn]) {
           c = Number(exam.scores[pn].c) || 0;
@@ -1119,22 +1120,22 @@ export default function DeepAnalysis() {
       }
     }
 
-    if (!scoreFound && exam.examType === "BRANŞ" && exam.scores) {
+    if (!scoreFound && exam && exam.examType === "BRANŞ" && exam.scores) {
       const keys = Object.keys(exam.scores);
       if (keys.length === 1) {
         c = Number(exam.scores[keys[0]].c) || 0;
         scoreFound = true;
       }
     }
-    const max = analysisBranchArray.length;
+    const max = safeBranchArray.length;
     if (scoreFound) {
-      return { yapilan: c, yapilamayan: max - c };
+      return { yapilan: c, yapilamayan: Math.max(0, max - c) };
     }
 
     let yapilanFallback = 0;
     let yapilamayanFallback = 0;
-    analysisBranchArray.forEach((q: any) => {
-      if (q.errorType && q.errorType !== "none") yapilamayanFallback++;
+    safeBranchArray.forEach((q: any) => {
+      if (q && q.errorType && q.errorType !== "none") yapilamayanFallback++;
       else yapilanFallback++;
     });
     return { yapilan: yapilanFallback, yapilamayan: yapilamayanFallback };
@@ -2166,7 +2167,7 @@ export default function DeepAnalysis() {
                         </div>
 
                         {/* 2. Kademe (Alt Başlıklar) Nested Breakdown (Shown when filterKademe === "all") */}
-                        {filterKademe === "all" && item.subtopics && item.subtopics.length > 0 && (
+                        {filterKademe === "all" && Array.isArray(item?.subtopics) && item.subtopics.length > 0 && (
                           <div className="pt-3 border-t border-white/10 space-y-2 mt-2">
                             <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400">
                               <span className="flex items-center gap-1 text-emerald-400">
@@ -2272,7 +2273,7 @@ export default function DeepAnalysis() {
                               </div>
 
                               {/* 2. Kademe (Alt Başlıklar) Nested Breakdown (Shown when filterKademe === "all") */}
-                              {filterKademe === "all" && item.subtopics && item.subtopics.length > 0 && (
+                              {filterKademe === "all" && Array.isArray(item?.subtopics) && item.subtopics.length > 0 && (
                                 <div className="pt-3 border-t border-white/10 space-y-2 mt-2">
                                   <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400">
                                     <span className="flex items-center gap-1 text-emerald-400">

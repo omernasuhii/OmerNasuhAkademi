@@ -1,5 +1,5 @@
 import { db } from '../lib/firebase';
-import { collection, addDoc, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, orderBy, Timestamp, doc, getDoc, updateDoc } from 'firebase/firestore';
 
 export interface AnalysisResult {
   userId: string;
@@ -59,7 +59,6 @@ export const analysisService = {
 
   async getResultById(id: string): Promise<any> {
     try {
-      const { doc, getDoc } = await import('firebase/firestore');
       const docSnap = await getDoc(doc(db, 'user_analyses', id));
       if (docSnap.exists()) {
         return { id: docSnap.id, ...docSnap.data() };
@@ -73,7 +72,6 @@ export const analysisService = {
 
   async updateResult(id: string, updateData: any) {
     try {
-      const { doc, updateDoc } = await import('firebase/firestore');
       await updateDoc(doc(db, 'user_analyses', id), updateData);
     } catch (error) {
       console.error('Error updating analysis result:', error);

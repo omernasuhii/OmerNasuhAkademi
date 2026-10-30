@@ -4,6 +4,7 @@ import { MessageSquare, X, Send, Loader2, User, Phone as PhoneIcon } from 'lucid
 import { useAuth } from '../../lib/AuthContext';
 import { collection, query, getDocs, where, doc, getDoc, onSnapshot, addDoc, serverTimestamp, updateDoc, orderBy, increment } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import { notificationService } from '../../services/notificationService';
 
 function formatE164Phone(phone: string): string {
   if (!phone) return "";
@@ -309,6 +310,12 @@ export default function ChatWidget() {
       activeSpace.participants.forEach((p: string) => {
         if (p !== userData.uid) {
           updateData[`unreadCount.${p}`] = increment(1);
+          // Send direct background push notification to recipient's phone/device without cluttering notification tab
+          notificationService.sendPushNotification(p, {
+            title: `💬 ${userData.firstName} ${userData.lastName}`,
+            message: msgText.length > 80 ? `${msgText.slice(0, 77)}...` : msgText,
+            link: '/panel'
+          }).catch(err => console.warn('Chat push notification error:', err));
         }
       });
       
@@ -381,6 +388,7 @@ export default function ChatWidget() {
       
       // Check if chat already exists
       const existingChat = spaces.find(s => 
+        Array.isArray(s.participants) &&
         s.participants.includes(userData.uid) && 
         s.participants.includes(contact.id) &&
         s.participants.length === 2
@@ -425,10 +433,10 @@ export default function ChatWidget() {
   };
 
   const totalUnreadCount = spaces.reduce((sum, space) => {
-    return sum + (space.unreadCount?.[userData.uid] || 0);
+    return sum + (space.unreadCount?.[userData?.uid || ''] || 0);
   }, 0);
 
-  if (!userData) return null;
+  if (!userData || !userData.uid) return null;
 
   return (
     <>

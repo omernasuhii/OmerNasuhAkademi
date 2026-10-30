@@ -271,7 +271,7 @@ export default function ParentWallet() {
                     <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1">Tarih</div>
                     <div className="font-medium text-white">{new Date(selectedTx.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute:'2-digit' })}</div>
                  </div>
-                 {selectedTx.items && selectedTx.items.length > 0 && (
+                 {Array.isArray(selectedTx.items) && selectedTx.items.length > 0 && (
                     <div>
                        <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-3">Harcanan Kalemler</div>
                        <div className="space-y-3">

@@ -76,7 +76,7 @@ export default function AdminInbox() {
 
   // WhatsApp Template Modal State
   const [showTemplateModal, setShowTemplateModal] = useState(false);
-  const [selectedTemplateForSend, setSelectedTemplateForSend] = useState<'haftalik_veli_raporu_v1' | 'focuson_otp_code' | 'randevu_hatirlatma' | 'kocluk_bilgilendirme'>('haftalik_veli_raporu_v1');
+  const [selectedTemplateForSend, setSelectedTemplateForSend] = useState<'serbest_mesaj' | 'haftalik_veli_raporu_v1' | 'focuson_otp_code' | 'randevu_hatirlatma' | 'kocluk_bilgilendirme'>('serbest_mesaj');
   const [templateCustomName, setTemplateCustomName] = useState('');
   const [templateCustomLink, setTemplateCustomLink] = useState('');
   const [isSendingTemplateMsg, setIsSendingTemplateMsg] = useState(false);
@@ -103,19 +103,22 @@ export default function AdminInbox() {
   const [testSendType, setTestSendType] = useState<'template' | 'text'>('template');
   const [testPhoneNumber, setTestPhoneNumber] = useState('');
   const [testMessageBody, setTestMessageBody] = useState('FocusON Akademi Twilio WhatsApp test mesajıdır.');
-  const [testTemplatePreset, setTestTemplatePreset] = useState<'koc_odeme' | 'veli_abonelik' | 'otp' | 'custom'>('koc_odeme');
-  const [testTemplateSid, setTestTemplateSid] = useState('HX0cfb2d5c6385cae753e5ab633294c3a7');
-  const [testVar1, setTestVar1] = useState('Mustafa Demir');
+  const [testTemplatePreset, setTestTemplatePreset] = useState<'serbest_mesaj' | 'koc_odeme' | 'veli_abonelik' | 'otp' | 'custom'>('serbest_mesaj');
+  const [testTemplateSid, setTestTemplateSid] = useState('HXe0cb01ea16175e0d8fe6b76286275482');
+  const [testVar1, setTestVar1] = useState('Sistem güncellemesi tamamlanmış ve etüt ders planınız sisteme yüklenmiştir.');
   const [testVar2, setTestVar2] = useState('4');
   const [testVar3, setTestVar3] = useState('1.500');
   const [testVar4, setTestVar4] = useState('350');
   const [testVar5, setTestVar5] = useState('Derece YKS Paket');
   const [isSendingTest, setIsSendingTest] = useState(false);
 
-  const handleSelectTemplatePreset = (preset: 'koc_odeme' | 'veli_abonelik' | 'otp' | 'custom') => {
+  const handleSelectTemplatePreset = (preset: 'serbest_mesaj' | 'koc_odeme' | 'veli_abonelik' | 'otp' | 'custom') => {
     setTestTemplatePreset(preset);
     setTestSendType('template');
-    if (preset === 'koc_odeme') {
+    if (preset === 'serbest_mesaj') {
+      setTestTemplateSid('HXe0cb01ea16175e0d8fe6b76286275482');
+      setTestVar1('Sistem güncellemesi tamamlanmış ve etüt ders planınız sisteme yüklenmiştir.');
+    } else if (preset === 'koc_odeme') {
       setTestTemplateSid('HX0cfb2d5c6385cae753e5ab633294c3a7');
       setTestVar1('Mustafa Demir');
       setTestVar2('4');
@@ -760,7 +763,15 @@ export default function AdminInbox() {
       let tButtons: Array<{ text: string; url?: string; type?: string }> = [];
       let fullMsgBody = '';
 
-      if (selectedTemplateForSend === 'haftalik_veli_raporu_v1') {
+      if (selectedTemplateForSend === 'serbest_mesaj') {
+        tSid = 'HXe0cb01ea16175e0d8fe6b76286275482';
+        const customMsg = templateCustomName.trim() || 'FocusON Akademi sistem bilgilendirmesidir.';
+        tVars = { "1": customMsg };
+        tButtons = [
+          { text: "🔗 Panel Girişi", url: "https://omernasuhakademi.com/panel", type: "url" }
+        ];
+        fullMsgBody = `*Sistem Bilgilendirme Mesajı*\nFocusON Akademi Destek Birimi\n\nSayın kullanıcı, ${customMsg} Saygılar sunar, iyi günler dileriz.`;
+      } else if (selectedTemplateForSend === 'haftalik_veli_raporu_v1') {
         tSid = 'HXb083373137421bce630a0ad915cd4d0f';
         const stName = templateCustomName.trim() || 'Değerli Öğrencimiz';
         const pdfLink = templateCustomLink.trim() || 'https://omernasuhakademi.com/veli-girisi';
@@ -1104,12 +1115,45 @@ export default function AdminInbox() {
                   </div>
                   <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold rounded-xl flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    3 Aktif Şablon Tanımlı
+                    4 Aktif Şablon Tanımlı
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  {/* Şablon 1: Koç Bakiye Uyarısı */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                  {/* Şablon 1: Serbest Mesaj (24 Saat Kısıtsız) */}
+                  <div className="bg-slate-950/80 border border-purple-500/30 rounded-xl p-4.5 space-y-3 flex flex-col justify-between shadow-lg shadow-purple-950/20">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] uppercase font-mono font-bold bg-purple-500/15 border border-purple-500/40 text-purple-300 px-2 py-0.5 rounded flex items-center gap-1">
+                          <Sparkles size={11} className="text-purple-400" />
+                          24 Saat Kısıtsız
+                        </span>
+                        <span className="text-[10px] text-purple-300/70 font-mono">serbest_mesaj</span>
+                      </div>
+                      <h4 className="text-sm font-bold text-white">Serbest Mesaj & Özel Metin Şablonu</h4>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        WhatsApp 24 saatlik müşteri yanıt penceresine takılmadan dilediğiniz özel metni dilediğiniz zaman iletir.
+                      </p>
+                      <div className="bg-slate-900 p-2.5 rounded-lg border border-white/5 space-y-1 font-mono text-[10px] text-slate-300">
+                        <div className="text-purple-400 font-semibold mb-1">SID: HXe0cb01ea16175e0d8fe6b76286275482</div>
+                        <div><strong className="text-emerald-400">&#123;&#123;1&#125;&#125;</strong> Serbest İleti Metni</div>
+                        <div className="text-[9px] text-slate-500 pt-0.5">+ Panel Girişi bağlantı butonu</div>
+                      </div>
+                      <div className="bg-slate-900/60 p-2.5 rounded-lg text-[11px] text-slate-300 italic border border-white/5">
+                        "Sistem Bilgilendirme Mesajı... Sayın kullanıcı, &#123;&#123;1&#125;&#125; Saygılar sunar, iyi günler dileriz."
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectTemplatePreset('serbest_mesaj')}
+                      className="w-full py-2 px-3 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Send size={13} />
+                      <span>Bu Şablonu Test Formuna Yükle</span>
+                    </button>
+                  </div>
+
+                  {/* Şablon 2: Koç Bakiye Uyarısı */}
                   <div className="bg-slate-950/80 border border-white/10 rounded-xl p-4.5 space-y-3 flex flex-col justify-between">
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2">
@@ -1404,6 +1448,7 @@ export default function AdminInbox() {
                             onChange={(e) => handleSelectTemplatePreset(e.target.value as any)}
                             className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-emerald-500 font-medium"
                           >
+                            <option value="serbest_mesaj">💬 Serbest Mesaj (HXe0cb01... - 24 Saat Sınırsız)</option>
                             <option value="koc_odeme">Koç Bakiye Uyarısı (HX0cfb2d...)</option>
                             <option value="veli_abonelik">Veli Abonelik Yenileme (HXdbff2c...)</option>
                             <option value="otp">OTP Doğrulama Kodu (HX885e95...)</option>
@@ -1438,6 +1483,7 @@ export default function AdminInbox() {
                           <div>
                             <label className="block text-[11px] font-semibold text-slate-300 mb-1">
                               &#123;&#123;1&#125;&#125; {
+                                testTemplatePreset === 'serbest_mesaj' ? 'Serbest Mesaj Metni' :
                                 testTemplatePreset === 'koc_odeme' ? 'Koç Adı Soyadı' :
                                 testTemplatePreset === 'veli_abonelik' ? 'Öğrenci Adı' :
                                 testTemplatePreset === 'otp' ? 'Doğrulama Kodu' : 'Değişken 1'
@@ -1451,7 +1497,7 @@ export default function AdminInbox() {
                             />
                           </div>
 
-                          {testTemplatePreset !== 'otp' && (
+                          {testTemplatePreset !== 'otp' && testTemplatePreset !== 'serbest_mesaj' && (
                             <div>
                               <label className="block text-[11px] font-semibold text-slate-300 mb-1">
                                 &#123;&#123;2&#125;&#125; {
@@ -2175,11 +2221,12 @@ export default function AdminInbox() {
               const groupedMessages: GroupedMessages[] = [];
               let currentGroup: GroupedMessages | null = null;
 
+              const allConvMessages = Array.isArray(activeConv.messages) ? activeConv.messages : [];
               const chatMessages = showAllChatHistory 
-                ? activeConv.messages 
-                : activeConv.messages.slice(-20);
+                ? allConvMessages 
+                : allConvMessages.slice(-20);
 
-              const hasOlderMessages = activeConv.messages.length > 20 && !showAllChatHistory;
+              const hasOlderMessages = allConvMessages.length > 20 && !showAllChatHistory;
 
               chatMessages.forEach((msg) => {
                 const msgDate = msg.timestamp?.toDate 
@@ -2279,7 +2326,7 @@ export default function AdminInbox() {
                           className="px-3.5 py-1.5 bg-slate-800/90 hover:bg-slate-700 border border-white/10 text-blue-300 hover:text-white font-semibold text-xs rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
                         >
                           <History size={13} />
-                          <span>Önceki Mesajları Yükle (Toplam {activeConv.messages.length} Mesaj)</span>
+                          <span>Önceki Mesajları Yükle (Toplam {(activeConv.messages || []).length} Mesaj)</span>
                         </button>
                       </div>
                     )}
@@ -2435,21 +2482,32 @@ export default function AdminInbox() {
                   {/* Mesaj Yazma Alanı */}
                   <div className="p-4 border-t border-white/5 bg-slate-950/20">
                     {isExpired ? (
-                      <div className="bg-rose-500/5 border border-rose-500/10 rounded-xl p-4 text-center space-y-2 max-w-2xl mx-auto">
-                        <p className="text-sm text-rose-300 font-bold flex items-center justify-center gap-1.5">
-                          <span>⚠️ Yanıt Süresi Sınırı Geçildi (24 Saat)</span>
+                      <div className="bg-gradient-to-r from-purple-950/40 via-slate-900 to-indigo-950/40 border border-purple-500/30 rounded-2xl p-4 text-center space-y-3 max-w-2xl mx-auto shadow-xl">
+                        <div className="flex items-center justify-center gap-2 text-purple-300">
+                          <Sparkles size={18} className="text-purple-400" />
+                          <p className="text-sm font-bold">24 Saatlik Yanıt Penceresi Doldu — Serbest Şablon Hazır</p>
+                        </div>
+                        <p className="text-xs text-slate-300 leading-relaxed max-w-xl mx-auto">
+                          WhatsApp Business politikası gereği 24 saat sonra normal mesaj girişi kapanır. Ancak oluşturduğumuz <strong className="text-emerald-400 font-mono">serbest_mesaj</strong> onaylı şablonu ile dilediğiniz özel metni 24 saat kuralına takılmadan anında iletebilirsiniz.
                         </p>
-                        <p className="text-xs text-slate-400 leading-relaxed">
-                          WhatsApp Business politikaları gereğince, müşterinin son mesajından itibaren 24 saat geçtiğinde serbest yazışma penceresi kapanır. Sadece şablon mesajlar gönderilebilir. Normal sohbet girişi pasiftir.
-                        </p>
-                        <div className="pt-2">
+                        <div className="pt-1 flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedTemplateForSend('serbest_mesaj');
+                              setShowTemplateModal(true);
+                            }}
+                            className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-purple-600/25 inline-flex items-center gap-2 cursor-pointer"
+                          >
+                            <Sparkles size={14} />
+                            <span>💬 Serbest Mesaj Şablonu Gönder (24s Sınırsız)</span>
+                          </button>
                           <button
                             type="button"
                             onClick={() => setShowTemplateModal(true)}
-                            className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-xl transition-all shadow-lg inline-flex items-center gap-1.5 cursor-pointer"
+                            className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl transition-all inline-flex items-center gap-1.5 cursor-pointer"
                           >
-                            <Sparkles size={14} />
-                            <span>Onaylı Şablon Mesaj Gönder</span>
+                            <span>Diğer Şablonlar</span>
                           </button>
                         </div>
                       </div>
@@ -2731,12 +2789,37 @@ export default function AdminInbox() {
                   onChange={(e) => setSelectedTemplateForSend(e.target.value as any)}
                   className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-purple-500 font-semibold"
                 >
+                  <option value="serbest_mesaj">✨ Serbest Mesaj (HXe0cb01... - 24 Saat Sınırsız Özel Metin)</option>
                   <option value="haftalik_veli_raporu_v1">📊 Haftalık Veli & Öğrenci Raporu</option>
                   <option value="focuson_otp_code">🔑 Doğrulama & Giriş Kodu (OTP)</option>
                   <option value="randevu_hatirlatma">📅 Randevu & Ders Hatırlatma</option>
                   <option value="kocluk_bilgilendirme">📚 Eğitim Koçluğu & Görev Tanımlama</option>
                 </select>
               </div>
+
+              {selectedTemplateForSend === 'serbest_mesaj' && (
+                <div className="bg-slate-950/70 p-4 rounded-xl border border-purple-500/30 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-purple-300">
+                      Gönderilecek Serbest İleti Metni (Değişken &#123;&#123;1&#125;&#125;)
+                    </label>
+                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
+                      ⚡ 24 Saat Kısıtı Yok
+                    </span>
+                  </div>
+                  <textarea
+                    rows={4}
+                    value={templateCustomName}
+                    onChange={(e) => setTemplateCustomName(e.target.value)}
+                    placeholder="Örn: Merhaba, haftalık koçluk değerlendirmeniz tamamlanmış olup panelinize yüklenmiştir. Görüşmek üzere."
+                    className="w-full bg-slate-900 border border-white/10 rounded-lg p-3 text-xs text-white placeholder-slate-500 outline-none focus:border-purple-500 resize-none font-sans leading-relaxed"
+                  />
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <span>Meta SID: <code className="text-purple-300 font-mono">HXe0cb01ea16175e0d8fe6b76286275482</code></span>
+                    <span className="text-slate-500">{templateCustomName.length} karakter</span>
+                  </div>
+                </div>
+              )}
 
               {selectedTemplateForSend === 'haftalik_veli_raporu_v1' && (
                 <div className="space-y-3 bg-slate-950/60 p-3.5 rounded-xl border border-purple-500/20">
@@ -2801,17 +2884,19 @@ export default function AdminInbox() {
               <div className="bg-slate-950 p-3 rounded-xl border border-white/5 space-y-1.5">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Gönderilecek Şablon Görünümü</span>
                 <p className="text-xs text-emerald-300 bg-emerald-950/30 p-2.5 rounded-lg border border-emerald-500/20 leading-relaxed font-sans whitespace-pre-wrap">
-                  {selectedTemplateForSend === 'haftalik_veli_raporu_v1'
-                    ? `Sayın Velimiz,\n\n${templateCustomName.trim() || 'Değerli Öğrencimiz'} isimli öğrencimizin haftalık gelişim ve koçluk değerlendirme raporu oluşturulmuştur.\n\n📄 Haftalık PDF Raporu:\n${templateCustomLink.trim() || 'https://omernasuhakademi.com/veli-girisi'}\n\nFocusON Akademi Rehberlik Birimi`
-                    : selectedTemplateForSend === 'focuson_otp_code'
-                      ? `FocusON Akademi doğrulama ve giriş kodunuz: ${templateCustomName.trim() || '123456'}`
-                      : selectedTemplateForSend === 'randevu_hatirlatma'
-                        ? `Sayın Velimiz / Öğrencimiz,\n\nFocusON Akademi randevunuz/dersiniz ${templateCustomName.trim() || 'Yarın saat 15:00'} olarak planlanmıştır. Katılımınızı bekliyoruz.`
-                        : `Merhaba,\n\nEğitim koçunuz yeni ödev ve görev tanımlamıştır: ${templateCustomName.trim() || 'Haftalık Soru Hedefi Görevi'}. Başarılar dileriz!`}
+                  {selectedTemplateForSend === 'serbest_mesaj'
+                    ? `Sistem Bilgilendirme Mesajı\nFocusON Akademi Destek Birimi\n\nSayın kullanıcı, ${templateCustomName.trim() || '[Buraya yazdığınız serbest metin mesajı yerleştirilir]'} Saygılar sunar, iyi günler dileriz.`
+                    : selectedTemplateForSend === 'haftalik_veli_raporu_v1'
+                      ? `Sayın Velimiz,\n\n${templateCustomName.trim() || 'Değerli Öğrencimiz'} isimli öğrencimizin haftalık gelişim ve koçluk değerlendirme raporu oluşturulmuştur.\n\n📄 Haftalık PDF Raporu:\n${templateCustomLink.trim() || 'https://omernasuhakademi.com/veli-girisi'}\n\nFocusON Akademi Rehberlik Birimi`
+                      : selectedTemplateForSend === 'focuson_otp_code'
+                        ? `FocusON Akademi doğrulama ve giriş kodunuz: ${templateCustomName.trim() || '123456'}`
+                        : selectedTemplateForSend === 'randevu_hatirlatma'
+                          ? `Sayın Velimiz / Öğrencimiz,\n\nFocusON Akademi randevunuz/dersiniz ${templateCustomName.trim() || 'Yarın saat 15:00'} olarak planlanmıştır. Katılımınızı bekliyoruz.`
+                          : `Merhaba,\n\nEğitim koçunuz yeni ödev ve görev tanımlamıştır: ${templateCustomName.trim() || 'Haftalık Soru Hedefi Görevi'}. Başarılar dileriz!`}
                 </p>
                 <div className="flex items-center gap-1.5 pt-1">
                   <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 text-[10px] font-bold rounded">
-                    🔘 [Buton] Portal/Rapor Bağlantısı
+                    {selectedTemplateForSend === 'serbest_mesaj' ? '🔘 [Buton] 🔗 Panel Girişi' : '🔘 [Buton] Portal/Rapor Bağlantısı'}
                   </span>
                 </div>
               </div>

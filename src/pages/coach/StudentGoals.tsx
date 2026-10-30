@@ -330,7 +330,7 @@ export default function StudentGoals() {
       
       const totalPages = ep - sp;
       if (totalPages > 0) {
-        goal.progress = Math.round(((cp - sp) / totalPages) * 100);
+        goal.progress = Math.min(100, Math.max(0, Math.round(((cp - sp) / totalPages) * 100)));
       } else {
         goal.progress = 100;
       }

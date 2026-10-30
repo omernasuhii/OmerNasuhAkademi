@@ -31,7 +31,7 @@ export function NotificationPrompt() {
 
   const handleEnableNotifications = async () => {
     try {
-      const token = await fcmService.requestPermissionAndGetToken();
+      const token = await fcmService.requestPermissionAndGetToken(userData?.uid);
       if (token) {
         setPermissionStatus('granted');
         if (userData?.uid) {

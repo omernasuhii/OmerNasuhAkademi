@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Wallet, TrendingUp, History, ArrowDownLeft, ArrowUpRight, CreditCard, Users, Loader2, X, Check, Share2, Copy, Sparkles, Plus } from 'lucide-react';
+import { Wallet, TrendingUp, History, ArrowDownLeft, ArrowUpRight, CreditCard, Users, Loader2, X, Check, Share2, Copy, Sparkles, Plus, Gift } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
 import { tourService } from '../../services/tourService';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
@@ -200,12 +200,14 @@ export default function CoachWallet() {
   const formattedStudentTxs = rawTransactions.flatMap(tx => {
     const items = [];
     if (tx.coachId === 'SYSTEM' && tx.type === 'DEPOSIT') {
+       const isWelcome = tx.description?.toLowerCase().includes('hoş geldin') || tx.description?.toLowerCase().includes('hoşgeldin');
+       const isReferral = tx.description?.toLowerCase().includes('davet') || tx.description?.toLowerCase().includes('referans');
        items.push({
           id: tx.id + '_sys_dep',
           category: 'system', // sari icon bg
           direction: 'in', // giren ok, yesil tutar
           amount: tx.amount,
-          subject: `Sistem Yüklemesi`,
+          subject: isWelcome ? '🎁 Hoş Geldin Hediyesi' : (isReferral ? '🎁 Referans Hediyesi' : `Sistem Yüklemesi`),
           description: tx.description || 'Yönetici tarafından sistem bakiyesi eklendi',
           date: tx.date,
        });
@@ -368,7 +370,7 @@ export default function CoachWallet() {
              </button>
 
              <p className="text-xs text-amber-200/70 inline-flex items-center gap-1 font-medium bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/10 w-full">
-               Öğrencileriniz sistem içi işlem yaptıkça tahsil edilir.
+               Öğrencileriniz sistem içi işlem yaptıkça tahsil edilir. {userData?.hasReceivedWelcomeGift ? '• 1.500 TL Hoş geldin hediyesi dahil' : ''}
              </p>
            </div>
         </motion.div>
@@ -537,7 +539,7 @@ export default function CoachWallet() {
                     <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1">Tarih</div>
                     <div className="font-medium text-white">{new Date(selectedTx.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
                  </div>
-                 {selectedTx.items && selectedTx.items.length > 0 && (
+                 {Array.isArray(selectedTx.items) && selectedTx.items.length > 0 && (
                     <div>
                        <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-3">Harcanan Kalemler</div>
                        <div className="space-y-3">

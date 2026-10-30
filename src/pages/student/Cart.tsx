@@ -119,13 +119,9 @@ export default function Cart() {
             else if (item.title.toLowerCase().includes('gümüş')) minRate = minRateSilver;
             else if (item.title.toLowerCase().includes('altın')) minRate = minRateGold;
 
-            const basePrice = item.metadata?.originalPrice ? item.metadata.originalPrice * item.quantity : itemTotalPrice;
+            const basePrice = item.metadata?.originalPrice !== undefined ? item.metadata.originalPrice * item.quantity : itemTotalPrice;
 
-            if (pkg && pkg.systemDeduction !== undefined) {
-               totalCoachDeduction += Math.max(Math.floor(basePrice * (dRate / 100)), minRate * item.quantity);
-            } else {
-               totalCoachDeduction += Math.max(Math.floor(basePrice * (dRate / 100)), minRate * item.quantity); // Fallback
-            }
+            totalCoachDeduction += Math.max(Math.floor(basePrice * (dRate / 100)), minRate * item.quantity);
          } else {
             totalCoachDeduction += itemTotalPrice; 
          }
@@ -152,7 +148,7 @@ export default function Cart() {
 
       totalCoachDeduction = Math.round(totalCoachDeduction);
 
-      if (finalPrice > 0) {
+      if (finalPrice > 0 || totalCoachDeduction > 0) {
          const res = await studentDataService.addWalletTransaction(user!.uid, {
             type: 'WITHDRAWAL',
             amount: finalPrice,

@@ -16,6 +16,7 @@ import { AlertTriangle, BookOpen,
   AlertCircle,
   Trophy,
   Zap,
+  Flame,
   Quote,
   Compass,
   MessageCircle
@@ -50,6 +51,7 @@ export default function StudentSummary() {
   const [isGeneratingEval, setIsGeneratingEval] = useState<boolean>(false);
   const [isTourOpen, setIsTourOpen] = useState(false);
   const [parentPhone, setParentPhone] = useState<string>('');
+  const [studentProfile, setStudentProfile] = useState<any>(null);
 
   const activeStudent = selectedStudent || (location.state?.startTour || location.state?.isDemo ? SAMPLE_DEMO_STUDENT : null);
   const isDemo = activeStudent?.isDemo || location.state?.isDemo;
@@ -115,10 +117,10 @@ export default function StudentSummary() {
     },
     {
       targetId: 'tour-student-summary-goals',
-      title: 'Akademik Hedefler',
-      description: 'Öğrencinin hedef üniversitesi ve TYT/AYT net hedefleri bu alanda yer almaktadır.',
+      title: 'Akademik Hedefler & Çalışma Serisi',
+      description: 'Öğrencinin hedef üniversitesi, TYT/AYT net hedefleri, aktif ve rekor çalışma serisi ile kazanılan XP puanı bu alanda yer almaktadır.',
       position: 'bottom',
-      badge: 'Hedefler'
+      badge: 'Hedefler & Seri'
     },
     {
       targetId: 'tour-student-summary-targets',
@@ -261,23 +263,28 @@ const DEMO_DAILY_PROGRAMS = [
       studentDataService.getWeeklyReports(activeUid),
       studentDataService.getAllDailyPrograms(activeUid),
       studentDataService.getExamResults(activeUid),
-      studentDataService.getMonthlyGoal(activeUid, currentMonthStr)
-    ]).then(([booksData, programData, reportsData, dailyProgramsData, examsData, monthlyGoalData]) => {
+      studentDataService.getMonthlyGoal(activeUid, currentMonthStr),
+      studentDataService.getStudentProfile(activeUid)
+    ]).then(([booksData, programData, reportsData, dailyProgramsData, examsData, monthlyGoalData, profileData]) => {
       const isDemoMode = isTourOpen;
       
-      setBooks((booksData && booksData.length > 0) ? booksData : (isDemoMode ? DEMO_BOOKS : []));
-      setProgram(programData[0] || null);
-      setReports(reportsData);
-      setDailyPrograms((dailyProgramsData && dailyProgramsData.length > 0) ? dailyProgramsData : (isDemoMode ? DEMO_DAILY_PROGRAMS : []));
-      setExams((examsData && examsData.length > 0) ? examsData : (isDemoMode ? DEMO_EXAMS : []));
+      setBooks((booksData && Array.isArray(booksData) && booksData.length > 0) ? booksData : (isDemoMode ? DEMO_BOOKS : []));
+      setProgram(Array.isArray(programData) ? (programData[0] || null) : null);
+      setReports(Array.isArray(reportsData) ? reportsData : []);
+      setDailyPrograms((dailyProgramsData && Array.isArray(dailyProgramsData) && dailyProgramsData.length > 0) ? dailyProgramsData : (isDemoMode ? DEMO_DAILY_PROGRAMS : []));
+      setExams((examsData && Array.isArray(examsData) && examsData.length > 0) ? examsData : (isDemoMode ? DEMO_EXAMS : []));
       setMonthlyGoal(monthlyGoalData || (isDemoMode ? DEMO_MONTHLY_GOAL : null));
+      setStudentProfile(profileData || null);
       setLoading(false);
     }).catch(() => {
       const isDemoMode = isTourOpen;
       setBooks(isDemoMode ? DEMO_BOOKS : []);
+      setProgram(null);
+      setReports([]);
       setDailyPrograms(isDemoMode ? DEMO_DAILY_PROGRAMS : []);
       setExams(isDemoMode ? DEMO_EXAMS : []);
       setMonthlyGoal(isDemoMode ? DEMO_MONTHLY_GOAL : null);
+      setStudentProfile(null);
       setLoading(false);
     });
   }, [activeStudent, currentMonthStr, isTourOpen]);
@@ -291,6 +298,89 @@ const DEMO_DAILY_PROGRAMS = [
   const avgBookProgress = bookGoalsCount > 0 
     ? Math.round(monthlyGoal.bookGoals.reduce((acc: number, b: any) => acc + (b.progress || 0), 0) / bookGoalsCount)
     : 0;
+
+  // Student Streaks & XP Calculation
+  const { currentStreak, highestStreak, studentXP } = useMemo(() => {
+    const isDemoMode = activeStudent?.isDemo || location.state?.isDemo || isTourOpen;
+    const studentObj = activeStudent as any;
+    
+    // XP
+    const profileXp = studentProfile?.xp ?? studentObj?.xp;
+    const xpVal = typeof profileXp === 'number' ? profileXp : (isDemoMode ? 1450 : 0);
+
+    // Current Streak from stored profile/activeStudent
+    const explicitCurrent = studentProfile?.streakInfo?.count ?? 
+      studentProfile?.streak ?? 
+      studentObj?.streakInfo?.count ?? 
+      studentObj?.streak;
+    
+    // Calculate historical streaks from dailyPrograms
+    const sortedPrograms = [...(dailyPrograms || [])]
+      .filter((p: any) => p && p.date && Array.isArray(p.tasks) && p.tasks.length > 0)
+      .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
+
+    const completionByDate: Record<string, boolean> = {};
+    sortedPrograms.forEach((p: any) => {
+      const taskCount = p.tasks.length;
+      const completedCount = p.tasks.filter((t: any) => t && t.isDone).length;
+      const pct = taskCount > 0 ? completedCount / taskCount : 0;
+      if (pct >= 0.85) {
+        completionByDate[p.date] = true;
+      }
+    });
+
+    let maxHistoricalStreak = 0;
+    let tempStreak = 0;
+    let prevDate: Date | null = null;
+
+    const completedDates = Object.keys(completionByDate).sort();
+    for (const dateStr of completedDates) {
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const curDate = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
+        if (prevDate) {
+          const diffMs = curDate.getTime() - prevDate.getTime();
+          const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+          if (diffDays === 1) {
+            tempStreak += 1;
+          } else {
+            tempStreak = 1;
+          }
+        } else {
+          tempStreak = 1;
+        }
+        prevDate = curDate;
+        if (tempStreak > maxHistoricalStreak) {
+          maxHistoricalStreak = tempStreak;
+        }
+      }
+    }
+
+    const explicitHighest = studentProfile?.highestStreak ?? 
+      studentProfile?.maxStreak ?? 
+      studentProfile?.streakInfo?.highestStreak ?? 
+      studentProfile?.streakInfo?.maxStreak ?? 
+      studentObj?.highestStreak ?? 
+      studentObj?.maxStreak ?? 
+      studentObj?.streakInfo?.highestStreak;
+
+    const finalCurrent = typeof explicitCurrent === 'number' 
+      ? explicitCurrent 
+      : (isDemoMode ? 14 : tempStreak);
+
+    const finalHighest = Math.max(
+      typeof explicitHighest === 'number' ? explicitHighest : 0,
+      maxHistoricalStreak,
+      finalCurrent,
+      isDemoMode ? 21 : 0
+    );
+
+    return {
+      currentStreak: finalCurrent,
+      highestStreak: finalHighest,
+      studentXP: xpVal
+    };
+  }, [studentProfile, activeStudent, dailyPrograms, isTourOpen, location.state]);
 
   const statsFromPrograms = useMemo(() => {
     let globalSolved = 0;
@@ -309,12 +399,15 @@ const DEMO_DAILY_PROGRAMS = [
     // Group programs by week
     const weeklyData: Record<string, { target: number, solved: number, unsolved: number, taskDone: number, taskNotDone: number, earnedPoints: number, targetPoints: number }> = {};
 
-    dailyPrograms.forEach(dp => {
-      dailyTasksMap[dp.date] = dp.tasks || [];
-      if (!dp.date || dp.date > todayStr) return;
+    (dailyPrograms || []).forEach(dp => {
+      if (!dp || !dp.date || typeof dp.date !== 'string') return;
+      dailyTasksMap[dp.date] = Array.isArray(dp.tasks) ? dp.tasks : [];
+      if (dp.date > todayStr) return;
 
       const dpParts = dp.date.split('-');
+      if (dpParts.length !== 3) return;
       const dpDate = new Date(Date.UTC(Number(dpParts[0]), Number(dpParts[1]) - 1, Number(dpParts[2])));
+      if (isNaN(dpDate.getTime())) return;
       if (!firstDate || dpDate < firstDate) firstDate = dpDate;
       
       // Calculate start of week (Monday) in UTC
@@ -328,11 +421,12 @@ const DEMO_DAILY_PROGRAMS = [
 
       const weekStats = weeklyData[weekStart];
 
-      if (dp.tasks) {
+      if (Array.isArray(dp.tasks)) {
         dp.tasks.forEach((task: any) => {
+          if (!task) return;
           const taskDateStr = task.date || dp.date;
           let diffDays = 0;
-          if (taskDateStr) {
+          if (taskDateStr && typeof taskDateStr === 'string') {
             const parts = taskDateStr.split('-');
             if (parts.length === 3) {
               const tDateObj = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
@@ -422,7 +516,8 @@ const DEMO_DAILY_PROGRAMS = [
     // Calculate accurate success percentage for each week
     const weeklySuccessMap: Record<string, { success: number, hasTasks: boolean }> = {};
     pastOrCurrentWeekKeys.forEach(weekStart => {
-      const wParts = weekStart.split('-');
+      const wParts = typeof weekStart === 'string' ? weekStart.split('-') : [];
+      if (wParts.length !== 3) return;
       let sum = 0;
       let validDays = 0;
       for (let i = 0; i < 7; i++) {
@@ -431,7 +526,7 @@ const DEMO_DAILY_PROGRAMS = [
         const checkDateStr = checkD.toISOString().split('T')[0];
         if (checkDateStr <= todayStr) {
            const dayTasks = dailyTasksMap[checkDateStr] || [];
-           if (dayTasks.length > 0) {
+           if (Array.isArray(dayTasks) && dayTasks.length > 0) {
              sum += calculateDailyCompletionWithMultipliers(dayTasks, multipliers);
              validDays++;
            }
@@ -443,23 +538,35 @@ const DEMO_DAILY_PROGRAMS = [
       };
     });
 
-    const validWeeksList = pastOrCurrentWeekKeys.map(k => weeklySuccessMap[k]).filter(w => w.hasTasks);
+    const validWeeksList = pastOrCurrentWeekKeys.map(k => weeklySuccessMap[k]).filter(w => w?.hasTasks);
     const overallAvgCompletion = validWeeksList.length > 0 
-      ? Math.round(validWeeksList.reduce((acc, val) => acc + val.success, 0) / validWeeksList.length)
+      ? Math.round(validWeeksList.reduce((acc, val) => acc + (val?.success || 0), 0) / validWeeksList.length)
       : 0;
 
     // Sort weeks descending to get last 4
     const sortedWeeks = pastOrCurrentWeekKeys.sort((a, b) => b.localeCompare(a)).slice(0, 4);
-    const validLast4Weeks = sortedWeeks.map(k => weeklySuccessMap[k]).filter(w => w.hasTasks);
+    const validLast4Weeks = sortedWeeks.map(k => weeklySuccessMap[k]).filter(w => w?.hasTasks);
     const last4AvgCompletion = validLast4Weeks.length > 0
-      ? Math.round(validLast4Weeks.reduce((acc, val) => acc + val.success, 0) / validLast4Weeks.length)
+      ? Math.round(validLast4Weeks.reduce((acc, val) => acc + (val?.success || 0), 0) / validLast4Weeks.length)
       : 0;
     
     const weeklyReportsArray = Object.keys(weeklyData)
       .filter(weekStart => weekStart <= currentWeekStartStr)
       .sort((a, b) => b.localeCompare(a)).map(weekStart => {
       const w = weeklyData[weekStart];
-      const wParts = weekStart.split('-');
+      const wParts = typeof weekStart === 'string' ? weekStart.split('-') : [];
+      if (wParts.length !== 3) {
+        return {
+          date: weekStart,
+          weekNumber: '',
+          solvedCount: w?.solved || 0,
+          unsolvedCount: w?.unsolved || 0,
+          taskDone: w?.taskDone || 0,
+          taskNotDone: w?.taskNotDone || 0,
+          successPercentage: weeklySuccessMap[weekStart]?.success || 0,
+          weekStartKey: weekStart
+        };
+      }
       const d = new Date(Date.UTC(Number(wParts[0]), Number(wParts[1]) - 1, Number(wParts[2])));
       
       const startStr = `${d.getUTCDate().toString().padStart(2, '0')}.${(d.getUTCMonth() + 1).toString().padStart(2, '0')}`;
@@ -492,11 +599,21 @@ const DEMO_DAILY_PROGRAMS = [
     };
   }, [dailyPrograms, selectedStudent, exams]);
 
-  const { totalSolved, totalUnsolved, avgSolved, avgUnsolved, overallAvgCompletion, last4AvgCompletion, derivedWeeklyReports, pendingResultsCount, expiredWaitingCount } = statsFromPrograms;
+  const {
+    totalSolved = 0,
+    totalUnsolved = 0,
+    avgSolved = 0,
+    avgUnsolved = 0,
+    overallAvgCompletion = 0,
+    last4AvgCompletion = 0,
+    derivedWeeklyReports = [],
+    pendingResultsCount = 0,
+    expiredWaitingCount = 0
+  } = statsFromPrograms || {};
 
   useEffect(() => {
-    if (derivedWeeklyReports.length > 0 && !selectedEvaluationWeek) {
-      setSelectedEvaluationWeek(derivedWeeklyReports[0].weekStartKey);
+    if (Array.isArray(derivedWeeklyReports) && derivedWeeklyReports.length > 0 && !selectedEvaluationWeek) {
+      setSelectedEvaluationWeek(derivedWeeklyReports[0]?.weekStartKey);
     }
   }, [derivedWeeklyReports, selectedEvaluationWeek]);
 
@@ -572,7 +689,7 @@ const DEMO_DAILY_PROGRAMS = [
       return;
     }
 
-    const selectedWeekReport = derivedWeeklyReports.find(r => r.weekStartKey === selectedEvaluationWeek);
+    const selectedWeekReport = (derivedWeeklyReports || []).find(r => r?.weekStartKey === selectedEvaluationWeek);
     const studentName = studentToUse?.firstName && studentToUse?.lastName 
       ? `${studentToUse.firstName} ${studentToUse.lastName}` 
       : (studentToUse?.displayName || 'Öğrenci');
@@ -588,17 +705,19 @@ const DEMO_DAILY_PROGRAMS = [
     if (!selectedStudent || !selectedEvaluationWeek) return;
     setIsGeneratingEval(true);
     try {
-      const selectedWeekReport = derivedWeeklyReports.find(r => r.weekStartKey === selectedEvaluationWeek);
+      const selectedWeekReport = (derivedWeeklyReports || []).find(r => r?.weekStartKey === selectedEvaluationWeek);
       if (!selectedWeekReport) return;
       
       const draft = `Öğrencimiz bu hafta toplam ${selectedWeekReport.taskDone} görev tamamladı, ${selectedWeekReport.taskNotDone} görev ise eksik kaldı. Toplam çözdüğü soru sayısı ${selectedWeekReport.solvedCount}, çözemediği/yanlış soru sayısı ise ${selectedWeekReport.unsolvedCount}. Genel başarı oranı ise %${selectedWeekReport.successPercentage} olarak gerçekleşti.`;
       
       let previousEvaluation = null;
-      const currentIndex = derivedWeeklyReports.findIndex(r => r.weekStartKey === selectedEvaluationWeek);
-      if (currentIndex !== -1 && currentIndex < derivedWeeklyReports.length - 1) {
+      const currentIndex = (derivedWeeklyReports || []).findIndex(r => r?.weekStartKey === selectedEvaluationWeek);
+      if (currentIndex !== -1 && currentIndex < (derivedWeeklyReports?.length || 0) - 1) {
         const prevWeek = derivedWeeklyReports[currentIndex + 1];
-        const prev = await studentDataService.getWeeklyEvaluation(selectedStudent.uid, prevWeek.weekStartKey);
-        if (prev) previousEvaluation = prev.evaluation;
+        if (prevWeek?.weekStartKey) {
+          const prev = await studentDataService.getWeeklyEvaluation(selectedStudent.uid, prevWeek.weekStartKey);
+          if (prev) previousEvaluation = prev.evaluation;
+        }
       }
       
       const response = await fetch("/api/weekly-evaluation-generate", {
@@ -816,10 +935,25 @@ const DEMO_DAILY_PROGRAMS = [
                 </div>
               </div>
               <div className="space-y-1">
-                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
-                  <Trophy size={12} className="text-amber-500" /> Mevcut Başarı Puanı
-                </p>
-                <p className="text-sm font-bold text-white uppercase italic">478.250</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                    <Flame size={12} className="text-amber-500" /> Çalışma Serisi
+                  </p>
+                  <span className="text-[9px] font-bold text-slate-400 bg-white/5 border border-white/5 px-2 py-0.5 rounded-md" title="Öğrencinin ulaştığı en yüksek günlük seri">
+                    En Yüksek: <span className="text-amber-400 font-black">{highestStreak} Gün</span>
+                  </span>
+                </div>
+                <div className="flex items-center justify-between pt-0.5">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-2xl font-black text-white italic leading-none">{currentStreak}</span>
+                    <span className="text-[10px] font-bold text-amber-400 uppercase">Gün</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 rounded-xl" title="Öğrencinin toplam deneyim puanı">
+                    <Zap size={11} className="text-blue-400" />
+                    <span className="text-xs font-black text-white italic leading-none">{studentXP.toLocaleString('tr-TR')}</span>
+                    <span className="text-[9px] font-black text-blue-400 uppercase">XP</span>
+                  </div>
+                </div>
               </div>
               <div className="space-y-1">
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">TYT Net Hedefi</p>
@@ -1048,7 +1182,7 @@ const DEMO_DAILY_PROGRAMS = [
         </div>
 
         {/* Weekly Coach Evaluation Section */}
-        {derivedWeeklyReports.length > 0 && (
+        {Array.isArray(derivedWeeklyReports) && derivedWeeklyReports.length > 0 && (
           <div id="tour-student-summary-evaluation" className="lg:col-span-2 bg-slate-900/40 border border-white/5 rounded-3xl p-8 flex flex-col justify-between h-full space-y-6">
              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4">
                 <div>
@@ -1064,9 +1198,9 @@ const DEMO_DAILY_PROGRAMS = [
                      onChange={(e) => setSelectedEvaluationWeek(e.target.value)}
                      className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-emerald-500/50 cursor-pointer"
                    >
-                     {derivedWeeklyReports.map(report => (
-                       <option key={report.weekStartKey} value={report.weekStartKey}>
-                         {report.date}
+                     {(derivedWeeklyReports || []).map(report => (
+                       <option key={report?.weekStartKey || report?.date} value={report?.weekStartKey}>
+                         {report?.date}
                        </option>
                      ))}
                    </select>
@@ -1150,26 +1284,26 @@ const DEMO_DAILY_PROGRAMS = [
                  </tr>
               </thead>
               <tbody className="divide-y divide-white/5 text-sm">
-                 {derivedWeeklyReports.map((report, i) => (
+                 {(derivedWeeklyReports || []).map((report, i) => (
                     <tr key={i} className="group hover:bg-white/[0.02]">
                        <td className="py-4 px-4">
-                          <span className="font-bold text-slate-300 block">{report.date}</span>
+                          <span className="font-bold text-slate-300 block">{report?.date}</span>
                        </td>
-                       <td className="py-4 px-4 text-center font-black text-emerald-400">{report.solvedCount || 0}</td>
-                       <td className="py-4 px-4 text-center font-black text-red-400">{report.unsolvedCount || 0}</td>
-                       <td className="py-4 px-4 text-center font-black text-emerald-400">{report.taskDone || 0}</td>
-                       <td className="py-4 px-4 text-center font-black text-red-400">{report.taskNotDone || 0}</td>
+                       <td className="py-4 px-4 text-center font-black text-emerald-400">{report?.solvedCount || 0}</td>
+                       <td className="py-4 px-4 text-center font-black text-red-400">{report?.unsolvedCount || 0}</td>
+                       <td className="py-4 px-4 text-center font-black text-emerald-400">{report?.taskDone || 0}</td>
+                       <td className="py-4 px-4 text-center font-black text-red-400">{report?.taskNotDone || 0}</td>
                        <td className="py-4 px-4 text-center">
                           <div className="flex items-center justify-center gap-2">
                              <div className="w-12 h-1.5 bg-white/5 rounded-full overflow-hidden hidden sm:block">
-                                <div className="h-full bg-emerald-500" style={{ width: `${Math.min(report.successPercentage, 100)}%` }} />
+                                <div className="h-full bg-emerald-500" style={{ width: `${Math.min(report?.successPercentage || 0, 100)}%` }} />
                              </div>
-                             <span className="font-black text-white">%{report.successPercentage || 0}</span>
+                             <span className="font-black text-white">%{report?.successPercentage || 0}</span>
                           </div>
                        </td>
                     </tr>
                  ))}
-                 {derivedWeeklyReports.length === 0 && (
+                 {(!derivedWeeklyReports || derivedWeeklyReports.length === 0) && (
                     <tr>
                        <td colSpan={6} className="py-20 text-center text-slate-600 italic">Henüz program verisi bulunmuyor.</td>
                     </tr>

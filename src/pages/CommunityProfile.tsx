@@ -13,6 +13,7 @@ import AppointmentList from '../components/appointments/AppointmentList';
 import { eventService, EventData, TicketOrder, EventRSVP } from '../services/eventService';
 import { programService, Program, ProgramEnrollment } from '../services/programService';
 import { isSubscriptionActive } from '../services/subscriptionService';
+import CoachConnectionCard from '../components/students/CoachConnectionCard';
 
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -44,14 +45,16 @@ export default function CommunityProfile() {
 
   useEffect(() => {
     if (user && activeTab === 'Ödüllerim') {
-      import('firebase/firestore').then(async ({ collection, query, where, getDocs }) => {
-        const { db } = await import('../lib/firebase');
-        const q = query(collection(db, 'coupons'), where('ownerId', '==', user!.uid));
-        const snap = await getDocs(q);
-        setUserCoupons(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      }).catch(err => {
-        console.error("Kuponlar yüklenirken hata:", err);
-      });
+      const fetchCoupons = async () => {
+        try {
+          const q = query(collection(db, 'coupons'), where('ownerId', '==', user.uid));
+          const snap = await getDocs(q);
+          setUserCoupons(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        } catch (err) {
+          console.error("Kuponlar yüklenirken hata:", err);
+        }
+      };
+      fetchCoupons();
     }
   }, [user, activeTab]);
   const [showMoreTabs, setShowMoreTabs] = useState(false);
@@ -423,8 +426,14 @@ export default function CommunityProfile() {
       </div>
 
       {activeTab === 'Profil' && (
-        <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl border border-slate-800 p-8 shadow-xl">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 pb-6 border-b border-slate-800">
+        <div className="space-y-8">
+          {/* Öğrenci Koç Kartı & Koç Kodu Eşleştirme */}
+          {userData?.role === 'student' && (
+            <CoachConnectionCard user={user} userData={userData} />
+          )}
+
+          <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl border border-slate-800 p-8 shadow-xl">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 pb-6 border-b border-slate-800">
             <div>
             <h2 className="text-2xl font-bold text-white tracking-tight">Hesap Ayarları</h2>
             <p className="text-slate-400 text-sm mt-1">Kişisel bilgilerinizi aşağıda görüntüleyin ve düzenleyin.</p>
@@ -776,6 +785,7 @@ export default function CommunityProfile() {
           </section>
 
         </div>
+      </div>
       </div>
       )}
 

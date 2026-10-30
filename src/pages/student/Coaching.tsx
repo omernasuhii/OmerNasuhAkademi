@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { auth } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
 import { studentDataService } from '../../services/studentDataService';
 import { useCurriculum } from '../../lib/CurriculumContext';
 import { notificationService } from '../../services/notificationService';
+import { calculateBookProgress, getSafePercentage } from '../../utils/bookProgress';
 import BookTrackingDetail from './BookTrackingDetail';
-import { CheckCircle2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Target, Flame, Sparkles, Plus, X, StickyNote, Info, Youtube, Play } from 'lucide-react';
+import DenemeResultModal from '../../components/DenemeResultModal';
+import { CheckCircle2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Target, Flame, Sparkles, Plus, X, StickyNote, Info, Youtube, Play, Trophy, Trash2, ArrowRight } from 'lucide-react';
 
 export default function Coaching() {
   const { user, userData } = useAuth();
@@ -15,9 +18,14 @@ export default function Coaching() {
   const [loading, setLoading] = useState(true);
   const [books, setBooks] = useState<any[]>([]);
   const [showExtraModal, setShowExtraModal] = useState(false);
+  const [showDenemeInfoModal, setShowDenemeInfoModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'program' | 'kitaplar'>('program');
   const [selectedExtraDate, setSelectedExtraDate] = useState('');
   const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({});
+  const [showDenemeModal, setShowDenemeModal] = useState(false);
+  const [selectedDenemeTaskData, setSelectedDenemeTaskData] = useState<any>(null);
+  const [taskToDelete, setTaskToDelete] = useState<{ date: string; taskId: string; title: string } | null>(null);
+  const [isDeletingTask, setIsDeletingTask] = useState(false);
   const [extraTask, setExtraTask] = useState({
      subject: '',
      topic: '',
@@ -31,7 +39,7 @@ export default function Coaching() {
       const isSecond = bookId.endsWith('-2');
       const index = isSecond ? 1 : 2;
       const subjectBooks = (books || [])
-        .filter(b => b.subject === subject && (b.resourceType === 'soru' || !b.resourceType))
+        .filter(b => b.subject === subject && (b.resourceType === 'soru' || b.resourceType === 'fasikul' || !b.resourceType))
         .sort((a,b) => {
             const orderA = a.order !== undefined ? a.order : Number.MAX_SAFE_INTEGER;
             const orderB = b.order !== undefined ? b.order : Number.MAX_SAFE_INTEGER;
@@ -74,13 +82,18 @@ export default function Coaching() {
     ]);
     
     const mergedBooks = trackerData.map((tb: any) => {
+        let extraInfo = {};
         if (tb.globalBookId) {
             const gb = globalBooksData.find((g: any) => g.id === tb.globalBookId);
             if (gb) {
-                 return { ...tb, topicQuestionCounts: (gb as any).topicQuestionCounts || {} };
+                 extraInfo = { topicQuestionCounts: (gb as any).topicQuestionCounts || {} };
             }
         }
-        return tb;
+        return {
+          ...tb,
+          ...extraInfo,
+          completionPercentage: getSafePercentage(tb.completionPercentage)
+        };
     });
     setBooks(mergedBooks);
 
@@ -232,14 +245,31 @@ export default function Coaching() {
       }
   };
 
-  const { curriculum: CURRICULUM } = useCurriculum();
+  const { curriculum: CURRICULUM, subtopics: SUBTOPICS } = useCurriculum();
+
+  const openDenemeModalForTask = (task: any, date: string) => {
+    const resolvedB = resolveVirtualBook(task.bookId, task.subject);
+    setSelectedDenemeTaskData({
+      taskId: task.id,
+      date: date,
+      subject: task.subject,
+      denemeTopic: task.topic,
+      bookId: task.bookId,
+      bookName: resolvedB?.bookName || task.bookName,
+      branch: task.branch,
+      examType: task.branch === 'Denemeler' ? task.subject : task.branch,
+      questionCount: task.targetCount
+    });
+    setShowDenemeModal(true);
+  };
+
   const toggleTaskDone = async (date: string, taskId: string, currentDone: boolean) => {
     const dayProgram = dailyPrograms.find(p => p.date === date);
     if (!dayProgram) return;
 
     const targetTask = dayProgram.tasks.find((t: any) => t.id === taskId);
     
-    // Deneme Kontrolü: Deneme sonucu girilmeden tamamlandı işaretlenmesin
+    // Deneme Kontrolü: Deneme sonucu girilmeden tamamlandı işaretlenmesin, doğrudan modal açılsın
     if (!currentDone && targetTask) {
         const isDeneme = targetTask.topic?.includes('Deneme') || targetTask.subject?.includes('Genel') || targetTask.subject?.includes('YDT') || targetTask.branch === 'Denemeler' || targetTask.type === 'Deneme';
         if (isDeneme) {
@@ -247,14 +277,16 @@ export default function Coaching() {
                 if (currentUid) {
                     const exams = await studentDataService.getExamResults(currentUid);
                     // Check if there is an exam result on this day
-                    const hasExam = exams.some((e: any) => e.date === date);
+                    const hasExam = exams.some((e: any) => e.date === date || e.id === targetTask.examId);
                     if (!hasExam) {
-                        alert("Bu denemeyi tamamlandı olarak işaretlemek için lütfen önce 'Denemelerim' sayfasından deneme sonucunuzu giriniz.");
-                        return; // Prevent marking as done
+                        openDenemeModalForTask(targetTask, date);
+                        return; // Prevent marking as done without result
                     }
                 }
             } catch (e) {
-                console.error("Deneme kontrolü başarısız:", e);
+                console.error("Deneme kontrolü:", e);
+                openDenemeModalForTask(targetTask, date);
+                return;
             }
         }
     }
@@ -268,12 +300,12 @@ export default function Coaching() {
     // Otomatik Kitap Takibi İşaretleme
     if (!currentDone && targetTask && targetTask.bookId && targetTask.topic) {
         const book = books.find(b => b.id === targetTask.bookId);
+        const cleanTopic = targetTask.topic.replace(/\s*\((?:Bölüm\s*\d+\/\d+|\d+\.\s*Bölüm)\)\s*$/i, '').trim();
         if (book) {
             const currentTopics = book.completedTopics || [];
-            if (!currentTopics.includes(targetTask.topic)) {
-                const updatedTopics = [...currentTopics, targetTask.topic];
-                const allTopics = CURRICULUM[book.subject as keyof typeof CURRICULUM] || [];
-                const percentage = allTopics.length > 0 ? Math.round((updatedTopics.length / allTopics.length) * 100) : 0;
+            if (!currentTopics.includes(cleanTopic)) {
+                const updatedTopics = [...currentTopics, cleanTopic];
+                const percentage = calculateBookProgress(book, updatedTopics, CURRICULUM, SUBTOPICS);
                 
                 await studentDataService.updateBookProgress(book.id, {
                     ...book,
@@ -289,10 +321,11 @@ export default function Coaching() {
 
     // Otomatik Aylık Konu Hedefi İşaretleme
     if (currentUid && targetTask && targetTask.subject && targetTask.topic) {
+        const cleanTopic = targetTask.topic.replace(/\s*\((?:Bölüm\s*\d+\/\d+|\d+\.\s*Bölüm)\)\s*$/i, '').trim();
         await studentDataService.autoCompleteMonthlyTopicGoal(
             currentUid, 
             targetTask.subject, 
-            targetTask.topic, 
+            cleanTopic, 
             date, 
             !currentDone
         ).catch(console.error);
@@ -429,11 +462,11 @@ export default function Coaching() {
                      ).catch(console.error);
                  }
                  if (book) {
+                     const cleanTopic = (t.topic || '').replace(/\s*\((?:Bölüm\s*\d+\/\d+|\d+\.\s*Bölüm)\)\s*$/i, '').trim();
                      const currentTopics = book.completedTopics || [];
-                     if (!currentTopics.includes(t.topic)) {
-                         const updatedTopics = [...currentTopics, t.topic];
-                         const allTopics = CURRICULUM[book.subject as keyof typeof CURRICULUM] || [];
-                         const percentage = allTopics.length > 0 ? Math.round((updatedTopics.length / allTopics.length) * 100) : 0;
+                     if (!currentTopics.includes(cleanTopic)) {
+                         const updatedTopics = [...currentTopics, cleanTopic];
+                         const percentage = calculateBookProgress(book, updatedTopics, CURRICULUM, SUBTOPICS);
                          
                          await studentDataService.updateBookProgress(book.id, {
                              ...book,
@@ -530,6 +563,63 @@ export default function Coaching() {
   const openExtraModal = (date: string) => {
     setSelectedExtraDate(date);
     setShowExtraModal(true);
+  };
+
+  const isStudentExtraTask = (task: any): boolean => {
+    if (!task) return false;
+    if (task.id && String(task.id).startsWith('exam-sync-')) return false;
+    return Boolean(
+      task.isStudentAdded ||
+      task.addedBy === 'student' ||
+      task.addedByStudent ||
+      task.createdBy === 'student' ||
+      task.isExtra
+    );
+  };
+
+  const handleDeleteExtraTask = async () => {
+    if (!taskToDelete) return;
+    const { date, taskId } = taskToDelete;
+    const dayProgram = dailyPrograms.find(p => p.date === date);
+    if (!dayProgram) {
+      setTaskToDelete(null);
+      return;
+    }
+
+    const targetTask = dayProgram.tasks?.find((t: any) => t.id === taskId);
+    if (!targetTask || !isStudentExtraTask(targetTask)) {
+      console.warn("Sadece kendi eklediğiniz ekstra çalışmaları silebilirsiniz.");
+      setTaskToDelete(null);
+      return;
+    }
+
+    setIsDeletingTask(true);
+    try {
+      const updatedTasks = (dayProgram.tasks || []).filter((t: any) => t.id !== taskId);
+      const updatedProgram = { ...dayProgram, tasks: updatedTasks };
+
+      setDailyPrograms(prev => prev.map(p => p.date === date ? updatedProgram : p));
+      await studentDataService.saveDailyProgram(updatedProgram);
+
+      // If task was marked as done, deduct the awarded XP
+      if (currentUid && targetTask.isDone) {
+        const getTaskXP = (type: string) => {
+          switch (type) {
+            case 'YouTube Video': return 2;
+            case 'Konu Çalışması': return 3;
+            case 'Soru Çözümü':
+            default:
+              return 10;
+          }
+        };
+        await studentDataService.awardXP(currentUid, -getTaskXP(targetTask.type), 'Ekstra Görev Silindi');
+      }
+    } catch (error) {
+      console.error("Ekstra görev silinirken hata:", error);
+    } finally {
+      setIsDeletingTask(false);
+      setTaskToDelete(null);
+    }
   };
 
   const allVisibleTasks = dailyPrograms.reduce((acc, p) => [...acc, ...(p.tasks || [])], []);
@@ -746,6 +836,22 @@ export default function Coaching() {
                                                        >
                                                            <StickyNote size={12} />
                                                        </button>
+                                                       {isStudentExtraTask(task) && (
+                                                           <button 
+                                                               onClick={(e) => {
+                                                                   e.stopPropagation();
+                                                                   setTaskToDelete({
+                                                                       date: day.date,
+                                                                       taskId: task.id,
+                                                                       title: `${task.subject}${task.topic ? ` (${task.topic})` : ''}`
+                                                                   });
+                                                               }}
+                                                               className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                                                               title="Kendi Eklediğin Ekstra Görevi Sil"
+                                                           >
+                                                               <Trash2 size={12} />
+                                                           </button>
+                                                       )}
                                                     </div>
                                                    <p className="text-xs sm:text-sm font-black leading-snug break-words">{task.subject}</p>
                                                 </div>
@@ -783,70 +889,117 @@ export default function Coaching() {
                                                                             <CheckCircle2 size={20} />
                                                                         </div>
                                                                     </div>
-                                                                ) : task.isWaitingResult ? (
-                                                                    <div className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center cursor-pointer shadow-lg transition-all ${isWaitingExpired ? 'bg-red-500/20 border border-red-500 text-red-400 shadow-red-500/10' : 'bg-amber-500/20 border border-amber-500 text-amber-400 shadow-amber-500/10'}`} onClick={() => toggleTaskWaitingResult(day.date, task.id, task.isWaitingResult)} title={isWaitingExpired ? '5 gün içerisinde sonuç girilmediği için yapılmadı sayıldı.' : 'Sonuç bekleniyor. İptal etmek için tıklayın.'}>
-                                                                        <span className="text-[7px] font-black uppercase leading-tight text-center">{isWaitingExpired ? 'Yapılmadı' : 'Sonuç'}</span>
-                                                                        <span className="text-[7px] font-bold leading-tight text-center">{isWaitingExpired ? '(5+ Gün)' : 'Bekleniyor'}</span>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className="flex items-center gap-1">
-                                                                        <div className="group relative">
-                                                                            <div className="w-10 h-10 rounded-xl flex items-center justify-center border border-white/20 text-slate-400 bg-white/5 cursor-help">
-                                                                                <Info size={20} />
-                                                                            </div>
-                                                                            <div className="absolute right-0 top-full mt-2 w-48 p-2 bg-slate-800 text-white text-xs rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none z-[100]">
-                                                                                Bu denemeyi tamamlandı olarak işaretlemek için lütfen önce 'Denemelerim' sayfasından deneme sonucunuzu giriniz. Veya henüz sonuç açıklanmadıysa 'Sonuç Bekleniyor' olarak işaretleyebilirsiniz.
-                                                                            </div>
+                                                                 ) : task.isWaitingResult ? (
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <div className={`h-10 px-2.5 rounded-xl flex flex-col items-center justify-center cursor-pointer shadow-lg transition-all ${isWaitingExpired ? 'bg-red-500/20 border border-red-500 text-red-400 shadow-red-500/10' : 'bg-amber-500/20 border border-amber-500 text-amber-400 shadow-amber-500/10'}`} onClick={() => toggleTaskWaitingResult(day.date, task.id, task.isWaitingResult)} title={isWaitingExpired ? '5 gün içerisinde sonuç girilmediği için yapılmadı sayıldı. İptal etmek için tıklayın.' : 'Sonuç bekleniyor. İptal etmek için tıklayın.'}>
+                                                                            <span className="text-[8px] font-black uppercase leading-tight text-center">{isWaitingExpired ? 'Yapılmadı' : 'Sonuç'}</span>
+                                                                            <span className="text-[8px] font-bold leading-tight text-center">{isWaitingExpired ? '(5+ Gün)' : 'Bekleniyor'}</span>
                                                                         </div>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setShowDenemeInfoModal(true);
+                                                                            }}
+                                                                            className="w-10 h-10 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-white/10 hover:border-amber-500/30 text-slate-300 hover:text-amber-400 flex items-center justify-center transition-colors cursor-pointer shrink-0 shadow-sm"
+                                                                            title="Deneme süreci hakkında bilgi"
+                                                                        >
+                                                                            <Info size={16} />
+                                                                        </button>
+                                                                    </div>
+                                                                 ) : (
+                                                                    <div className="flex items-center gap-1.5">
                                                                         <button 
                                                                             onClick={() => toggleTaskWaitingResult(day.date, task.id, false)}
-                                                                            className="h-10 px-1.5 rounded-xl border border-amber-500/30 text-amber-500 hover:bg-amber-500 hover:text-white transition-colors text-[8px] font-bold leading-tight flex flex-col items-center justify-center text-center"
-                                                                            title="Cevap anahtarı açıklanmadığı için sonucu bekliyorsanız işaretleyin."
+                                                                            className="h-10 px-3 rounded-xl border border-amber-500/30 text-amber-500 hover:bg-amber-500 hover:text-white transition-colors text-[9px] font-bold leading-tight flex flex-col items-center justify-center text-center cursor-pointer shrink-0"
+                                                                            title="Cevap anahtarı henüz açıklanmadıysa sonuç bekleniyor olarak işaretleyin."
                                                                         >
                                                                             <span>Sonuç</span>
                                                                             <span>Bekleniyor</span>
                                                                         </button>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    }
-                                                    
-                                                    if (isDeneme) {
-                                                        return (
-                                                            <div className="flex items-center gap-2 shrink-0">
-                                                                {task.isDone ? (
-                                                                    <div className="flex items-center gap-2">
-                                                                        {(task.completedCount !== undefined && task.completedCount !== null && Number(task.completedCount) > 0) ? (
-                                                                            <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20 shadow-sm">
-                                                                                {task.completedCount} Soru
-                                                                            </span>
-                                                                        ) : (task.targetCount !== undefined && task.targetCount !== null && Number(task.targetCount) > 0) ? (
-                                                                            <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20 shadow-sm">
-                                                                                {task.targetCount} Soru
-                                                                            </span>
-                                                                        ) : null}
                                                                         <button
-                                                                            onClick={() => toggleTaskDone(day.date, task.id, true)}
-                                                                            className="w-10 h-10 rounded-xl flex items-center justify-center bg-emerald-500 border border-emerald-500 text-white shadow-lg shadow-emerald-500/20"
-                                                                            title="Tamamlandı işaretini kaldır"
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setShowDenemeInfoModal(true);
+                                                                            }}
+                                                                            className="w-10 h-10 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-white/10 hover:border-amber-500/30 text-slate-300 hover:text-amber-400 flex items-center justify-center transition-colors cursor-pointer shrink-0 shadow-sm"
+                                                                            title="Deneme süreci hakkında bilgi"
                                                                         >
-                                                                            <CheckCircle2 size={20} />
+                                                                            <Info size={16} />
                                                                         </button>
                                                                     </div>
-                                                                ) : (
-                                                                    <div className="group relative">
-                                                                        <div className="w-10 h-10 rounded-xl flex items-center justify-center border border-white/20 text-slate-400 bg-white/5 cursor-help">
-                                                                            <Info size={20} />
-                                                                        </div>
-                                                                        <div className="absolute right-0 top-full mt-2 w-48 p-2 bg-slate-800 text-white text-xs rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none z-[100]">
-                                                                            Bu denemeyi tamamlandı olarak işaretlemek için lütfen 'Denemelerim' sayfasından deneme sonucunuzu giriniz.
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    }
+                                                                 )}
+                                                             </div>
+                                                         );
+                                                     }
+                                                     
+                                                     if (isDeneme) {
+                                                         return (
+                                                             <div className="flex items-center gap-2 shrink-0">
+                                                                 {task.isDone ? (
+                                                                     <div className="flex items-center gap-2">
+                                                                         {(task.completedCount !== undefined && task.completedCount !== null && Number(task.completedCount) > 0) ? (
+                                                                             <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20 shadow-sm">
+                                                                                 {task.completedCount} Soru
+                                                                             </span>
+                                                                         ) : (task.targetCount !== undefined && task.targetCount !== null && Number(task.targetCount) > 0) ? (
+                                                                             <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20 shadow-sm">
+                                                                                 {task.targetCount} Soru
+                                                                             </span>
+                                                                         ) : null}
+                                                                         <button
+                                                                             onClick={() => toggleTaskDone(day.date, task.id, true)}
+                                                                             className="w-10 h-10 rounded-xl flex items-center justify-center bg-emerald-500 border border-emerald-500 text-white shadow-lg shadow-emerald-500/20 cursor-pointer"
+                                                                             title="Tamamlandı işaretini kaldır"
+                                                                         >
+                                                                             <CheckCircle2 size={20} />
+                                                                         </button>
+                                                                     </div>
+                                                                 ) : task.isWaitingResult ? (
+                                                                     <div className="flex items-center gap-1.5">
+                                                                         <div className={`h-10 px-2.5 rounded-xl flex flex-col items-center justify-center cursor-pointer shadow-lg transition-all ${isWaitingExpired ? 'bg-red-500/20 border border-red-500 text-red-400 shadow-red-500/10' : 'bg-amber-500/20 border border-amber-500 text-amber-400 shadow-amber-500/10'}`} onClick={() => toggleTaskWaitingResult(day.date, task.id, task.isWaitingResult)} title={isWaitingExpired ? '5 gün içerisinde sonuç girilmediği için yapılmadı sayıldı. İptal etmek için tıklayın.' : 'Sonuç bekleniyor. İptal etmek için tıklayın.'}>
+                                                                             <span className="text-[8px] font-black uppercase leading-tight text-center">{isWaitingExpired ? 'Yapılmadı' : 'Sonuç'}</span>
+                                                                             <span className="text-[8px] font-bold leading-tight text-center">{isWaitingExpired ? '(5+ Gün)' : 'Bekleniyor'}</span>
+                                                                         </div>
+                                                                         <button
+                                                                             type="button"
+                                                                             onClick={(e) => {
+                                                                                 e.stopPropagation();
+                                                                                 setShowDenemeInfoModal(true);
+                                                                             }}
+                                                                             className="w-10 h-10 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-white/10 hover:border-amber-500/30 text-slate-300 hover:text-amber-400 flex items-center justify-center transition-colors cursor-pointer shrink-0 shadow-sm"
+                                                                             title="Deneme süreci hakkında bilgi"
+                                                                         >
+                                                                             <Info size={16} />
+                                                                         </button>
+                                                                     </div>
+                                                                 ) : (
+                                                                     <div className="flex items-center gap-1.5">
+                                                                         <button 
+                                                                             onClick={() => toggleTaskWaitingResult(day.date, task.id, false)}
+                                                                             className="h-10 px-3 rounded-xl border border-amber-500/30 text-amber-500 hover:bg-amber-500 hover:text-white transition-colors text-[9px] font-bold leading-tight flex flex-col items-center justify-center text-center cursor-pointer shrink-0"
+                                                                             title="Cevap anahtarı henüz açıklanmadıysa sonuç bekleniyor olarak işaretleyin."
+                                                                         >
+                                                                             <span>Sonuç</span>
+                                                                             <span>Bekleniyor</span>
+                                                                         </button>
+                                                                         <button
+                                                                             type="button"
+                                                                             onClick={(e) => {
+                                                                                 e.stopPropagation();
+                                                                                 setShowDenemeInfoModal(true);
+                                                                             }}
+                                                                             className="w-10 h-10 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-white/10 hover:border-amber-500/30 text-slate-300 hover:text-amber-400 flex items-center justify-center transition-colors cursor-pointer shrink-0 shadow-sm"
+                                                                             title="Deneme süreci hakkında bilgi"
+                                                                         >
+                                                                             <Info size={16} />
+                                                                         </button>
+                                                                     </div>
+                                                                 )}
+                                                             </div>
+                                                         );
+                                                     }
                                                     
                                                     if (task.type === 'Soru Çözümü' || task.type === 'Konu Çalışması' || task.type === 'YouTube Video') {
                                                         return (
@@ -892,7 +1045,7 @@ export default function Coaching() {
                                                      </p>
                                                  </div>
                                              )}
-                                             
+
                                              {openNotes[`task-${task.id}`] && (
                                                  <div className="mt-3 space-y-2">
                                                      {(task.coachNote || task.note) && (
@@ -1090,6 +1243,133 @@ export default function Coaching() {
                   Sisteme Ekle ve Başarımı Artır
                </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Deneme Sonuç Giriş Modalı */}
+      <DenemeResultModal
+        isOpen={showDenemeModal}
+        studentId={user?.uid || ''}
+        onClose={() => {
+          setShowDenemeModal(false);
+          setSelectedDenemeTaskData(null);
+        }}
+        initialData={selectedDenemeTaskData}
+        onSuccess={() => {
+          fetchData();
+        }}
+      />
+
+      {taskToDelete && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200 p-5 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center shrink-0">
+                <Trash2 size={20} />
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-base">Ekstra Çalışmayı Sil</h3>
+                <p className="text-slate-400 text-xs mt-0.5">Sadece kendi eklediğiniz çalışma kaldırılır</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-800/60 border border-white/5 rounded-xl mb-5 text-xs text-slate-300">
+              <p className="font-semibold text-white mb-1">{taskToDelete.title}</p>
+              <p className="text-slate-400 text-[11px] leading-relaxed">
+                Bu ekstra çalışmayı programdan kaldırmak istediğinize emin misiniz? Koçunuzun atadığı görevler korunur.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                disabled={isDeletingTask}
+                onClick={() => setTaskToDelete(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingTask}
+                onClick={handleDeleteExtraTask}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-lg shadow-rose-600/20 cursor-pointer disabled:opacity-50"
+              >
+                {isDeletingTask ? (
+                  <span>Siliniyor...</span>
+                ) : (
+                  <>
+                    <Trash2 size={14} />
+                    <span>Evet, Sil</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Deneme Bilgilendirme ve Yönlendirme Modalı */}
+      {showDenemeInfoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
+            <button
+              onClick={() => setShowDenemeInfoModal(false)}
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-xl bg-slate-800 hover:bg-slate-700 transition-colors cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                <Info size={22} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Deneme Süreci & Sonuç Girişi</h3>
+                <p className="text-xs text-slate-400">Koçluk programı deneme takibi</p>
+              </div>
+            </div>
+
+            <div className="space-y-3.5 text-xs text-slate-300 leading-relaxed">
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                <div className="font-bold text-amber-400 mb-1 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                  <span>"Sonuç Bekleniyor" Nedir?</span>
+                </div>
+                <p className="text-slate-300/90 text-[11px]">
+                  Denemeyi çözdüyseniz ancak cevap anahtarı henüz yayınlanmadıysa veya optik kontrolü bekliyorsanız, görevi <strong>Sonuç Bekleniyor</strong> olarak işaretleyebilirsiniz. Sonuç girmeniz için 5 gün süreniz bulunur.
+                </p>
+              </div>
+
+              <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
+                <div className="font-bold text-indigo-400 mb-1 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-indigo-400"></span>
+                  <span>Deneme Sonuçları Nereden Girilir?</span>
+                </div>
+                <p className="text-slate-300/90 text-[11px]">
+                  Deneme netleri, ders bazlı analizler ve sıralama detayları doğrudan <strong>Denemeler (Deneme Girişi)</strong> sayfasından girilir. Sonucu kaydettiğinizde o güne ait deneme görevi otomatik olarak tamamlandı sayılır.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowDenemeInfoModal(false)}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+              >
+                Anladım
+              </button>
+              <Link
+                to="/panel/ogrenci/denemeler"
+                onClick={() => setShowDenemeInfoModal(false)}
+                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-lg shadow-indigo-600/20 cursor-pointer"
+              >
+                <span>Deneme Girişine Git</span>
+                <ArrowRight size={14} />
+              </Link>
+            </div>
           </div>
         </div>
       )}

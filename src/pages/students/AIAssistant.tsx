@@ -1,13 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, Brain, User, Loader2, Sparkles, Check, HelpCircle, Upload, Image, Camera, X, Volume2, VolumeX, Play, Pause, RotateCcw, BookOpen, CheckCircle2, MessageSquare, Gift, History, Filter, Search, Trash2, Calendar, FolderOpen, Tag, ChevronRight, FileText, Layers, Maximize2 } from 'lucide-react';
+import { Send, Brain, User, Loader2, Sparkles, Check, HelpCircle, Upload, Image, Camera, X, Volume2, VolumeX, Play, Pause, RotateCcw, BookOpen, CheckCircle2, MessageSquare, Gift, History, Filter, Search, Trash2, Calendar, FolderOpen, Tag, ChevronRight, FileText, Layers, Maximize2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
+import { db } from '../../lib/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import ReactMarkdown from 'react-markdown';
+import { cleanMathText } from '../../utils/cleanMathText';
 import { appointmentService, Service } from '../../services/appointmentService';
 import { studentDataService } from '../../services/studentDataService';
 import { analysisService } from '../../services/analysisService';
 import { safeStorage } from '../../lib/localStorage';
+import { systemLogger } from '../../services/systemLogger';
 
 interface Message {
   id: string;
@@ -19,6 +23,26 @@ interface Message {
   // Custom interactive fields
   interactiveOptions?: { label: string; value: any }[];
   interactiveAnswered?: boolean;
+  // Error handling fields
+  isError?: boolean;
+  errorCode?: string;
+  retryText?: string;
+  reportedToSystem?: boolean;
+}
+
+async function parseResponseSafely<T = any>(res: Response): Promise<T> {
+  const rawText = await res.text();
+  try {
+    return JSON.parse(rawText) as T;
+  } catch (err) {
+    console.error("Failed to parse JSON response:", rawText.slice(0, 300));
+    const isHtml = rawText.trim().startsWith("<") || rawText.includes("<!DOCTYPE");
+    throw new Error(
+      isHtml
+        ? "Sunucu geçici bir ağ veya ağ geçidi yanıtı döndürdü (HTML)."
+        : "Sunucudan geçerli bir JSON yanıtı alınamadı."
+    );
+  }
 }
 
 interface FollowUpMessage {
@@ -48,8 +72,13 @@ export default function AIAssistant() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'chat' | 'solver'>('chat');
 
-  // Question Limit Calculations (140 per subscription)
-  const MAX_QUESTIONS_PER_SUB = 140;
+  // Question Limit Calculations (140 per 4-week subscription, 21 questions during Gold Trial period)
+  const isTrial = Boolean(userData?.isTrial || userData?.subscriptionStatus === 'trial');
+  const planStr = (userData?.subscriptionPlan || userData?.package || '').toLowerCase();
+  const isGoldPlan = planStr.includes('altın') || planStr.includes('gold') || planStr.includes('vip') || planStr.includes('zirve') || (!planStr && isTrial); // Default to Gold if in trial without explicit plan string
+
+  // Altın paketin Deneme süresi içerisinde öğrencilerin yapay zeka soru çözüm asistanına sadece 21 soru sorma hakkı olsun.
+  const MAX_QUESTIONS_PER_SUB = (isTrial && isGoldPlan) ? 21 : 140;
   const currentQuestionCount = userData?.askedAiQuestionsCount || 0;
   const remainingQuestions = Math.max(0, MAX_QUESTIONS_PER_SUB - currentQuestionCount);
   const isLimitReached = currentQuestionCount >= MAX_QUESTIONS_PER_SUB;
@@ -245,12 +274,12 @@ export default function AIAssistant() {
         })
       });
 
-      const data = await res.json();
-      if (data.success && data.text) {
+      const data = await parseResponseSafely(res);
+      if (data && data.success && data.text) {
         const aiMsg: FollowUpMessage = {
           id: (Date.now() + 1).toString(),
           sender: 'ai',
-          text: data.text,
+          text: cleanMathText(data.text),
           timestamp: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
         };
         const updatedMsgs = [...updated, aiMsg];
@@ -297,7 +326,7 @@ export default function AIAssistant() {
 
   const generateId = () => Date.now().toString() + Math.random().toString(36).substring(2, 9);
 
-  const compressImageDataUrl = (dataUrl: string, maxDimension = 1000, quality = 0.7): Promise<string> => {
+  const compressImageDataUrl = (dataUrl: string, maxDimension = 900, quality = 0.7): Promise<string> => {
     return new Promise((resolve) => {
       if (!dataUrl || !dataUrl.startsWith('data:image')) {
         resolve(dataUrl);
@@ -321,6 +350,8 @@ export default function AIAssistant() {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, 0, 0, width, height);
           resolve(canvas.toDataURL('image/jpeg', quality));
         } else {
@@ -335,8 +366,8 @@ export default function AIAssistant() {
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 12 * 1024 * 1024) {
-      setSolverError("Görsel boyutu 12MB'dan küçük olmalıdır.");
+    if (file.size > 15 * 1024 * 1024) {
+      setSolverError("Görsel boyutu 15MB'dan küçük olmalıdır.");
       return;
     }
     setSolverError(null);
@@ -344,7 +375,7 @@ export default function AIAssistant() {
     reader.onload = async (evt) => {
       const resStr = evt.target?.result as string;
       try {
-        const compressed = await compressImageDataUrl(resStr, 1000, 0.7);
+        const compressed = await compressImageDataUrl(resStr, 900, 0.7);
         setQImagePreview(compressed);
         setQImageMime('image/jpeg');
       } catch (err) {
@@ -353,6 +384,33 @@ export default function AIAssistant() {
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const handlePasteImage = async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        const file = items[i].getAsFile();
+        if (file) {
+          e.preventDefault();
+          const reader = new FileReader();
+          reader.onload = async (evt) => {
+            const resStr = evt.target?.result as string;
+            try {
+              const compressed = await compressImageDataUrl(resStr, 900, 0.7);
+              setQImagePreview(compressed);
+              setQImageMime('image/jpeg');
+            } catch (err) {
+              setQImagePreview(resStr);
+              setQImageMime('image/jpeg');
+            }
+          };
+          reader.readAsDataURL(file);
+          break;
+        }
+      }
+    }
   };
 
   const handleRemoveImage = () => {
@@ -401,7 +459,7 @@ export default function AIAssistant() {
     if (ctx) {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      compressImageDataUrl(dataUrl, 1000, 0.7).then((compressed) => {
+      compressImageDataUrl(dataUrl, 900, 0.7).then((compressed) => {
         setQImagePreview(compressed);
         setQImageMime('image/jpeg');
         closeCameraModal();
@@ -440,7 +498,7 @@ export default function AIAssistant() {
       reader.onload = async (evt) => {
         const resStr = evt.target?.result as string;
         try {
-          const compressed = await compressImageDataUrl(resStr, 1000, 0.7);
+          const compressed = await compressImageDataUrl(resStr, 900, 0.7);
           setQImagePreview(compressed);
           setQImageMime('image/jpeg');
         } catch (err) {
@@ -454,7 +512,11 @@ export default function AIAssistant() {
 
   const handleSolveQuestion = async () => {
     if (isLimitReached) {
-      setSolverError("Abonelik döneminiz boyunca tanımlanan 140 soru sorma hakkınızı tamamladınız. Soru sorabilmek için lütfen aboneliğinizi yenileyin veya paketinizi yükseltin.");
+      if (isTrial && isGoldPlan) {
+        setSolverError("Altın Paket 7 günlük deneme süresinde tanımlanan 21 soru sorma hakkınızı tamamladınız. Soru sormaya devam edebilmek için lütfen aboneliğinizi başlatın.");
+      } else {
+        setSolverError(`Abonelik döneminiz boyunca tanımlanan ${MAX_QUESTIONS_PER_SUB} soru sorma hakkınızı tamamladınız. Soru sorabilmek için lütfen aboneliğinizi yenileyin veya paketinizi yükseltin.`);
+      }
       return;
     }
 
@@ -484,15 +546,16 @@ export default function AIAssistant() {
         })
       });
 
-      const data = await res.json();
+      const data = await parseResponseSafely(res);
       if (!res.ok) {
         throw new Error(data.error || "Soru çözümü sırasında bir hata oluştu.");
       }
 
       const isValidSingleQ = data.hasValidSingleQuestion !== false;
+      const formattedText = cleanMathText(data.text);
 
       setSolverResult({
-        text: data.text,
+        text: formattedText,
         audioDataUrl: null,
         hasValidSingleQuestion: isValidSingleQ,
         questionStatus: data.questionStatus || (isValidSingleQ ? 'SINGLE_QUESTION' : 'NO_QUESTION')
@@ -512,7 +575,7 @@ export default function AIAssistant() {
           qText: qText.trim(),
           qImagePreview,
           solverResult: {
-            text: data.text,
+            text: formattedText,
             audioDataUrl: null,
             hasValidSingleQuestion: isValidSingleQ,
             questionStatus: data.questionStatus
@@ -521,55 +584,7 @@ export default function AIAssistant() {
         }).then(() => loadHistoryItems()).catch(console.error);
       }
 
-      // ONLY generate audio if it is a valid single question!
-      if (isValidSingleQ) {
-        setIsAudioGenerating(true);
-        try {
-          const audioRes = await fetch("/api/student-question-audio", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              text: data.text,
-              voiceName: selectedVoice
-            })
-          });
-
-          if (audioRes.ok) {
-            const contentType = audioRes.headers.get("content-type");
-            if (contentType && contentType.includes("application/json")) {
-              const audioData = await audioRes.json();
-              if (audioData.audioBase64) {
-                const audioUrl = `data:${audioData.audioMimeType || 'audio/wav'};base64,${audioData.audioBase64}`;
-                setSolverResult(prev => prev ? { ...prev, audioDataUrl: audioUrl } : null);
-
-                if (userData?.uid && newQId) {
-                  studentDataService.saveSolvedQuestionHistory(userData.uid, {
-                    id: newQId,
-                    subject: selectedSubject,
-                    qText: qText.trim(),
-                    qImagePreview,
-                    solverResult: {
-                      text: data.text,
-                      audioDataUrl: audioUrl,
-                      hasValidSingleQuestion: isValidSingleQ,
-                      questionStatus: data.questionStatus
-                    },
-                    followUpMessages: []
-                  }).then(() => loadHistoryItems()).catch(console.error);
-                }
-              }
-            }
-          } else {
-            console.warn("Sesli çözüm sunucu yanıtı başarısız:", audioRes.status);
-          }
-        } catch (audioErr) {
-          console.warn("Sesli çözüm yüklenemedi:", audioErr);
-        } finally {
-          setIsAudioGenerating(false);
-        }
-      } else {
-        setIsAudioGenerating(false);
-      }
+      // Sesli çözüm artık otomatik olarak oluşturulmaz. Sadece öğrenci 'Dinle' butonuna basınca talep edilir.
 
     } catch (err: any) {
       setSolverError(err.message || "Bağlantı hatası oluştu.");
@@ -592,8 +607,13 @@ export default function AIAssistant() {
     }
   };
 
-  const handleRegenerateAudio = async () => {
+  const handlePlayOrGenerateAudio = async () => {
     if (!solverResult || !solverResult.text) return;
+    if (solverResult.audioDataUrl) {
+      toggleAudioPlay();
+      return;
+    }
+
     setIsAudioGenerating(true);
     try {
       const res = await fetch("/api/student-question-audio", {
@@ -624,13 +644,18 @@ export default function AIAssistant() {
                 followUpMessages
               }).catch(console.error);
             }
+            setTimeout(() => {
+              if (audioRef.current) {
+                audioRef.current.play().then(() => setIsPlayingAudio(true)).catch(console.error);
+              }
+            }, 100);
           }
         }
       } else {
-        console.warn("Ses yeniden oluşturma başarısız, HTTP status:", res.status);
+        console.warn("Ses oluşturma başarısız, HTTP status:", res.status);
       }
     } catch (err) {
-      console.error("Audio regeneration failed:", err);
+      console.error("Audio generation failed:", err);
     } finally {
       setIsAudioGenerating(false);
     }
@@ -668,12 +693,12 @@ export default function AIAssistant() {
         })
       });
 
-      const data = await res.json();
-      if (data.success && data.text) {
+      const data = await parseResponseSafely(res);
+      if (data && data.success && data.text) {
         const aiMsg: FollowUpMessage = {
           id: (Date.now() + 1).toString(),
           sender: 'ai',
-          text: data.text,
+          text: cleanMathText(data.text),
           timestamp: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
         };
         const updatedMsgs = [...updated, aiMsg];
@@ -839,7 +864,8 @@ export default function AIAssistant() {
     const s = wizardState;
     if (s.step === 1) {
       setWizardState(prev => ({ ...prev, type: option.value, step: 2 }));
-      const filtered = s.availableServices.filter(srv => srv.type === option.value);
+      const availableServices = Array.isArray(s.availableServices) ? s.availableServices : [];
+      const filtered = availableServices.filter(srv => srv.type === option.value);
       const nextOptions: { label: string; value: any }[] = filtered.map(srv => ({ label: srv.title, value: srv }));
       
       if (nextOptions.length > 0) nextOptions.push({ label: '❌ İptal Et', value: 'cancel' });
@@ -856,9 +882,11 @@ export default function AIAssistant() {
       const srv = option.value as Service;
       setWizardState(prev => ({ ...prev, service: srv, step: 3 }));
       
-      const filtered = srv.assignedCoachIds?.length 
-        ? s.availableCoaches.filter(c => srv.assignedCoachIds!.includes(c.uid))
-        : s.availableCoaches;
+      const availableCoaches = Array.isArray(s.availableCoaches) ? s.availableCoaches : [];
+      const assignedIds = Array.isArray(srv.assignedCoachIds) ? srv.assignedCoachIds : [];
+      const filtered = assignedIds.length > 0
+        ? availableCoaches.filter(c => assignedIds.includes(c.uid))
+        : availableCoaches;
         
       const nextOptions = filtered.map(c => ({ label: c.displayName || c.email, value: c.uid }));
       if (nextOptions.length > 0) nextOptions.push({ label: '❌ İptal Et', value: 'cancel' });
@@ -1004,7 +1032,8 @@ export default function AIAssistant() {
           // Present the the next available slots directly
           setWizardState(prev => ({ ...prev, date: nextAvailableSlotInfo.date })); // update the date implicitly
           
-          const nextOptions = nextAvailableSlotInfo.slots.map((h: string) => ({ label: `${nextAvailableSlotInfo.label} - ${h}`, value: h }));
+          const safeSlots = Array.isArray(nextAvailableSlotInfo.slots) ? nextAvailableSlotInfo.slots : [];
+          const nextOptions = safeSlots.map((h: string) => ({ label: `${nextAvailableSlotInfo.label} - ${h}`, value: h }));
           nextOptions.push({ label: '❌ İptal Et', value: 'cancel' });
           setMessages(prev => [...prev, {
               id: generateId(),
@@ -1195,7 +1224,40 @@ export default function AIAssistant() {
     }
   };
 
+  const reportSystemError = async (details: {
+    errorCode: string;
+    source: string;
+    errorMessage: string;
+    studentId: string;
+    studentName: string;
+    lastMessageText: string;
+  }) => {
+    try {
+      await systemLogger.logError({
+        source: details.source || 'AIAssistant',
+        message: details.errorMessage,
+        category: 'ai',
+        severity: 'error',
+        user: {
+          uid: details.studentId,
+          name: details.studentName,
+          email: user?.email || '',
+          role: 'student'
+        },
+        metadata: {
+          errorCode: details.errorCode,
+          lastMessageText: details.lastMessageText
+        }
+      });
+    } catch (err) {
+      console.warn('SystemLogger reporting caught error:', err);
+    }
+  };
+
   const processResponse = async (historyToProcess: Message[]) => {
+    const lastUserMsg = [...historyToProcess].reverse().find(m => m.role === 'user');
+    const lastUserText = lastUserMsg?.content || '';
+
     try {
       const contextData = {
         firstName: userData?.firstName,
@@ -1221,19 +1283,19 @@ export default function AIAssistant() {
         })
       });
 
-      const data = await response.json();
+      const data = await parseResponseSafely(response);
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Server error');
+      if (!response.ok || (data && data.error)) {
+        throw new Error(data?.error || `Sunucu yanıt veremedi (Durum kodu: ${response.status})`);
       }
 
       if (data.functionCalls && data.functionCalls.length > 0) {
-        let hasWizard = data.functionCalls.some(fc => fc.name === 'start_booking_wizard');
+        let hasWizard = data.functionCalls.some((fc: any) => fc.name === 'start_booking_wizard');
         
         // Temizlenmiş text - gereksiz sistem loglarını gizle
         let cleanText = data.text;
         if (cleanText) {
-           cleanText = cleanText.split('\n').filter(line => !line.toLowerCase().includes('sistem:')).join('\n').trim();
+           cleanText = cleanText.split('\n').filter((line: string) => !line.toLowerCase().includes('sistem:')).join('\n').trim();
         }
 
         const modelMessageId = generateId();
@@ -1294,17 +1356,34 @@ export default function AIAssistant() {
       }]);
 
     } catch (error: any) {
-      console.error('Error:', error);
+      console.error('Error in processResponse:', error);
+      const errorCode = `ERR-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+      // Sisteme hatayla alakalı bilgi verelim:
+      reportSystemError({
+        errorCode,
+        source: 'AIAssistant.processResponse',
+        errorMessage: error?.message || String(error),
+        studentId: user?.uid || '',
+        studentName: `${userData?.firstName || ''} ${userData?.lastName || ''}`.trim() || 'Öğrenci',
+        lastMessageText: lastUserText
+      });
+
+      // Kullanıcıdan mesajı tekrar yazmasını isteyelim:
       setMessages(prev => [...prev, {
         id: generateId(),
         role: 'model',
-        content: `Üzgünüm, bir hata oluştu: ${error.message}`
+        content: `Üzgünüm, geçici bir bağlantı veya sistemsel yanıt gecikmesi nedeniyle bu mesajınızı işleyemedim.\n\n⚠️ **Lütfen mesajınızı tekrar yazarak gönderebilir misiniz?**`,
+        isError: true,
+        errorCode,
+        retryText: lastUserText,
+        reportedToSystem: true
       }]);
     }
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+  const sendAssistantMessage = async (textToSend: string) => {
+    if (!textToSend.trim() || isLoading) return;
 
     if (wizardState.isActive) {
         setMessages(prev => [...prev, {
@@ -1316,7 +1395,7 @@ export default function AIAssistant() {
         return;
     }
 
-    const currentInput = input;
+    const currentInput = textToSend.trim();
     const newMessages = [...messages, { id: generateId(), role: 'user' as const, content: currentInput }];
     setMessages(newMessages);
     setInput('');
@@ -1340,6 +1419,10 @@ export default function AIAssistant() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSend = async () => {
+    sendAssistantMessage(input);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1686,7 +1769,11 @@ export default function AIAssistant() {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
-                    isLimitReached ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30'
+                    isLimitReached 
+                      ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' 
+                      : (isTrial && isGoldPlan)
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                      : 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30'
                   }`}>
                     <Sparkles className="w-5 h-5" />
                   </div>
@@ -1696,24 +1783,26 @@ export default function AIAssistant() {
                       <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${
                         isLimitReached 
                           ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' 
+                          : (isTrial && isGoldPlan)
+                          ? 'bg-amber-500/10 text-amber-300 border-amber-500/20'
                           : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20'
                       }`}>
-                        Abonelik Dönemi
+                        {isTrial && isGoldPlan ? '7 Günlük Deneme Sürümü (Altın Paket)' : 'Abonelik Dönemi'}
                       </span>
                     </h4>
                     <p className="text-xs text-slate-400 mt-0.5">
                       {isLimitReached 
-                        ? 'Abonelik soru hakkınız dolmuştur.' 
-                        : `140 soruluk abonelik hakkınızdan kalan: ${remainingQuestions} soru`}
+                        ? (isTrial && isGoldPlan ? 'Deneme sürümü 21 soru hakkınız dolmuştur.' : 'Abonelik soru hakkınız dolmuştur.')
+                        : `${MAX_QUESTIONS_PER_SUB} soruluk ${isTrial && isGoldPlan ? 'deneme süresi' : 'abonelik'} hakkınızdan kalan: ${remainingQuestions} soru`}
                     </p>
                   </div>
                 </div>
 
                 <div className="text-left sm:text-right shrink-0">
-                  <span className={`text-2xl font-black ${isLimitReached ? 'text-rose-400' : 'text-indigo-400'}`}>
+                  <span className={`text-2xl font-black ${isLimitReached ? 'text-rose-400' : (isTrial && isGoldPlan) ? 'text-amber-400' : 'text-indigo-400'}`}>
                     {remainingQuestions}
                   </span>
-                  <span className="text-xs text-slate-400 font-bold ml-1">/ 140 Kalan Hak</span>
+                  <span className="text-xs text-slate-400 font-bold ml-1">/ {MAX_QUESTIONS_PER_SUB} Kalan Hak</span>
                 </div>
               </div>
 
@@ -1723,8 +1812,10 @@ export default function AIAssistant() {
                   className={`h-full rounded-full transition-all duration-500 ${
                     isLimitReached 
                       ? 'bg-rose-500' 
-                      : remainingQuestions <= 20 
+                      : (isTrial && isGoldPlan ? remainingQuestions <= 5 : remainingQuestions <= 20)
                       ? 'bg-amber-500' 
+                      : (isTrial && isGoldPlan)
+                      ? 'bg-gradient-to-r from-amber-500 to-yellow-400'
                       : 'bg-gradient-to-r from-indigo-500 to-purple-500'
                   }`} 
                   style={{ width: `${Math.min(100, Math.max(0, (currentQuestionCount / MAX_QUESTIONS_PER_SUB) * 100))}%` }}
@@ -1735,13 +1826,15 @@ export default function AIAssistant() {
               {isLimitReached && (
                 <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 bg-rose-500/10 border border-rose-500/20 p-3.5 rounded-2xl">
                   <p className="text-xs font-semibold text-rose-200">
-                    140 soru çözme hakkınızı doldurdunuz. Soru asistanını kullanmaya devam etmek için paketinizi yenileyebilir veya yükseltebilirsiniz.
+                    {isTrial && isGoldPlan 
+                      ? '7 günlük deneme süresine özel 21 soru çözme hakkınızı doldurdunuz. Soru asistanını 140 soru hakkıyla kullanmaya devam etmek için aboneliğinizi başlatabilirsiniz.'
+                      : `${MAX_QUESTIONS_PER_SUB} soru çözme hakkınızı doldurdunuz. Soru asistanını kullanmaya devam etmek için paketinizi yenileyebilir veya yükseltebilirsiniz.`}
                   </p>
                   <button
                     onClick={() => navigate('/panel/ogrenci/abonelik')}
                     className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl transition-all shadow-md shrink-0 cursor-pointer"
                   >
-                    Aboneliği Yenile / Paketi Yükselt
+                    {isTrial ? 'Aboneliği Başlat' : 'Aboneliği Yenile / Paketi Yükselt'}
                   </button>
                 </div>
               )}
@@ -1848,7 +1941,8 @@ export default function AIAssistant() {
                     <textarea
                       value={qText}
                       onChange={(e) => setQText(e.target.value)}
-                      placeholder="Soruyu buraya yazabilir veya görsel hakkında ekstra not belirtebilirsin..."
+                      onPaste={handlePasteImage}
+                      placeholder="Soruyu buraya yazabilir veya panodan görsel yapıştırabilirsiniz (Ctrl+V)..."
                       rows={4}
                       className="w-full bg-slate-950 border border-white/10 rounded-2xl p-3 text-slate-200 text-xs placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-colors custom-scrollbar resize-none"
                     />
@@ -1887,12 +1981,12 @@ export default function AIAssistant() {
                     ) : isLimitReached ? (
                       <>
                         <X className="w-4 h-4 text-rose-300" />
-                        <span>Soru Sorma Hakkınız Doldu (140/140)</span>
+                        <span>Soru Sorma Hakkınız Doldu ({currentQuestionCount}/{MAX_QUESTIONS_PER_SUB})</span>
                       </>
                     ) : (
                       <>
                         <Sparkles className="w-4 h-4 text-amber-300" />
-                        <span>Soruyu Çöz ve Seslendir</span>
+                        <span>Yapay Zeka ile Soruyu Çöz</span>
                       </>
                     )}
                   </button>
@@ -1916,7 +2010,7 @@ export default function AIAssistant() {
                     <div>
                       <h4 className="font-extrabold text-white text-base">Gemini Soru Çözüm Asistanı Çalışıyor</h4>
                       <p className="text-slate-400 text-xs mt-1 max-w-sm">
-                        Sorudaki veriler taranıyor, adım adım çözüm hazırlanıyor ve seçilen seste seslendirme oluşturuluyor...
+                        Sorudaki veriler taranıyor, formüller ve adım adım çözüm hazırlanıyor...
                       </p>
                     </div>
                   </div>
@@ -1929,7 +2023,7 @@ export default function AIAssistant() {
                     </div>
                     <h4 className="font-bold text-slate-300 text-sm">Henüz Bir Soru Yüklenmedi</h4>
                     <p className="text-slate-500 text-xs max-w-xs">
-                      Sol taraftan sorunun fotoğrafını yükleyebilir veya soruyu yazarak anında sesli çözüme ulaşabilirsin.
+                      Sol taraftan sorunun fotoğrafını yükleyebilir veya soruyu yazarak anında adımsal çözüme ulaşabilirsin.
                     </p>
                   </div>
                 )}
@@ -1941,14 +2035,14 @@ export default function AIAssistant() {
                     {solverResult.hasValidSingleQuestion !== false && (
                       <>
                         {isAudioGenerating && !solverResult.audioDataUrl && (
-                          <div className="bg-gradient-to-r from-emerald-950/20 via-slate-900 to-indigo-950/20 border border-emerald-500/10 rounded-3xl p-5 flex items-center justify-between">
+                          <div className="bg-gradient-to-r from-emerald-950/20 via-slate-900 to-indigo-950/20 border border-emerald-500/20 rounded-3xl p-5 flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500/50 flex items-center justify-center border border-emerald-500/20">
+                              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
                                 <Volume2 className="w-5 h-5 animate-pulse" />
                               </div>
                               <div>
-                                <h5 className="font-bold text-white/70 text-xs">Sesli Çözüm Hazırlanıyor...</h5>
-                                <p className="text-[11px] text-emerald-400/50">Gemini Voice • {selectedVoice}</p>
+                                <h5 className="font-bold text-white text-xs">Sesli Çözüm Hazırlanıyor...</h5>
+                                <p className="text-[11px] text-emerald-400/80">Gemini Voice • {selectedVoice}</p>
                               </div>
                             </div>
                             <Loader2 className="w-5 h-5 text-emerald-500 animate-spin" />
@@ -1999,22 +2093,22 @@ export default function AIAssistant() {
                         )}
 
                         {!isAudioGenerating && !solverResult.audioDataUrl && (
-                          <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-indigo-950/30 border border-white/10 rounded-3xl p-5 flex items-center justify-between">
+                          <div className="bg-gradient-to-r from-emerald-950/20 via-slate-900 to-indigo-950/20 border border-white/10 hover:border-emerald-500/30 rounded-3xl p-5 flex items-center justify-between transition-all">
                             <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-xl bg-slate-800 text-slate-400 flex items-center justify-center border border-white/5">
+                              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
                                 <Volume2 className="w-5 h-5" />
                               </div>
                               <div>
-                                <h5 className="font-bold text-slate-200 text-xs">Sesli Anlatım</h5>
-                                <p className="text-[11px] text-slate-400">Çözümü yapay zekaya seslendiriniz</p>
+                                <h5 className="font-bold text-white text-xs">Sesli Çözümlü Anlatım</h5>
+                                <p className="text-[11px] text-slate-400">Çözümü yapay zeka öğretmeninizden sesli dinlemek için tıklayın</p>
                               </div>
                             </div>
                             <button
-                              onClick={handleRegenerateAudio}
+                              onClick={handlePlayOrGenerateAudio}
                               className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-md shadow-emerald-500/10"
                             >
-                              <Volume2 className="w-4 h-4" />
-                              <span>Seslendir</span>
+                              <Play className="w-4 h-4 fill-current ml-0.5" />
+                              <span>Sesli Dinle</span>
                             </button>
                           </div>
                         )}
@@ -2028,8 +2122,8 @@ export default function AIAssistant() {
                         <span>Adım Adım Çözüm Metni</span>
                       </div>
 
-                      <div className="prose prose-invert prose-p:leading-relaxed prose-pre:bg-slate-950 prose-pre:border prose-pre:border-white/10 prose-sm max-w-none text-slate-200 text-xs md:text-sm">
-                        <ReactMarkdown>{solverResult.text}</ReactMarkdown>
+                      <div className="prose prose-invert prose-p:leading-relaxed prose-pre:bg-slate-950/90 prose-pre:border prose-pre:border-white/10 prose-blockquote:border-l-4 prose-blockquote:border-indigo-500 prose-blockquote:bg-indigo-950/30 prose-blockquote:rounded-r-2xl prose-blockquote:py-2.5 prose-blockquote:px-4 prose-blockquote:my-3 prose-blockquote:text-indigo-200 prose-blockquote:not-italic prose-code:text-emerald-300 prose-code:bg-emerald-950/40 prose-code:border prose-code:border-emerald-500/20 prose-code:px-2 prose-code:py-0.5 prose-code:rounded-md prose-code:font-mono prose-code:text-[13px] prose-code:before:content-none prose-code:after:content-none prose-sm max-w-none text-slate-200 text-xs md:text-sm">
+                        <ReactMarkdown>{cleanMathText(solverResult.text)}</ReactMarkdown>
                       </div>
                     </div>
 
@@ -2107,8 +2201,8 @@ export default function AIAssistant() {
                                     ? 'bg-indigo-600 text-white rounded-tr-none' 
                                     : 'bg-slate-900 border border-white/10 text-slate-200 rounded-tl-none'
                                 }`}>
-                                  <div className="prose prose-invert prose-xs max-w-none text-xs">
-                                    <ReactMarkdown>{msg.text}</ReactMarkdown>
+                                  <div className="prose prose-invert prose-xs max-w-none text-xs prose-blockquote:border-l-2 prose-blockquote:border-indigo-400 prose-blockquote:bg-indigo-950/30 prose-blockquote:py-1.5 prose-blockquote:px-3 prose-blockquote:rounded-r-xl prose-blockquote:not-italic prose-code:text-emerald-300 prose-code:bg-emerald-950/40 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none">
+                                    <ReactMarkdown>{cleanMathText(msg.text)}</ReactMarkdown>
                                   </div>
                                   <span className="block text-[9px] opacity-60 text-right mt-1 font-mono">
                                     {msg.timestamp}
@@ -2183,25 +2277,72 @@ export default function AIAssistant() {
             {/* Avatar */}
             <div className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center border shadow-sm ${
               message.role === 'model' 
-                ? 'bg-gradient-to-br from-indigo-500 to-purple-600 border-white/10 text-white'
+                ? message.isError
+                  ? 'bg-rose-950/80 border-rose-500/40 text-rose-400'
+                  : 'bg-gradient-to-br from-indigo-500 to-purple-600 border-white/10 text-white'
                 : 'bg-slate-800 border-white/10 text-slate-300'
             }`}>
-              {message.role === 'model' ? <Sparkles size={18} /> : <User size={18} />}
+              {message.role === 'model' ? (
+                message.isError ? <AlertTriangle size={18} /> : <Sparkles size={18} />
+              ) : (
+                <User size={18} />
+              )}
             </div>
 
             {/* Bubble */}
             <div className={`p-4 rounded-2xl md:text-sm text-base leading-relaxed overflow-hidden ${
               message.role === 'model'
-                ? 'bg-slate-800/80 text-slate-200 border border-white/5 rounded-tl-sm'
+                ? message.isError
+                  ? 'bg-gradient-to-br from-slate-900 via-rose-950/30 to-slate-900 text-slate-200 border border-rose-500/40 rounded-tl-sm shadow-xl'
+                  : 'bg-slate-800/80 text-slate-200 border border-white/5 rounded-tl-sm'
                 : 'bg-indigo-600 text-white rounded-tr-sm shadow-md'
             }`}>
               {message.role === 'model' ? (
                  <div className="prose prose-invert prose-p:leading-relaxed prose-pre:bg-slate-900 prose-pre:border prose-pre:border-white/10 prose-sm max-w-none">
-                   {message.content && <ReactMarkdown>{message.content}</ReactMarkdown>}
-                   
+                   {message.content && <ReactMarkdown>{cleanMathText(message.content)}</ReactMarkdown>}
+
+                   {/* Error Actions & Information for User & System */}
+                   {message.isError && (
+                     <div className="mt-4 pt-3 border-t border-rose-500/20 flex flex-col gap-3 not-prose">
+                       <div className="flex flex-wrap items-center gap-2">
+                         {message.retryText && (
+                           <button
+                             type="button"
+                             onClick={() => {
+                               setInput(message.retryText || '');
+                               const textarea = document.querySelector('textarea');
+                               if (textarea) {
+                                 textarea.focus();
+                               }
+                             }}
+                             className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 shadow-md shadow-indigo-600/20 cursor-pointer"
+                           >
+                             <RotateCcw className="w-3.5 h-3.5" />
+                             <span>Mesajı Kutuya Yaz</span>
+                           </button>
+                         )}
+                         {message.retryText && (
+                           <button
+                             type="button"
+                             disabled={isLoading}
+                             onClick={() => sendAssistantMessage(message.retryText || '')}
+                             className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-white/10 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                           >
+                             <Send className="w-3.5 h-3.5" />
+                             <span>Hemen Yeniden Gönder</span>
+                           </button>
+                         )}
+                       </div>
+
+                       <div className="flex items-center gap-2 text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-lg font-mono">
+                         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+                         <span>Sistem Bilgisi: Hata teşhis kaydı alındı ve teknik izleme merkezine iletildi {message.errorCode ? `(${message.errorCode})` : ''}</span>
+                       </div>
+                     </div>
+                   )}
 
                    {/* Interactive Options */}
-                   {message.interactiveOptions && message.interactiveOptions.length > 0 && (
+                   {Array.isArray(message.interactiveOptions) && message.interactiveOptions.length > 0 && (
                      <div className="mt-4 flex flex-col gap-2 border-t border-white/10 pt-4">
                        {message.interactiveAnswered ? (
                           <div className="flex items-center gap-2 text-indigo-400 font-medium bg-indigo-500/10 px-3 py-2 rounded-lg text-sm border border-indigo-500/20">
@@ -2411,8 +2552,8 @@ export default function AIAssistant() {
                   />
                 )}
 
-                <div className="prose prose-invert prose-sm max-w-none text-slate-200 leading-relaxed bg-slate-900/90 p-5 rounded-2xl border border-white/5">
-                  <ReactMarkdown>{selectedHistoryDetail.solverResult?.text || 'Çözüm yükleniyor...'}</ReactMarkdown>
+                <div className="prose prose-invert prose-sm max-w-none text-slate-200 leading-relaxed bg-slate-900/90 p-5 rounded-2xl border border-white/5 prose-blockquote:border-l-4 prose-blockquote:border-indigo-500 prose-blockquote:bg-indigo-950/30 prose-blockquote:rounded-r-2xl prose-blockquote:py-2.5 prose-blockquote:px-4 prose-blockquote:my-3 prose-blockquote:text-indigo-200 prose-blockquote:not-italic prose-code:text-emerald-300 prose-code:bg-emerald-950/40 prose-code:border prose-code:border-emerald-500/20 prose-code:px-2 prose-code:py-0.5 prose-code:rounded-md prose-code:font-mono prose-code:text-[13px] prose-code:before:content-none prose-code:after:content-none">
+                  <ReactMarkdown>{cleanMathText(selectedHistoryDetail.solverResult?.text || 'Çözüm yükleniyor...')}</ReactMarkdown>
                 </div>
               </div>
 
@@ -2448,7 +2589,7 @@ export default function AIAssistant() {
                               : 'bg-slate-950 border border-white/10 text-slate-200 rounded-tl-none'
                           }`}>
                             <div className="prose prose-invert prose-xs max-w-none text-xs">
-                              <ReactMarkdown>{msg.text}</ReactMarkdown>
+                              <ReactMarkdown>{cleanMathText(msg.text)}</ReactMarkdown>
                             </div>
                             <span className="block text-[9px] opacity-60 text-right mt-1 font-mono">
                               {msg.timestamp}

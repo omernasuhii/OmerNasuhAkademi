@@ -19,7 +19,7 @@ export default function Login() {
     if (!authLoading && user && userData) {
       const role = userData.role || "student";
       if (role === "admin") {
-        navigate("/panel/admin", { replace: true });
+        navigate("/", { replace: true });
       } else if (role === "coach") {
         if (userData.approved === false || userData.approved === "rejected") {
           navigate("/koc-onay-bekliyor", { replace: true });

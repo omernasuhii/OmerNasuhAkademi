@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { auth } from "../../lib/firebase";
 import { useAuth } from "../../lib/AuthContext";
 import { studentDataService } from "../../services/studentDataService";
+import { useCurriculum } from "../../lib/CurriculumContext";
+import { calculateBookProgress as calculateBookProgressUtil } from "../../utils/bookProgress";
 import {
   Trophy,
   Plus,
@@ -15,6 +17,8 @@ import {
   MoreHorizontal,
   Edit2,
   Lock,
+  BookOpen,
+  Target,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -40,14 +44,19 @@ const safeFormatDate = (dateVal: any) => {
 
 export default function Exams() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user, userData } = useAuth();
   const currentUid = userData?.uid || user?.uid;
+  const { curriculum: CURRICULUM, subtopics: SUBTOPICS_MAP } = useCurriculum();
   const plan = userData?.subscriptionPlan || "";
   const isBronze = plan.includes("Bronz");
   const isSilver = plan.includes("Gümüş");
 
   const [exams, setExams] = useState<any[]>([]);
   const [globalExams, setGlobalExams] = useState<any[]>([]);
+  const [denemePackages, setDenemePackages] = useState<any[]>([]);
+  const [selectedPackageId, setSelectedPackageId] = useState<string>("");
+  const [selectedDenemeTopic, setSelectedDenemeTopic] = useState<string>("");
   const [studentProfile, setStudentProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -65,8 +74,8 @@ export default function Exams() {
   const [editingExamId, setEditingExamId] = useState<string | null>(null);
   const [showActionsFor, setShowActionsFor] = useState<string | null>(null);
 
-  const [newResultMode, setNewResultMode] = useState<"individual" | "global">(
-    "individual",
+  const [newResultMode, setNewResultMode] = useState<"package" | "individual" | "global">(
+    "package",
   );
   const [selectedGlobalExamId, setSelectedGlobalExamId] = useState("");
 
@@ -197,6 +206,93 @@ export default function Exams() {
       if (exam) return exam;
     }
     return null;
+  };
+
+  const findMatchingBranch = (subject?: string, type?: string) => {
+    if (!subject) return BRANCH_CATEGORIES[0]?.exams[0] || null;
+    const s = subject.toLowerCase().trim();
+    const isAyt = type === "AYT" || s.includes("ayt");
+
+    const allBranches = BRANCH_CATEGORIES.flatMap((c) => c.exams);
+
+    const exact = allBranches.find((b) => b.name.toLowerCase() === s);
+    if (exact) return exact;
+
+    if (s.includes("matematik") || s.includes("geometri")) {
+      if (s.includes("geometri")) {
+        return allBranches.find((b) => b.name === (isAyt ? "Geometri (AYT)" : "Geometri (TYT)")) || null;
+      }
+      return allBranches.find((b) => b.name === (isAyt ? "Matematik (AYT)" : "Temel Matematik (TYT)")) || null;
+    }
+    if (s.includes("türkçe") || s.includes("edebiyat")) {
+      return allBranches.find((b) => b.name === (isAyt ? "Edebiyat (AYT)" : "Türkçe (TYT)")) || null;
+    }
+    if (s.includes("fizik")) {
+      return allBranches.find((b) => b.name === (isAyt ? "Fizik (AYT)" : "Fizik (TYT)")) || null;
+    }
+    if (s.includes("kimya")) {
+      return allBranches.find((b) => b.name === (isAyt ? "Kimya (AYT)" : "Kimya (TYT)")) || null;
+    }
+    if (s.includes("biyoloji")) {
+      return allBranches.find((b) => b.name === (isAyt ? "Biyoloji (AYT)" : "Biyoloji (TYT)")) || null;
+    }
+    if (s.includes("fen")) {
+      return allBranches.find((b) => b.name === (isAyt ? "Fen Bilimleri (AYT)" : "Fen Bilimleri (TYT)")) || null;
+    }
+    if (s.includes("sosyal")) {
+      return allBranches.find((b) => b.name === (isAyt ? "Sosyal-2 (AYT)" : "Sosyal Bilimler (TYT)")) || null;
+    }
+    if (s.includes("tarih")) {
+      return allBranches.find((b) => b.name === (isAyt ? "Tarih-1 (AYT)" : "Tarih (TYT)")) || null;
+    }
+    if (s.includes("coğrafya")) {
+      return allBranches.find((b) => b.name === (isAyt ? "Coğrafya-1 (AYT)" : "Coğrafya (TYT)")) || null;
+    }
+    if (s.includes("felsefe")) {
+      return allBranches.find((b) => b.name === (isAyt ? "Felsefe Grubu (AYT)" : "Felsefe (TYT)")) || null;
+    }
+    if (s.includes("din")) {
+      return allBranches.find((b) => b.name === (isAyt ? "Din (Seçmeli) (AYT)" : "Din (TYT)")) || null;
+    }
+
+    return allBranches.find((b) => b.name.toLowerCase().includes(s)) || allBranches[0];
+  };
+
+  const applyPackageAndTopic = (pack: any, topic: string) => {
+    setSelectedPackageId(pack.id);
+    setSelectedDenemeTopic(topic);
+
+    const isGeneral =
+      pack.denemeCategory === "general" ||
+      pack.subject?.toLowerCase().includes("genel");
+    const examTitle = `${pack.bookName} - ${topic}`;
+    const autoType = isGeneral
+      ? pack.type || (pack.subject?.includes("AYT") ? "AYT" : "TYT")
+      : "BRANŞ";
+
+    let initialScores: any = {};
+    if (!isGeneral) {
+      const matched = findMatchingBranch(pack.subject, pack.type);
+      if (matched) {
+        const subBranches = BRANCH_COMPOSITES[matched.name];
+        if (subBranches) {
+          subBranches.forEach((sb) => {
+            initialScores[sb] = { c: "", i: "", n: 0 };
+          });
+        } else {
+          initialScores[matched.name] = { c: "", i: "", n: 0 };
+        }
+      }
+    }
+
+    setNewResult((prev: any) => ({
+      ...prev,
+      examName: examTitle,
+      examType: autoType,
+      bookId: pack.id,
+      denemeTopic: topic,
+      scores: initialScores,
+    }));
   };
 
   const EXAM_STRUCTURE: any = {
@@ -486,16 +582,85 @@ export default function Exams() {
     if (!currentUid) return;
     setLoading(true);
     try {
-      const [data, profile, studentAnalyses, gExams] = await Promise.all([
+      const [data, profile, studentAnalyses, gExams, trackerBooks, globalBooks] = await Promise.all([
         studentDataService.getExamResults(currentUid),
         studentDataService.getStudentProfile(currentUid),
         studentDataService.getStudentAnalyses(currentUid),
         studentDataService.getGlobalAcademicExams(),
+        studentDataService.getBookTracking(currentUid),
+        studentDataService.getGlobalBooks(),
       ]);
       setExams(data || []);
       setStudentProfile(profile);
       setAnalyses(studentAnalyses || []);
       setGlobalExams(gExams || []);
+
+      const safeTracker = Array.isArray(trackerBooks) ? trackerBooks : [];
+      const safeGlobal = Array.isArray(globalBooks) ? globalBooks : [];
+      const mergedBooks = safeTracker.map((tb: any) => {
+        const gb = safeGlobal.find((g: any) => 
+          (tb.globalBookId && g.id === tb.globalBookId) ||
+          (tb.isbn && g.isbn && g.isbn.trim().toLowerCase() === tb.isbn.trim().toLowerCase()) ||
+          ((g.name || "").trim().toLowerCase() === (tb.bookName || "").trim().toLowerCase() && (g.subject || "").trim().toLowerCase() === (tb.subject || "").trim().toLowerCase())
+        );
+        return {
+          ...gb,
+          ...tb,
+          bookName: tb.bookName || gb?.name || gb?.bookName || "İsimsiz Deneme Paketi",
+          subject: tb.subject || gb?.subject || "Genel",
+          resourceType: tb.resourceType || gb?.resourceType || "soru",
+          denemeCategory: tb.denemeCategory || gb?.denemeCategory || "branch",
+          totalExamCount: tb.totalExamCount || gb?.totalExamCount || 10,
+        };
+      });
+
+      const denemePacks = mergedBooks.filter((b: any) => b.resourceType === "deneme");
+      setDenemePackages(denemePacks);
+
+      const action = searchParams.get("action");
+      const pkgId = searchParams.get("packageId");
+      const topic = searchParams.get("topic");
+
+      if (action === "new") {
+        setEditingExamId(null);
+        setSelectedGlobalExamId("");
+        if (denemePacks.length > 0) {
+          const targetPack = (pkgId ? denemePacks.find((p: any) => p.id === pkgId) : null) || denemePacks[0];
+          setNewResultMode("package");
+          const total = targetPack.totalExamCount || 10;
+          const completed = Array.isArray(targetPack.completedTopics) ? targetPack.completedTopics : [];
+          let targetTopic = topic;
+          if (!targetTopic) {
+            targetTopic = "Deneme 1";
+            for (let i = 1; i <= total; i++) {
+              if (!completed.includes(`Deneme ${i}`)) {
+                targetTopic = `Deneme ${i}`;
+                break;
+              }
+            }
+          }
+          applyPackageAndTopic(targetPack, targetTopic);
+        } else {
+          setNewResultMode("individual");
+          setSelectedPackageId("");
+          setSelectedDenemeTopic("");
+          setNewResult({
+            examName: "",
+            examType: activeTab === "YKS" ? "TYT" : activeTab,
+            date: new Date().toISOString().split("T")[0],
+            rank: "",
+            participantCount: "",
+            scores: {},
+          });
+        }
+        setShowAddModal(true);
+
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete("action");
+        newParams.delete("packageId");
+        newParams.delete("topic");
+        setSearchParams(newParams, { replace: true });
+      }
     } catch (err) {
       console.error("Veri çekme hatası:", err);
     } finally {
@@ -786,6 +951,13 @@ export default function Exams() {
       scores: newResult.scores,
     };
 
+    if (newResult.bookId) {
+      payload.bookId = newResult.bookId;
+    }
+    if (newResult.denemeTopic) {
+      payload.denemeTopic = newResult.denemeTopic;
+    }
+
     if (!editingExamId && newResultMode === "global" && selectedGlobalExamId) {
       payload.globalExamId = selectedGlobalExamId;
     }
@@ -798,6 +970,28 @@ export default function Exams() {
       await studentDataService.updateExamResult(editingExamId, payload);
     } else {
       await studentDataService.addExamResult(payload);
+    }
+
+    // Kayıtlı Deneme Paketi üzerinden girildiyse BookTracking'i güncelle ve XP ver
+    if (payload.bookId && payload.denemeTopic && currentUid) {
+      try {
+        const targetBook = denemePackages.find((b: any) => b.id === payload.bookId);
+        if (targetBook) {
+          const currentTopics = Array.isArray(targetBook.completedTopics) ? targetBook.completedTopics : [];
+          if (!currentTopics.includes(payload.denemeTopic)) {
+            const updatedTopics = [...currentTopics, payload.denemeTopic];
+            const percentage = calculateBookProgressUtil(targetBook, updatedTopics, CURRICULUM, SUBTOPICS_MAP);
+            await studentDataService.updateBookProgress(targetBook.id, {
+              ...targetBook,
+              completedTopics: updatedTopics,
+              completionPercentage: percentage,
+            });
+            studentDataService.awardXP(currentUid, 50, `Deneme Tamamlandı (${payload.denemeTopic})`);
+          }
+        }
+      } catch (packErr) {
+        console.warn("Deneme paketi ilerlemesi senkronize edilirken hata:", packErr);
+      }
     }
     
     // Otomatik olarak Haftalık Programda Deneme'yi "yapıldı" olarak işaretle
@@ -873,16 +1067,33 @@ export default function Exams() {
         <button
           onClick={() => {
             setEditingExamId(null);
-            setNewResultMode("individual");
             setSelectedGlobalExamId("");
-            setNewResult({
-              examName: "",
-              examType: activeTab,
-              date: new Date().toISOString().split("T")[0],
-              rank: "",
-              participantCount: "",
-              scores: {},
-            });
+            if (denemePackages.length > 0) {
+              setNewResultMode("package");
+              const firstPack = denemePackages[0];
+              const total = firstPack.totalExamCount || 10;
+              const completed = Array.isArray(firstPack.completedTopics) ? firstPack.completedTopics : [];
+              let nextTopic = "Deneme 1";
+              for (let i = 1; i <= total; i++) {
+                if (!completed.includes(`Deneme ${i}`)) {
+                  nextTopic = `Deneme ${i}`;
+                  break;
+                }
+              }
+              applyPackageAndTopic(firstPack, nextTopic);
+            } else {
+              setNewResultMode("individual");
+              setSelectedPackageId("");
+              setSelectedDenemeTopic("");
+              setNewResult({
+                examName: "",
+                examType: activeTab === "YKS" ? "TYT" : activeTab,
+                date: new Date().toISOString().split("T")[0],
+                rank: "",
+                participantCount: "",
+                scores: {},
+              });
+            }
             setShowAddModal(true);
           }}
           className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 px-6 rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-emerald-600/20 whitespace-nowrap"
@@ -1495,13 +1706,51 @@ export default function Exams() {
               className="overflow-y-auto p-6 space-y-8 custom-scrollbar"
             >
               {!editingExamId && (
-                <div className="flex gap-2 p-1 bg-slate-800/50 rounded-xl mb-4 w-fit border border-slate-700/50">
+                <div className="flex flex-wrap gap-2 p-1 bg-slate-800/50 rounded-xl mb-4 w-fit border border-slate-700/50">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewResultMode("package");
+                      setSelectedGlobalExamId("");
+                      if (denemePackages.length > 0) {
+                        const targetPack = denemePackages.find((p) => p.id === selectedPackageId) || denemePackages[0];
+                        const total = targetPack.totalExamCount || 10;
+                        const completed = Array.isArray(targetPack.completedTopics) ? targetPack.completedTopics : [];
+                        let nextTopic = "Deneme 1";
+                        for (let i = 1; i <= total; i++) {
+                          if (!completed.includes(`Deneme ${i}`)) {
+                            nextTopic = `Deneme ${i}`;
+                            break;
+                          }
+                        }
+                        applyPackageAndTopic(targetPack, nextTopic);
+                      }
+                    }}
+                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${newResultMode === "package" ? "bg-rose-600 text-white shadow-md shadow-rose-600/20" : "text-slate-400 hover:text-white"}`}
+                  >
+                    <BookOpen size={15} />
+                    <span>Kayıtlı Paketlerimden Seç</span>
+                    {denemePackages.length > 0 && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${newResultMode === "package" ? "bg-white/20 text-white" : "bg-slate-700 text-slate-300"}`}>
+                        {denemePackages.length}
+                      </span>
+                    )}
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
                       setNewResultMode("individual");
                       setSelectedGlobalExamId("");
-                      setNewResult({ ...newResult, examName: "" });
+                      setSelectedPackageId("");
+                      setSelectedDenemeTopic("");
+                      setNewResult({
+                        examName: "",
+                        examType: activeTab === "YKS" ? "TYT" : activeTab,
+                        date: new Date().toISOString().split("T")[0],
+                        rank: "",
+                        participantCount: "",
+                        scores: {},
+                      });
                     }}
                     className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${newResultMode === "individual" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"}`}
                   >
@@ -1515,6 +1764,8 @@ export default function Exams() {
                         return;
                       }
                       setNewResultMode("global");
+                      setSelectedPackageId("");
+                      setSelectedDenemeTopic("");
                     }}
                     className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${newResultMode === "global" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"} ${isBronze ? "opacity-50" : ""}`}
                   >
@@ -1523,7 +1774,249 @@ export default function Exams() {
                 </div>
               )}
 
-              {newResultMode === "global" && !editingExamId ? (
+              {newResultMode === "package" && !editingExamId ? (
+                denemePackages.length === 0 ? (
+                  <div className="p-8 rounded-2xl bg-slate-800/30 border border-slate-700/50 text-center space-y-3">
+                    <BookOpen size={36} className="mx-auto text-slate-500" />
+                    <p className="text-sm font-bold text-white">Takip Edilen Deneme Paketi Bulunamadı</p>
+                    <p className="text-xs text-slate-400 max-w-md mx-auto">
+                      Kayıtlı deneme paketlerinizden tek tıkla sınav seçmek için önce Kaynak Takibi bölümünden "Deneme Sınavı" türünde paket ekleyin.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setNewResultMode("individual")}
+                      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md"
+                    >
+                      Bireysel Deneme Olarak Gir
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-5 p-4 rounded-2xl bg-slate-800/40 border border-slate-700/60">
+                    {/* 1. Deneme Paketi Seçimi */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <BookOpen size={14} className="text-rose-400" />
+                          <span>Kayıtlı Deneme Paketiniz</span>
+                        </label>
+                        <span className="text-[11px] text-slate-400">
+                          Toplam {denemePackages.length} paket
+                        </span>
+                      </div>
+                      <select
+                        required
+                        value={selectedPackageId}
+                        onChange={(e) => {
+                          const packId = e.target.value;
+                          const pack = denemePackages.find((p) => p.id === packId);
+                          if (pack) {
+                            const total = pack.totalExamCount || 10;
+                            const completed = Array.isArray(pack.completedTopics) ? pack.completedTopics : [];
+                            let nextTopic = "Deneme 1";
+                            for (let i = 1; i <= total; i++) {
+                              if (!completed.includes(`Deneme ${i}`)) {
+                                nextTopic = `Deneme ${i}`;
+                                break;
+                              }
+                            }
+                            applyPackageAndTopic(pack, nextTopic);
+                          }
+                        }}
+                        className="w-full bg-slate-900/80 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:border-rose-500 appearance-none font-medium"
+                      >
+                        {denemePackages.map((pack) => {
+                          const completedCount = Array.isArray(pack.completedTopics) ? pack.completedTopics.length : 0;
+                          const totalCount = pack.totalExamCount || 10;
+                          const catLabel = pack.denemeCategory === "general" ? "Genel Deneme" : `Branş (${pack.subject || "Branş"})`;
+                          return (
+                            <option key={pack.id} value={pack.id}>
+                              {pack.bookName} • {catLabel} • ({completedCount}/{totalCount} Tamamlandı)
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+
+                    {/* 2. Deneme Numarası Seçimi Grid */}
+                    {selectedPackageId && (() => {
+                      const activePack = denemePackages.find((p) => p.id === selectedPackageId);
+                      if (!activePack) return null;
+                      const totalCount = activePack.totalExamCount || 10;
+                      const completedList = Array.isArray(activePack.completedTopics) ? activePack.completedTopics : [];
+                      const examItems = Array.from({ length: totalCount }, (_, i) => `Deneme ${i + 1}`);
+
+                      return (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                              <Target size={14} className="text-rose-400" />
+                              <span>Paketteki Denemeyi Seçin</span>
+                            </label>
+                            <span className="text-[11px] text-slate-400">
+                              {completedList.length} / {totalCount} çözüldü
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                            {examItems.map((topicName) => {
+                              const isCompleted = completedList.includes(topicName);
+                              const isSelected = selectedDenemeTopic === topicName;
+
+                              return (
+                                <button
+                                  key={topicName}
+                                  type="button"
+                                  onClick={() => applyPackageAndTopic(activePack, topicName)}
+                                  className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 text-center relative ${
+                                    isSelected
+                                      ? "bg-rose-600 text-white border-rose-400 shadow-md shadow-rose-600/30 scale-[1.02]"
+                                      : isCompleted
+                                      ? "bg-rose-500/10 border-rose-500/30 text-rose-300 hover:bg-rose-500/20"
+                                      : "bg-slate-900/60 border-slate-700/60 text-slate-300 hover:border-slate-500 hover:bg-slate-800"
+                                  }`}
+                                >
+                                  <span className="truncate w-full">{topicName}</span>
+                                  <span className={`text-[9px] font-semibold uppercase tracking-wider ${
+                                    isSelected
+                                      ? "text-rose-100"
+                                      : isCompleted
+                                      ? "text-rose-400"
+                                      : "text-slate-500"
+                                  }`}>
+                                    {isCompleted ? "✓ Çözüldü" : "Bekliyor"}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Sınav Bilgileri Önizleme & Düzenleme */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 border-t border-slate-700/40">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-400 uppercase">
+                          Sınav Adı
+                        </label>
+                        <input
+                          required
+                          type="text"
+                          value={newResult.examName}
+                          onChange={(e) => setNewResult({ ...newResult, examName: e.target.value })}
+                          className="w-full bg-slate-900/60 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:border-rose-500"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-400 uppercase">
+                          Sınav Türü
+                        </label>
+                        <select
+                          value={newResult.examType}
+                          onChange={(e) => {
+                            const nextType = e.target.value;
+                            let initialScores: any = {};
+                            if (nextType === "BRANŞ") {
+                              const activePack = denemePackages.find((p) => p.id === selectedPackageId);
+                              const matched = findMatchingBranch(activePack?.subject, activePack?.type);
+                              if (matched) {
+                                const subBranches = BRANCH_COMPOSITES[matched.name];
+                                if (subBranches) {
+                                  subBranches.forEach((sb) => {
+                                    initialScores[sb] = { c: "", i: "", n: 0 };
+                                  });
+                                } else {
+                                  initialScores[matched.name] = { c: "", i: "", n: 0 };
+                                }
+                              }
+                            }
+                            setNewResult({
+                              ...newResult,
+                              examType: nextType,
+                              scores: initialScores,
+                            });
+                          }}
+                          className="w-full bg-slate-900/60 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:border-rose-500 appearance-none"
+                        >
+                          <option value="BRANŞ">Branş Denemesi</option>
+                          <option value="TYT">TYT Genel Deneme</option>
+                          <option value="AYT">AYT Genel Deneme</option>
+                          <option value="YDT">YDT</option>
+                        </select>
+                      </div>
+
+                      {newResult.examType === "BRANŞ" && (
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-slate-400 uppercase">
+                            Branş Seçimi
+                          </label>
+                          <select
+                            value={(() => {
+                              const scoreKeys = Object.keys(newResult.scores || {});
+                              for (const [parentName, subs] of Object.entries(BRANCH_COMPOSITES)) {
+                                if (subs.every((s) => scoreKeys.includes(s))) return parentName;
+                              }
+                              return scoreKeys[0] || "";
+                            })()}
+                            onChange={(e) => {
+                              const branchName = e.target.value;
+                              const branch = getBranchByName(branchName);
+                              if (branch) {
+                                let initialScores: any = {};
+                                const subBranches = BRANCH_COMPOSITES[branchName];
+                                if (subBranches) {
+                                  subBranches.forEach((sb) => {
+                                    initialScores[sb] = { c: "", i: "", n: 0 };
+                                  });
+                                } else {
+                                  initialScores[branch.name] = { c: "", i: "", n: 0 };
+                                }
+                                setNewResult({
+                                  ...newResult,
+                                  scores: initialScores,
+                                });
+                              }
+                            }}
+                            className="w-full bg-slate-900/60 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:border-rose-500 appearance-none"
+                          >
+                            {BRANCH_CATEGORIES.map((category) => (
+                              <optgroup
+                                key={category.category}
+                                label={category.category}
+                                className="bg-slate-900 text-rose-400 font-bold"
+                              >
+                                {category.exams.map((b) => (
+                                  <option
+                                    key={b.name}
+                                    value={b.name}
+                                    className="text-white bg-slate-800 font-normal"
+                                  >
+                                    {b.name}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-400 uppercase">
+                          Sınav Tarihi
+                        </label>
+                        <input
+                          required
+                          type="date"
+                          value={newResult.date}
+                          onChange={(e) => setNewResult({ ...newResult, date: e.target.value })}
+                          className="w-full bg-slate-900/60 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:border-rose-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )
+              ) : newResultMode === "global" && !editingExamId ? (
                 <div className="space-y-4">
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-slate-400 uppercase">

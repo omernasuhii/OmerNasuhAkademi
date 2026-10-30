@@ -178,9 +178,9 @@ export async function checkAndRenewSubscription(
         const coachDoc = await getDoc(doc(db, 'users', coachId));
         if (coachDoc.exists()) {
           const cData = coachDoc.data();
-          pBronze = cData.bronzePrice || 3000;
-          pSilver = cData.silverPrice || 4500;
-          pGold = cData.goldPrice || 6000;
+          pBronze = cData.bronzePrice !== undefined && cData.bronzePrice !== null ? cData.bronzePrice : 3000;
+          pSilver = cData.silverPrice !== undefined && cData.silverPrice !== null ? cData.silverPrice : 4500;
+          pGold = cData.goldPrice !== undefined && cData.goldPrice !== null ? cData.goldPrice : 6000;
           if (cData.specialDeductionRate !== undefined) rate = cData.specialDeductionRate;
           if (cData.specialMinDeductionBronze !== undefined) minRateBronze = cData.specialMinDeductionBronze;
           if (cData.specialMinDeductionSilver !== undefined) minRateSilver = cData.specialMinDeductionSilver;
@@ -194,14 +194,14 @@ export async function checkAndRenewSubscription(
         snapshot.forEach(d_doc => {
           const d = d_doc.data();
           foundCoach = true;
-          if (d.bronzePrice && d.bronzePrice < minB) minB = d.bronzePrice;
-          if (d.silverPrice && d.silverPrice < minS) minS = d.silverPrice;
-          if (d.goldPrice && d.goldPrice < minG) minG = d.goldPrice;
+          if (d.bronzePrice !== undefined && d.bronzePrice < minB) minB = d.bronzePrice;
+          if (d.silverPrice !== undefined && d.silverPrice < minS) minS = d.silverPrice;
+          if (d.goldPrice !== undefined && d.goldPrice < minG) minG = d.goldPrice;
         });
         if (foundCoach) {
-          pBronze = Math.max(1000, minB);
-          pSilver = Math.max(1500, minS);
-          pGold = Math.max(2000, minG);
+          pBronze = Math.max(0, minB);
+          pSilver = Math.max(0, minS);
+          pGold = Math.max(0, minG);
         }
       }
     } catch (e) {
@@ -214,9 +214,9 @@ export async function checkAndRenewSubscription(
     const dGold = specialDiscounts.gold ? Math.floor(pGold * (specialDiscounts.gold / 100)) : 0;
 
     const packages: SubscriptionPackage[] = [
-      { ...SUBSCRIPTION_PACKAGES[0], price: pBronze - dBronze, systemDeduction: Math.max(Math.floor(pBronze * (rate / 100)), minRateBronze) },
-      { ...SUBSCRIPTION_PACKAGES[1], price: pSilver - dSilver, systemDeduction: Math.max(Math.floor(pSilver * (rate / 100)), minRateSilver) },
-      { ...SUBSCRIPTION_PACKAGES[2], price: pGold - dGold, systemDeduction: Math.max(Math.floor(pGold * (rate / 100)), minRateGold) }
+      { ...SUBSCRIPTION_PACKAGES[0], price: Math.max(0, pBronze - dBronze), systemDeduction: Math.max(Math.floor(pBronze * (rate / 100)), minRateBronze) },
+      { ...SUBSCRIPTION_PACKAGES[1], price: Math.max(0, pSilver - dSilver), systemDeduction: Math.max(Math.floor(pSilver * (rate / 100)), minRateSilver) },
+      { ...SUBSCRIPTION_PACKAGES[2], price: Math.max(0, pGold - dGold), systemDeduction: Math.max(Math.floor(pGold * (rate / 100)), minRateGold) }
     ];
 
     const currentPkg = matchPackage(subscriptionPlan, packages);
@@ -248,6 +248,7 @@ export async function checkAndRenewSubscription(
           subscriptionStartDate: newStartDate,
           subscriptionEndDate: newEndDate,
           subscriptionStatus: 'active',
+          isTrial: false,
           askedAiQuestionsCount: 0
         });
 
@@ -257,13 +258,16 @@ export async function checkAndRenewSubscription(
           oldPlan: subscriptionPlan || 'Yok',
           newPlan: subscriptionPlan || 'Bilinmiyor',
           action: 'renewed',
+          isTrial: false,
           startDate: newStartDate,
           endDate: newEndDate
         });
 
         await notificationService.addNotification(userUid, {
-          title: 'Abonelik Yenilendi',
-          message: `Harika! ${subscriptionPlan} paketin cüzdan bakiyen ile otomatik yenilendi. Kesintisiz eğitime devam edebilirsin. 🚀`,
+          title: userData?.isTrial ? 'Deneme Tamamlandı & Abonelik Başladı' : 'Abonelik Yenilendi',
+          message: userData?.isTrial
+            ? `Tebrikler! 7 günlük ücretsiz denemeniz tamamlandı ve ${subscriptionPlan} paketiniz cüzdan bakiyeniz ile 28 günlük normal periyotta aktif edildi. 🚀`
+            : `Harika! ${subscriptionPlan} paketin cüzdan bakiyen ile otomatik yenilendi. Kesintisiz eğitime devam edebilirsin. 🚀`,
           type: 'success',
           link: '/panel/ogrenci/abonelik'
         });
@@ -272,7 +276,8 @@ export async function checkAndRenewSubscription(
       } else {
         if (subscriptionStatus !== 'expired') {
           await studentDataService.updateStudentProfile(userUid, {
-            subscriptionStatus: 'expired'
+            subscriptionStatus: 'expired',
+            isTrial: false
           });
 
           await notificationService.addNotification(userUid, {
@@ -287,15 +292,19 @@ export async function checkAndRenewSubscription(
     } else {
       // Balance insufficient or autoRenew disabled -> set status to expired
       if (subscriptionStatus !== 'expired') {
+        const wasTrial = userData?.isTrial === true;
         await studentDataService.updateStudentProfile(userUid, {
-          subscriptionStatus: 'expired'
+          subscriptionStatus: 'expired',
+          isTrial: false
         });
 
         await notificationService.addNotification(userUid, {
-          title: autoRenew === false ? 'Abonelik Sona Erdi' : 'Abonelik Süresi Doldu',
-          message: autoRenew === false
-            ? `${subscriptionPlan} paketinizin süresi doldu ve otomatik yenileme kapalı olduğu için aboneliğiniz sona erdi.`
-            : `Cüzdanınızda yeterli bakiye (Gerekli: ₺${cost}) bulunmadığı için ${subscriptionPlan} paketiniz yenilenemedi. Cüzdanınıza bakiye yükleyerek hemen aktif edebilirsiniz.`,
+          title: wasTrial ? '7 Günlük Deneme Süresi Sona Erdi' : (autoRenew === false ? 'Abonelik Sona Erdi' : 'Abonelik Süresi Doldu'),
+          message: wasTrial
+            ? `7 günlük ücretsiz deneme süreniz sona erdi. ${subscriptionPlan} paketini kullanmaya devam etmek için cüzdanınıza bakiye yükleyip aboneliğinizi başlatabilirsiniz.`
+            : (autoRenew === false
+              ? `${subscriptionPlan} paketinizin süresi doldu ve otomatik yenileme kapalı olduğu için aboneliğiniz sona erdi.`
+              : `Cüzdanınızda yeterli bakiye (Gerekli: ₺${cost}) bulunmadığı için ${subscriptionPlan} paketiniz yenilenemedi. Cüzdanınıza bakiye yükleyerek hemen aktif edebilirsiniz.`),
           type: 'payment',
           link: '/panel/ogrenci/abonelik'
         });

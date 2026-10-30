@@ -412,7 +412,8 @@ export const studentDataService = {
 
   async addExamResult(result: any) {
     const path = 'exam_results';
-    const { id, ...cleanData } = result;
+    const sanitized = cleanUndefined(result);
+    const { id, ...cleanData } = sanitized;
     try {
       if (cleanData.studentId && cleanData.examName) {
         cleanData.examName = await this.ensureUniqueExamName(cleanData.studentId, cleanData.examName);
@@ -525,33 +526,89 @@ export const studentDataService = {
     studentName: string;
     oldPlan?: string;
     newPlan: string;
-    action: 'started' | 'renewed' | 'upgraded' | 'expired' | 'cancelled';
+    action: 'started' | 'renewed' | 'upgraded' | 'expired' | 'cancelled' | 'trial_started' | 'trial_ended';
+    isTrial?: boolean;
     startDate: string;
     endDate: string;
   }) {
     try {
-      const { doc, getDoc, updateDoc } = await import('firebase/firestore');
       const ref = doc(db, 'users', data.studentId);
       const snap = await getDoc(ref);
       if (snap.exists()) {
-         const userData = snap.data();
-         const history = userData.subscriptionHistory || [];
-         const entry: any = {
-            id: Math.random().toString(36).substring(2, 11),
-            studentId: data.studentId || '',
-            studentName: data.studentName || '',
-            oldPlan: data.oldPlan || 'Yok',
-            newPlan: data.newPlan || '',
-            action: data.action,
-            startDate: data.startDate || '',
-            endDate: data.endDate || '',
-            createdAt: new Date().toISOString()
-         };
-         history.push(entry);
-         await updateDoc(ref, { subscriptionHistory: history });
+        const userData = snap.data();
+        const history = userData.subscriptionHistory || [];
+        const entry: any = {
+          id: Math.random().toString(36).substring(2, 11),
+          studentId: data.studentId || '',
+          studentName: data.studentName || '',
+          oldPlan: data.oldPlan || 'Yok',
+          newPlan: data.newPlan || '',
+          action: data.action,
+          isTrial: data.isTrial || false,
+          startDate: data.startDate || '',
+          endDate: data.endDate || '',
+          createdAt: new Date().toISOString()
+        };
+        history.push(entry);
+        await updateDoc(ref, { subscriptionHistory: history });
       }
     } catch (error) {
        console.error("Error logging subscription history", error);
+    }
+  },
+
+  async startTrialSubscription(studentId: string, planName: string, studentName?: string) {
+    try {
+      const res = await fetch('/api/student/start-trial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId, planName })
+      });
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Deneme süresi başlatılamadı.');
+      }
+      return data;
+    } catch (fetchErr: any) {
+      // Fallback directly through Firestore SDK if offline or local fallback
+      const studentRef = doc(db, 'users', studentId);
+      const snap = await getDoc(studentRef);
+      if (!snap.exists()) throw new Error('Öğrenci bulunamadı.');
+      const sData = snap.data();
+      if (sData.hasUsedTrial) {
+        throw new Error('7 günlük ücretsiz deneme hakkı daha önce kullanılmıştır. Sadece ilk abonelikte geçerlidir.');
+      }
+      const now = new Date();
+      const trialDurationDays = 7;
+      const trialEndDate = new Date(now.getTime() + trialDurationDays * 24 * 60 * 60 * 1000);
+      const history = sData.subscriptionHistory || [];
+      history.push({
+        id: Math.random().toString(36).substring(2, 11),
+        studentId: studentId,
+        studentName: studentName || `${sData.firstName || ''} ${sData.lastName || ''}`.trim() || 'Öğrenci',
+        oldPlan: sData.subscriptionPlan || 'Yok',
+        newPlan: planName,
+        action: 'trial_started',
+        isTrial: true,
+        startDate: now.toISOString(),
+        endDate: trialEndDate.toISOString(),
+        createdAt: now.toISOString()
+      });
+      await updateDoc(studentRef, {
+        subscriptionPlan: planName,
+        subscriptionStartDate: now.toISOString(),
+        subscriptionEndDate: trialEndDate.toISOString(),
+        subscriptionStatus: 'active',
+        isTrial: true,
+        hasUsedTrial: true,
+        trialStartDate: now.toISOString(),
+        trialEndDate: trialEndDate.toISOString(),
+        trialPlan: planName,
+        autoRenew: true,
+        askedAiQuestionsCount: 0,
+        subscriptionHistory: history
+      });
+      return { success: true, trialEndDate: trialEndDate.toISOString(), subscriptionPlan: planName };
     }
   },
 
@@ -896,17 +953,18 @@ export const studentDataService = {
   async saveGlobalBook(bookData: any) {
     const path = 'global_books';
     try {
-      if (bookData.id) {
-        const ref = doc(db, path, bookData.id);
-        const { id, ...cleanData } = bookData;
+      const sanitized = cleanUndefined(bookData);
+      if (sanitized.id) {
+        const ref = doc(db, path, sanitized.id);
+        const { id, ...cleanData } = sanitized;
         await setDoc(ref, {
           ...cleanData,
           updatedAt: serverTimestamp()
         }, { merge: true });
-        return bookData.id;
+        return sanitized.id;
       } else {
         const ref = await addDoc(collection(db, path), {
-          ...bookData,
+          ...sanitized,
           updatedAt: serverTimestamp()
         });
         return ref.id;
@@ -935,7 +993,7 @@ export const studentDataService = {
           dataToSave.type = fallbackBookData.type || fallbackBookData.resourceType;
         }
       }
-      await setDoc(ref, dataToSave, { merge: true });
+      await setDoc(ref, cleanUndefined(dataToSave), { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
     }
@@ -956,7 +1014,16 @@ export const studentDataService = {
     try {
       const q = query(collection(db, path), where('studentId', '==', studentId));
       const snap = await getDocs(q);
-      return snap.docs.map(doc => ({ id: doc.id, ...(doc.data() as object) }));
+      return snap.docs.map(doc => {
+        const d = doc.data() as any;
+        return {
+          id: doc.id,
+          ...d,
+          completionPercentage: d.completionPercentage !== undefined
+            ? Math.min(100, Math.max(0, Math.round(Number(d.completionPercentage) || 0)))
+            : 0
+        };
+      });
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, path);
       return [];
@@ -974,7 +1041,12 @@ export const studentDataService = {
 
   async updateBookProgress(trackId: string | null, data: any) {
     const path = 'book_tracking';
-    const { id, ...cleanData } = data;
+    const sanitized = cleanUndefined(data);
+    const { id, ...cleanData } = sanitized;
+    if (cleanData.completionPercentage !== undefined) {
+      const num = Number(cleanData.completionPercentage);
+      cleanData.completionPercentage = isNaN(num) ? 0 : Math.min(100, Math.max(0, Math.round(num)));
+    }
     try {
       if (trackId) {
         const ref = doc(db, path, trackId);
@@ -1033,29 +1105,30 @@ export const studentDataService = {
   async saveExamAnalysis(analysis: any) {
     const path = 'exam_analyses';
     try {
+      const sanitized = cleanUndefined(analysis);
       const data = {
-        ...analysis,
+        ...sanitized,
         updatedAt: serverTimestamp()
       };
-      if (analysis.id) {
-        const ref = doc(db, path, analysis.id);
+      if (sanitized.id) {
+        const ref = doc(db, path, sanitized.id);
         const { id, ...updateData } = data;
         await updateDoc(ref, updateData);
-        return analysis.id;
+        return sanitized.id;
       } else {
         const ref = await addDoc(collection(db, path), data);
         // Also update the exam result to mark it as analyzed
-        await this.updateExamResult(analysis.examId, { analyzed: true });
+        await this.updateExamResult(sanitized.examId, { analyzed: true });
         
-        const examSnap = await getDoc(doc(db, 'exam_results', analysis.examId));
+        const examSnap = await getDoc(doc(db, 'exam_results', sanitized.examId));
         let xpEarned = 100;
         if (examSnap.exists()) {
            const examType = examSnap.data().examType;
            xpEarned = (examType === 'BRANŞ' || examType === 'DERS') ? 80 : 300; // İki katına çıkarıldı
         }
         
-        if (analysis.studentId) {
-            await this.awardXP(analysis.studentId, xpEarned, 'Deneme Sınavı Analizi');
+        if (sanitized.studentId) {
+            await this.awardXP(sanitized.studentId, xpEarned, 'Deneme Sınavı Analizi');
         }
         return ref.id;
       }
@@ -1279,7 +1352,8 @@ export const studentDataService = {
                title: 'Yetersiz Sistem Bakiyesi',
                message: `❌ İşlem Başarısız: Cüzdanınızda yeterli bakiye bulunmadığı için öğrenciniz '${studentData.firstName || ''} ${studentData.lastName || ''}'ın abonelik/satın alma işlemi gerçekleştirilemedi. Lütfen sisteme bakiye yükleyin.`,
                type: 'payment',
-               link: '/panel/koc/cuzdan'
+               link: '/panel/koc/cuzdan',
+               studentId: studentId
            });
            return { success: false, error: "Bu işlemi gerçekleştirebilmek için bağlı olduğunuz kurumun/koçun paket güncellemesi (veya ek yetkilendirmesi) gerekmektedir. Lütfen eğitim koçunuza bilgi veriniz." };
         }
@@ -1295,7 +1369,8 @@ export const studentDataService = {
             title: 'Satın Alım/Yenileme Kesintisi',
             message: `🧾 İşlem Başarılı: Öğrenciniz '${studentData.firstName || ''} ${studentData.lastName || ''}'ın ödemesi sebebiyle cüzdanınızdan ${coachDeduction} ₺ sistem payı kesildi.`,
             type: 'payment',
-            link: '/panel/koc/cuzdan'
+            link: '/panel/koc/cuzdan',
+            studentId: studentId
         });
         
         // Check critical balance warning

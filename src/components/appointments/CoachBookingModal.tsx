@@ -8,9 +8,10 @@ interface CoachBookingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  initialStudentId?: string;
 }
 
-export default function CoachBookingModal({ isOpen, onClose, onSuccess }: CoachBookingModalProps) {
+export default function CoachBookingModal({ isOpen, onClose, onSuccess, initialStudentId }: CoachBookingModalProps) {
   const { user, userData } = useAuth();
   const [students, setStudents] = useState<any[]>([]);
   const dateInputRef = useRef<HTMLInputElement>(null);
@@ -25,15 +26,27 @@ export default function CoachBookingModal({ isOpen, onClose, onSuccess }: CoachB
 
   useEffect(() => {
     if (isOpen && user) {
+      if (initialStudentId) {
+        setSelectedStudent(initialStudentId);
+      }
       loadStudents();
+    } else if (!isOpen) {
+      setSelectedStudent('');
+      setSelectedDate('');
+      setSelectedTime('');
+      setIsOnline(false);
+      setIsParentMeeting(false);
     }
-  }, [isOpen, user]);
+  }, [isOpen, user, initialStudentId]);
 
   const loadStudents = async () => {
     setLoading(true);
     try {
       const data = await appointmentService.getCoachStudents(user!.uid);
       setStudents(data);
+      if (initialStudentId) {
+        setSelectedStudent(initialStudentId);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -74,7 +87,8 @@ export default function CoachBookingModal({ isOpen, onClose, onSuccess }: CoachB
             title: 'Yeni Veli Görüşmesi Atandı',
             message: `Öğrencinizin koçu ${userData?.firstName} ${userData?.lastName}, ${selectedDate} tarihi saat ${startTime} için yeni bir veli görüşmesi atadı.`,
             type: 'appointment',
-            link: '/panel/veli/randevular'
+            link: '/panel/veli/randevular',
+            studentId: student.uid
          });
       }
 
@@ -138,7 +152,9 @@ export default function CoachBookingModal({ isOpen, onClose, onSuccess }: CoachB
                 >
                   <option value="">-- Öğrenci Seçin --</option>
                   {students.map(s => (
-                    <option key={s.uid} value={s.uid}>{s.firstName} {s.lastName}</option>
+                    <option key={s.uid} value={s.uid}>
+                      {s.displayName || (s.firstName || s.lastName ? `${s.firstName || ''} ${s.lastName || ''}`.trim() : s.email || 'Öğrenci')}
+                    </option>
                   ))}
                 </select>
                 {students.length === 0 && <p className="text-xs text-amber-500 mt-2">Henüz öğrenciniz bulunmuyor.</p>}

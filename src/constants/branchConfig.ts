@@ -41,7 +41,7 @@ export const BRANCH_CONFIG: Record<string, {name: string, subjects: string[], ay
     },
     'Yeni Müfredat TYT': {
         name: "Yeni Müfredat TYT",
-        subjects: ['Yeni TYT Türkçe', 'Yeni TYT Matematik', 'Yeni TYT Fizik', 'Yeni TYT Kimya', 'Yeni TYT Biyoloji', 'Yeni TYT Tarih', 'Yeni TYT Coğrafya'],
+        subjects: ['M Türkçe', 'M Matematik', 'M Fizik', 'M Kimya', 'M Biyoloji', 'M Tarih', 'M Coğrafya'],
         aytSubjects: []
     }
 };

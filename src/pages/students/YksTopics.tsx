@@ -326,7 +326,7 @@ export default function YksTopics() {
   const [activeSubject, setActiveSubject] = useState(TOPICS_DATA[0].id);
   const [activeModel, setActiveModel] = useState<'current' | 'maarif'>('current');
 
-  const currentSubject = TOPICS_DATA.find(s => s.id === activeSubject)!;
+  const currentSubject = TOPICS_DATA.find(s => s.id === activeSubject) || TOPICS_DATA[0];
 
   return (
     <div className="px-[5%] sm:px-[8%] md:px-[12%] lg:px-[15%] max-w-[2000px] mx-auto py-12 space-y-12">
@@ -446,7 +446,7 @@ export default function YksTopics() {
                   </h2>
                 </div>
                 <div className="bg-slate-900/40 border border-white/5 rounded-[32px] p-8 space-y-3">
-                  {currentSubject.tyt.map((topic, i) => (
+                  {(currentSubject?.tyt || []).map((topic, i) => (
                     <TopicItem key={i} topic={topic} index={i} />
                   ))}
                 </div>
@@ -468,7 +468,7 @@ export default function YksTopics() {
                   </h2>
                 </div>
                 <div className="bg-slate-900/40 border border-white/5 rounded-[32px] p-8 space-y-3">
-                  {currentSubject.ayt.map((topic, i) => (
+                  {(currentSubject?.ayt || []).map((topic, i) => (
                     <TopicItem key={i} topic={topic} index={i} />
                   ))}
                 </div>
@@ -491,7 +491,7 @@ export default function YksTopics() {
                   </h2>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {currentSubject.maarif.map((topic, i) => (
+                  {(currentSubject?.maarif || []).map((topic, i) => (
                     <div key={i} className="bg-slate-900/40 border border-white/5 rounded-3xl p-6 hover:border-emerald-500/20 transition-all group">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex items-center gap-4">

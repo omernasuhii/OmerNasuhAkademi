@@ -18,6 +18,8 @@
         "targetAyt": { "type": "number", "description": "Hedef AYT Neti" },
         "startDate": { "type": "string", "format": "date-time" },
         "photoUrl": { "type": "string" },
+        "isArchived": { "type": "boolean", "description": "Koç tarafından arşive alınıp alınmadığı" },
+        "archivedAt": { "type": "string", "format": "date-time" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email", "role"]
@@ -30,6 +32,11 @@
         "name": { "type": "string" },
         "subject": { "type": "string" },
         "type": { "type": "string" },
+        "resourceType": { "type": "string", "enum": ["soru", "fasikul", "konu", "youtube", "deneme"] },
+        "coveredTopics": { "type": "array", "description": "Scope selection: specific topics covered by this booklet/resource" },
+        "totalExamCount": { "type": "number", "description": "Total trial exams in package" },
+        "denemeCategory": { "type": "string", "description": "general or branch trial exam" },
+        "isbn": { "type": "string" },
         "topicQuestionCounts": { "type": "object" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -80,6 +87,11 @@
         "studentId": { "type": "string" },
         "subject": { "type": "string" },
         "bookName": { "type": "string" },
+        "resourceType": { "type": "string", "enum": ["soru", "fasikul", "konu", "youtube", "deneme"] },
+        "coveredTopics": { "type": "array", "description": "Specific topics covered by this booklet" },
+        "totalExamCount": { "type": "number", "description": "Total trial exams in package" },
+        "denemeCategory": { "type": "string", "description": "general or branch trial exam" },
+        "isbn": { "type": "string" },
         "completedTopics": { 
           "type": "array", 
           "description": "List of strings representing completed topic titles"
@@ -309,9 +321,46 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["type", "title", "data"]
+    },
+    "system_error_log": {
+      "title": "System Error Log",
+      "description": "System error diagnostics and client telemetry records",
+      "type": "object",
+      "properties": {
+        "errorCode": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "severity": { "type": "string", "enum": ["critical", "error", "warning", "info"] },
+        "status": { "type": "string", "enum": ["new", "investigating", "resolved", "ignored"] },
+        "errorMessage": { "type": "string" },
+        "errorName": { "type": "string" },
+        "errorStack": { "type": "string" },
+        "category": { "type": "string" },
+        "source": { "type": "string" },
+        "pageUrl": { "type": "string" },
+        "pathname": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userRole": { "type": "string" },
+        "userAgent": { "type": "string" },
+        "browser": { "type": "string" },
+        "os": { "type": "string" },
+        "screenSize": { "type": "string" },
+        "isOnline": { "type": "boolean" },
+        "metadata": { "type": "object" },
+        "adminNotes": { "type": "string" },
+        "resolvedAt": { "type": "string", "format": "date-time" },
+        "resolvedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["errorCode", "errorMessage", "severity", "status"]
     }
   },
   "firestore": {
+    "/system_error_logs/{logId}": {
+      "schema": "system_error_log",
+      "description": "System telemetry and error logs"
+    },
     "/announcements/{announcementId}": {
       "schema": "announcement",
       "description": "Announcements and notifications portal"

@@ -12,16 +12,68 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
+// Track recent notifications to prevent duplicate alerts
+const recentNotificationTags = new Set();
+
 messaging.onBackgroundMessage((payload) => {
-  console.log('[firebase-messaging-sw.js] Received background message ', payload);
+  console.log('[firebase-messaging-sw.js] onBackgroundMessage received:', payload);
   
-  const notificationTitle = payload.notification?.title || 'Yeni Bildirim';
+  // 1. Deduplication check using unique message ID / tag
+  const notificationId = payload.data?.id || payload.messageId || payload.data?.tag || `${payload.notification?.title || payload.data?.title || ''}-${payload.notification?.body || payload.data?.body || ''}`;
+  if (recentNotificationTags.has(notificationId)) {
+    console.log('[firebase-messaging-sw.js] Duplicate notification suppressed:', notificationId);
+    return;
+  }
+  
+  recentNotificationTags.add(notificationId);
+  setTimeout(() => recentNotificationTags.delete(notificationId), 15000);
+
+  // 2. If the payload already contains a top-level 'notification' object, 
+  // the Firebase Web SDK (firebase-messaging-compat) displays it automatically in the background.
+  // Calling self.registration.showNotification() here causes an identical SECOND duplicate notification.
+  if (payload.notification && (payload.notification.title || payload.notification.body)) {
+    console.log('[firebase-messaging-sw.js] Notification payload automatically handled by Firebase SDK. Suppressing manual duplicate.');
+    return;
+  }
+
+  // 3. For data-only push messages, display the notification manually with deterministic tag
+  const notificationTitle = payload.data?.title || 'FocusON Akademi';
+  const deterministicTag = 'focuson-' + (payload.data?.id || payload.messageId || `${notificationTitle}-${payload.data?.body || ''}`);
+
   const notificationOptions = {
-    body: payload.notification?.body,
+    body: payload.data?.body || 'Yeni bir bildiriminiz var.',
     icon: '/images/ON-Logo.png',
     badge: '/images/ON-Logo.png',
-    data: payload.data
+    vibrate: [200, 100, 200],
+    tag: deterministicTag,
+    renotify: false,
+    data: {
+      link: payload.data?.link || payload.fcmOptions?.link || '/',
+      ...(payload.data || {})
+    }
   };
 
-  self.registration.showNotification(notificationTitle, notificationOptions);
+  return self.registration.showNotification(notificationTitle, notificationOptions);
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.link || '/';
+  
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      for (const client of windowClients) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          client.focus();
+          if ('navigate' in client && targetUrl) {
+            client.navigate(targetUrl);
+          }
+          return;
+        }
+      }
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
+  );
 });

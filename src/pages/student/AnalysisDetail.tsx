@@ -1478,7 +1478,7 @@ export default function AnalysisDetail() {
                         <div className="space-y-4">
                             <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Kritik Teşhisler</h4>
                             <div className="flex flex-wrap gap-3">
-                                {result.data.diagnosis.length > 0 ? result.data.diagnosis.map((d: string) => (
+                                {Array.isArray(result?.data?.diagnosis) && result.data.diagnosis.length > 0 ? result.data.diagnosis.map((d: string) => (
                                     <div key={d} className="px-4 py-2 bg-indigo-500/10 border border-indigo-500/20 rounded-full text-[10px] font-black text-indigo-400 uppercase tracking-widest">
                                         {d}
                                     </div>

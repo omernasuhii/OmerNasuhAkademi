@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../lib/AuthContext';
 import { notificationService, Notification } from '../../services/notificationService';
-import { Bell, CheckCircle2, Circle, Calendar, Info, MessageSquare, Loader2, Trash2, Sparkles } from 'lucide-react';
+import { Bell, CheckCircle2, Circle, Calendar, Info, MessageSquare, Loader2, Trash2, Sparkles, Smartphone, ShieldCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import NotificationTesterModal from './NotificationTesterModal';
 
 export default function NotificationsList() {
-  const { user } = useAuth();
+  const { user, userData, actualUserData, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isTesterOpen, setIsTesterOpen] = useState(false);
+
+  const isAdminUser = Boolean(isAdmin || userData?.role === 'admin' || actualUserData?.role === 'admin');
 
   useEffect(() => {
     if (user?.uid) {
@@ -107,16 +111,33 @@ export default function NotificationsList() {
           <p className="text-slate-400 text-sm mt-1">Sistem ve randevu bildirimlerinizi buradan takip edebilirsiniz.</p>
         </div>
         
-        {unreadCount > 0 && (
-          <button 
-            onClick={handleMarkAllAsRead}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition-colors text-sm font-medium"
-          >
-            <CheckCircle2 className="w-4 h-4" />
-            Tümünü Okundu İşaretle
-          </button>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {isAdminUser && (
+            <button 
+              onClick={() => setIsTesterOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 bg-indigo-600/10 hover:bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 rounded-xl transition-all text-xs font-bold shadow-sm"
+            >
+              <Smartphone className="w-4 h-4 text-indigo-400" />
+              <span>Mobil Bildirim Testi & Teşhis</span>
+            </button>
+          )}
+
+          {unreadCount > 0 && (
+            <button 
+              onClick={handleMarkAllAsRead}
+              className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition-colors text-xs font-medium"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              Tümünü Okundu İşaretle
+            </button>
+          )}
+        </div>
       </div>
+
+      <NotificationTesterModal 
+        isOpen={isTesterOpen}
+        onClose={() => setIsTesterOpen(false)}
+      />
 
       <div className="space-y-3">
         {notifications.length === 0 ? (

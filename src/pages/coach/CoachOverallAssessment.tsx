@@ -8,7 +8,8 @@ import {
   AlertCircle, 
   CheckCircle2, 
   Activity,
-  ChevronRight
+  ChevronRight,
+  Archive
 } from 'lucide-react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
@@ -17,7 +18,7 @@ import { tourService } from '../../services/tourService';
 import { studentDataService } from '../../services/studentDataService';
 import { motion } from 'motion/react';
 import { OnboardingTour, TourStep } from '../../components/OnboardingTour';
-import { calculateSubjectMultipliers, calculateDailyCompletionWithMultipliers } from '../../lib/programCalculations';
+import { calculateSubjectMultipliers, calculateDailyCompletionWithMultipliers, TASK_WEIGHTS, getCanonicalSubjectName } from '../../lib/programCalculations';
 
 export default function CoachOverallAssessment() {
   const navigate = useNavigate();
@@ -87,6 +88,7 @@ export default function CoachOverallAssessment() {
       const snap = await getDocs(q);
       const studentData = snap.docs.map(doc => ({
         uid: doc.id,
+        isArchived: !!(doc.data().isArchived || doc.data().archived),
         ...doc.data()
       }));
       setStudents(studentData);
@@ -95,17 +97,32 @@ export default function CoachOverallAssessment() {
       const examsArray: any[] = [];
 
       await Promise.all(studentData.map(async (st) => {
-         const dp = await studentDataService.getAllDailyPrograms(st.uid);
-         dp.forEach(d => dpArray.push({...d, studentId: st.uid}));
+         try {
+           const dp = await studentDataService.getAllDailyPrograms(st.uid);
+           if (Array.isArray(dp)) {
+             dp.forEach(d => dpArray.push({...d, studentId: st.uid}));
+           }
+         } catch (e) {
+           console.error("Error fetching daily programs for student:", st.uid, e);
+         }
          
-         const ex = await studentDataService.getExamResults(st.uid);
-         ex.forEach(e => examsArray.push({...e, studentId: st.uid}));
+         try {
+           const ex = await studentDataService.getExamResults(st.uid);
+           if (Array.isArray(ex)) {
+             ex.forEach(e => examsArray.push({...e, studentId: st.uid}));
+           }
+         } catch (e) {
+           console.error("Error fetching exams for student:", st.uid, e);
+         }
       }));
 
       setDailyPrograms(dpArray);
       setExams(examsArray);
     } catch(err) {
       console.error(err);
+      setStudents([]);
+      setDailyPrograms([]);
+      setExams([]);
     } finally {
       setLoading(false);
     }
@@ -121,11 +138,26 @@ export default function CoachOverallAssessment() {
     const todayStr = new Date().toLocaleDateString('sv-SE');
     const weeklyData: Record<string, { target: number, solved: number, unsolved: number, taskDone: number, taskNotDone: number, earnedPoints: number, targetPoints: number }> = {};
 
-    dailyPrograms.forEach(dp => {
-      if (!dp.date || dp.date > todayStr) return;
+    const studentMap = new Map<string, any>();
+    const studentMultipliersMap = new Map<string, Record<string, number>>();
+    (students || []).forEach(s => {
+      if (s?.uid) {
+        studentMap.set(s.uid, s);
+        const stExams = (exams || []).filter((e: any) => e?.studentId === s.uid);
+        studentMultipliersMap.set(s.uid, calculateSubjectMultipliers(stExams, s.branch));
+      }
+    });
+
+    (dailyPrograms || []).forEach(dp => {
+      if (!dp || !dp.date || typeof dp.date !== 'string' || dp.date > todayStr) return;
+
+      const student = studentMap.get(dp.studentId);
+      const isStudentArchived = !!(student?.isArchived || student?.archived);
 
       const dpParts = dp.date.split('-');
+      if (dpParts.length !== 3) return;
       const dpDate = new Date(Date.UTC(Number(dpParts[0]), Number(dpParts[1]) - 1, Number(dpParts[2])));
+      if (isNaN(dpDate.getTime())) return;
       
       const day = dpDate.getUTCDay();
       const diff = dpDate.getUTCDate() - day + (day === 0 ? -6 : 1);
@@ -137,8 +169,9 @@ export default function CoachOverallAssessment() {
 
       const weekStats = weeklyData[weekStart];
 
-      if (dp.tasks) {
+      if (Array.isArray(dp.tasks)) {
         dp.tasks.forEach((task: any) => {
+          if (!task) return;
           const taskDateStr = task.date || dp.date;
           let diffDays = 0;
           if (taskDateStr) {
@@ -154,6 +187,23 @@ export default function CoachOverallAssessment() {
           const effectiveIsDone = task.isDone && !isWaitingExpired;
 
           let isQuestion = task.type === 'Soru Çözümü' || task.type === 'Deneme';
+
+          // Öğrenci arşive atıldıysa: SADECE tamamladığı soru sayısı alınır, diğer verileri hesaba katılmaz
+          if (isStudentArchived) {
+            if (isQuestion) {
+              let solved = 0;
+              if (!task.isExtra) {
+                const target = Number(task.targetCount) || 0;
+                solved = effectiveIsDone ? Math.max(target, Number(task.completedCount) || 0) : (Number(task.completedCount) || 0);
+              } else {
+                solved = Number(task.completedCount) || 0;
+              }
+              weekStats.solved += solved;
+              globalSolved += solved;
+            }
+            // Diğer görevler, hedefler, eksikler ve puanlar hesaba katılmaz
+            return;
+          }
 
           if (isQuestion) {
             let solved = 0;
@@ -185,10 +235,20 @@ export default function CoachOverallAssessment() {
             weekStats.solved += solved;
             globalSolved += solved;
 
-            weekStats.targetPoints += target;
-            weekStats.earnedPoints += Math.min(solved, target); 
-            if(task.isExtra) {
-              weekStats.earnedPoints += solved;
+            const studentMults = studentMultipliersMap.get(dp.studentId) || {};
+            const canonical = getCanonicalSubjectName(task.subject || '');
+            const subjectMultiplier = (canonical && studentMults[canonical]) ? studentMults[canonical] : 1.0;
+            const taskWeight = TASK_WEIGHTS[task.type as keyof typeof TASK_WEIGHTS] || 30;
+            const finalWeight = taskWeight * subjectMultiplier;
+
+            if (!task.isExtra) {
+              weekStats.targetPoints += finalWeight;
+            }
+
+            const ratio = target > 0 ? Math.min(1, Math.max(0, solved / target)) : (effectiveIsDone ? 1 : 0);
+            weekStats.earnedPoints += (finalWeight * ratio);
+            if (task.isExtra && effectiveIsDone) {
+              weekStats.earnedPoints += finalWeight;
             }
           } else {
             if (!task.isExtra) {
@@ -199,30 +259,46 @@ export default function CoachOverallAssessment() {
                  weekStats.taskNotDone += 1;
                  globalTaskNotDone += 1;
                }
-               let point = task.type === 'Konu Çalışması' || task.type?.includes('Video') ? 2 : 1;
-               
-               const isDeneme = task.topic?.includes('Deneme') || task.subject?.includes('Genel') || task.subject?.includes('YDT') || task.branch === 'Denemeler' || task.type === 'Deneme';
-               if (isDeneme && task.isDone) {
-                 const relatedExam = exams.find((e: any) => e.studentId === dp.studentId && e.date === dp.date && e.analyzed);
-                 if (relatedExam) point *= 2;
-               }
-               
-               weekStats.targetPoints += point;
-               if (task.isDone) weekStats.earnedPoints += point;
             } else {
                if (task.isDone) {
                   weekStats.taskDone += 1;
                   globalTaskDone += 1;
-                  let point = task.type === 'Konu Çalışması' || task.type?.includes('Video') ? 2 : 1;
-                  
-                  const isDeneme = task.topic?.includes('Deneme') || task.subject?.includes('Genel') || task.subject?.includes('YDT') || task.branch === 'Denemeler' || task.type === 'Deneme';
-                  if (isDeneme) {
-                    const relatedExam = exams.find((e: any) => e.studentId === dp.studentId && e.date === dp.date && e.analyzed);
-                    if (relatedExam) point *= 2;
-                  }
-                  
-                  weekStats.earnedPoints += point;
                }
+            }
+
+            const studentMults = studentMultipliersMap.get(dp.studentId) || {};
+            const canonical = getCanonicalSubjectName(task.subject || '');
+            const subjectMultiplier = (canonical && studentMults[canonical]) ? studentMults[canonical] : 1.0;
+            let taskWeight = TASK_WEIGHTS[task.type as keyof typeof TASK_WEIGHTS] || 30;
+            let finalWeight = taskWeight * subjectMultiplier;
+
+            const isDeneme = task.topic?.includes('Deneme') || task.subject?.includes('Genel') || task.subject?.includes('YDT') || task.branch === 'Denemeler' || task.type === 'Deneme' || task.type === 'Deneme Sınavı';
+            if (isDeneme && effectiveIsDone) {
+              const relatedExam = exams.find((e: any) => e.studentId === dp.studentId && e.date === dp.date && e.analyzed);
+              if (relatedExam) finalWeight *= 2;
+            }
+
+            if (!task.isExtra) {
+              weekStats.targetPoints += finalWeight;
+            }
+
+            if (task.type === 'YouTube Video') {
+              if (effectiveIsDone || Number(task.completedCount) >= 1) {
+                weekStats.earnedPoints += finalWeight;
+              }
+            } else if (task.type === 'Konu Çalışması') {
+              const target = Number(task.targetCount) || 0;
+              if (target > 0) {
+                const completed = Number(task.completedCount) || (effectiveIsDone ? target : 0);
+                const ratio = Math.min(1, Math.max(0, completed / target));
+                weekStats.earnedPoints += (finalWeight * ratio);
+              } else {
+                if (effectiveIsDone) weekStats.earnedPoints += finalWeight;
+              }
+            } else {
+              if (effectiveIsDone) {
+                weekStats.earnedPoints += finalWeight;
+              }
             }
           }
         });
@@ -230,8 +306,10 @@ export default function CoachOverallAssessment() {
     });
 
     let totalStudentWeeks = 0;
-    students.forEach(st => {
-       const stStartDate = st.createdAt ? new Date(st.createdAt.seconds ? st.createdAt.seconds * 1000 : st.createdAt) : new Date();
+    const activeStudents = (students || []).filter(st => !st?.isArchived && !st?.archived);
+    const studentsForWeeks = activeStudents.length > 0 ? activeStudents : (students || []);
+    studentsForWeeks.forEach(st => {
+       const stStartDate = st?.createdAt ? new Date(st.createdAt.seconds ? st.createdAt.seconds * 1000 : st.createdAt) : new Date();
        if (stStartDate && !isNaN(stStartDate.getTime())) {
           const diffMs = new Date().getTime() - stStartDate.getTime();
           totalStudentWeeks += Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 7)));
@@ -265,7 +343,18 @@ export default function CoachOverallAssessment() {
       .filter(weekStart => weekStart <= currentWeekStart)
       .sort((a, b) => b.localeCompare(a)).map(weekStart => {
       const w = weeklyData[weekStart];
-      const wParts = weekStart.split('-');
+      const wParts = typeof weekStart === 'string' ? weekStart.split('-') : [];
+      if (wParts.length !== 3) {
+        return {
+          date: weekStart,
+          weekNumber: '',
+          solvedCount: w?.solved || 0,
+          unsolvedCount: w?.unsolved || 0,
+          taskDone: w?.taskDone || 0,
+          taskNotDone: w?.taskNotDone || 0,
+          successPercentage: 0
+        };
+      }
       const d = new Date(Date.UTC(Number(wParts[0]), Number(wParts[1]) - 1, Number(wParts[2])));
       
       const startStr = `${d.getUTCDate().toString().padStart(2, '0')}.${(d.getUTCMonth() + 1).toString().padStart(2, '0')}`;
@@ -295,16 +384,26 @@ export default function CoachOverallAssessment() {
     };
   }, [dailyPrograms, students, exams]);
 
-  const { totalSolved, totalUnsolved, avgSolved, avgUnsolved, overallAvgCompletion, last4AvgCompletion, derivedWeeklyReports } = statsFromPrograms;
+  const {
+    totalSolved = 0,
+    totalUnsolved = 0,
+    avgSolved = 0,
+    avgUnsolved = 0,
+    overallAvgCompletion = 0,
+    last4AvgCompletion = 0,
+    derivedWeeklyReports = []
+  } = statsFromPrograms || {};
 
   const getGroupExamAverages = (type: string, subjects: Record<string, string[]>) => {
     let studentCount = 0;
     const groupAvgs: any = { totalNet: 0, percentile: 0 };
     Object.keys(subjects).forEach(sub => groupAvgs[sub] = 0);
 
-    students.forEach(st => {
-      const studentExams = exams
-        .filter(e => e.studentId === st.uid && (e.examType === type || e.examType === 'YKS'))
+    const activeStudents = (students || []).filter(st => !st?.isArchived && !st?.archived);
+
+    activeStudents.forEach(st => {
+      const studentExams = (exams || [])
+        .filter(e => e?.studentId === st.uid && (e?.examType === type || e?.examType === 'YKS'))
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
         .slice(0, 4);
 
@@ -459,6 +558,19 @@ export default function CoachOverallAssessment() {
         </div>
       </div>
 
+      {(() => {
+        const archivedCount = (students || []).filter(s => s?.isArchived || s?.archived).length;
+        if (archivedCount === 0) return null;
+        return (
+          <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs px-4 py-3 rounded-2xl">
+            <Archive size={16} className="shrink-0 text-amber-400" />
+            <span>
+              <strong>{archivedCount} öğrenci arşivde:</strong> Arşivlenen öğrencilerin yalnızca tamamladığı soru sayıları genel toplama eklenmektedir. Eksik sorular, görev tamamlama ve sınav netleri grup ortalamalarına dahil edilmez.
+            </span>
+          </div>
+        );
+      })()}
+
       <div id="tour-overall-stats" className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         {quickStats.map((stat, i) => (
           <motion.div
@@ -569,26 +681,26 @@ export default function CoachOverallAssessment() {
                     </tr>
                  </thead>
                  <tbody className="divide-y divide-white/5 text-sm">
-                    {derivedWeeklyReports.map((report, i) => (
+                    {(derivedWeeklyReports || []).map((report, i) => (
                        <tr key={i} className="group hover:bg-white/[0.02]">
                           <td className="py-4 px-4">
-                             <span className="font-bold text-slate-300 block">{report.date}</span>
+                             <span className="font-bold text-slate-300 block">{report?.date}</span>
                           </td>
-                          <td className="py-4 px-4 text-center font-black text-emerald-400">{report.solvedCount || 0}</td>
-                          <td className="py-4 px-4 text-center font-black text-red-400">{report.unsolvedCount || 0}</td>
-                          <td className="py-4 px-4 text-center font-black text-emerald-400">{report.taskDone || 0}</td>
-                          <td className="py-4 px-4 text-center font-black text-red-400">{report.taskNotDone || 0}</td>
+                          <td className="py-4 px-4 text-center font-black text-emerald-400">{report?.solvedCount || 0}</td>
+                          <td className="py-4 px-4 text-center font-black text-red-400">{report?.unsolvedCount || 0}</td>
+                          <td className="py-4 px-4 text-center font-black text-emerald-400">{report?.taskDone || 0}</td>
+                          <td className="py-4 px-4 text-center font-black text-red-400">{report?.taskNotDone || 0}</td>
                           <td className="py-4 px-4 text-center">
                              <div className="flex items-center justify-center gap-2">
                                 <div className="w-12 h-1.5 bg-white/5 rounded-full overflow-hidden hidden sm:block">
-                                   <div className="h-full bg-emerald-500" style={{ width: `${Math.min(report.successPercentage, 100)}%` }} />
+                                   <div className="h-full bg-emerald-500" style={{ width: `${Math.min(report?.successPercentage || 0, 100)}%` }} />
                                 </div>
-                                <span className="font-black text-white">%{report.successPercentage || 0}</span>
+                                <span className="font-black text-white">%{report?.successPercentage || 0}</span>
                              </div>
                           </td>
                        </tr>
                     ))}
-                    {derivedWeeklyReports.length === 0 && (
+                    {(!derivedWeeklyReports || derivedWeeklyReports.length === 0) && (
                        <tr>
                           <td colSpan={6} className="py-20 text-center text-slate-600 italic">Öğrencilerin henüz program verisi bulunmuyor.</td>
                        </tr>
@@ -599,13 +711,13 @@ export default function CoachOverallAssessment() {
 
            {/* Mobile View Card List */}
            <div className="md:hidden divide-y divide-white/5 bg-slate-950/20 rounded-2xl overflow-hidden border border-white/5">
-             {derivedWeeklyReports.map((report, i) => (
+             {(derivedWeeklyReports || []).map((report, i) => (
                <div key={i} className="p-4 space-y-4 hover:bg-white/[0.01] transition-colors">
                  <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                   <span className="text-sm font-bold text-slate-200">{report.date}</span>
+                   <span className="text-sm font-bold text-slate-200">{report?.date}</span>
                    <div className="flex items-center gap-2">
                      <span className="text-[10px] text-slate-500 font-bold">Başarı:</span>
-                     <span className="font-black text-emerald-400 text-sm">%{report.successPercentage || 0}</span>
+                     <span className="font-black text-emerald-400 text-sm">%{report?.successPercentage || 0}</span>
                    </div>
                  </div>
                  
@@ -613,21 +725,21 @@ export default function CoachOverallAssessment() {
                    <div className="space-y-1">
                      <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest block">Soru Çözümü</span>
                      <div className="flex items-center justify-between bg-white/[0.02] p-2 rounded-lg border border-white/5">
-                       <span className="text-emerald-400 font-bold">Çözülen: {report.solvedCount || 0}</span>
-                       <span className="text-red-400 font-bold">Eksik: {report.unsolvedCount || 0}</span>
+                       <span className="text-emerald-400 font-bold">Çözülen: {report?.solvedCount || 0}</span>
+                       <span className="text-red-400 font-bold">Eksik: {report?.unsolvedCount || 0}</span>
                      </div>
                    </div>
                    <div className="space-y-1">
                      <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest block">Görevler</span>
                      <div className="flex items-center justify-between bg-white/[0.02] p-2 rounded-lg border border-white/5">
-                       <span className="text-emerald-400 font-bold">Biten: {report.taskDone || 0}</span>
-                       <span className="text-red-400 font-bold">Eksik: {report.taskNotDone || 0}</span>
+                       <span className="text-emerald-400 font-bold">Biten: {report?.taskDone || 0}</span>
+                       <span className="text-red-400 font-bold">Eksik: {report?.taskNotDone || 0}</span>
                      </div>
                    </div>
                  </div>
                </div>
              ))}
-             {derivedWeeklyReports.length === 0 && (
+             {(!derivedWeeklyReports || derivedWeeklyReports.length === 0) && (
                <div className="py-12 text-center text-slate-600 italic text-sm">Öğrencilerin henüz program verisi bulunmuyor.</div>
              )}
            </div>

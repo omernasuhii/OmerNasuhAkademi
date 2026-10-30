@@ -10,6 +10,7 @@ import { notificationService, Notification } from '../../services/notificationSe
 export default function Navbar() {
   const { user, userData, realUserData, isAdmin, clearImpersonation, logout } = useAuth();
   const displayUser = realUserData || userData;
+  const isLoggedIn = !!(user || displayUser);
   const isAdminUser = isAdmin || realUserData?.role === 'admin';
   const { totalItems } = useCart();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -32,12 +33,18 @@ export default function Navbar() {
   }, []);
 
   useEffect(() => {
-    if (!user?.uid) return;
-    const unsubscribe = notificationService.onNotificationsChange(user.uid, (data) => {
+    const targetUid = displayUser?.uid || user?.uid;
+    if (!targetUid) return;
+    const isArchived = Boolean(displayUser?.isArchived || displayUser?.archived || (userData as any)?.isArchived || (userData as any)?.archived);
+    if (isArchived) {
+      setNotifications([]);
+      return;
+    }
+    const unsubscribe = notificationService.onNotificationsChange(targetUid, (data) => {
       setNotifications(data || []);
     });
     return () => unsubscribe();
-  }, [user?.uid]);
+  }, [displayUser?.uid, user?.uid, displayUser?.isArchived, (userData as any)?.isArchived]);
 
   const unreadCount = (notifications || []).filter(n => !n?.isRead).length;
 
@@ -189,7 +196,7 @@ export default function Navbar() {
       </nav>
 
       <div className="flex items-center gap-3">
-        {user && (
+        {isLoggedIn && (
           <div className="hidden lg:flex items-center gap-3">
             {userData?.role === 'student' && (
               <Link to="/panel/ogrenci/sepet" className="relative p-2 rounded-full hover:bg-white/5 transition-colors text-slate-400 hover:text-white">
@@ -205,7 +212,7 @@ export default function Navbar() {
             <NotificationBell notifications={notifications} />
           </div>
         )}
-        {user ? (
+        {isLoggedIn ? (
           <div className="relative hidden lg:block">
             <button 
               className="flex items-center gap-2 px-4 py-2 rounded-full bg-blue-600/10 border border-blue-500/30 text-sm font-semibold text-blue-400 hover:bg-blue-600/20 transition-all"
@@ -227,7 +234,7 @@ export default function Navbar() {
                 <div className="px-4 py-3 border-b border-white/5 mb-1">
                   <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Kullanıcı Hesabı</p>
                   <p className="text-sm text-white font-semibold truncate">
-                    {displayUser ? `${displayUser.firstName} ${displayUser.lastName}` : (user.displayName || user.email?.split('@')[0])}
+                    {displayUser ? `${displayUser.firstName} ${displayUser.lastName}` : (user?.displayName || user?.email?.split('@')[0])}
                   </p>
                   <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mt-0.5">
                     {isAdminUser ? (
@@ -341,7 +348,7 @@ export default function Navbar() {
         )}
         
         {/* Mobile Chat button */}
-        {user && (
+        {isLoggedIn && (
           <div className="lg:hidden">
             <ChatWidget />
           </div>
@@ -526,7 +533,7 @@ export default function Navbar() {
             </Link>
             
             {/* User mobile actions */}
-            {!user && (
+            {!isLoggedIn && (
               <div className="pt-4 mt-2 border-t border-white/10 px-4">
                 <Link to="/giris" className="flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-medium transition-colors">
                   <User size={18} />
@@ -535,7 +542,7 @@ export default function Navbar() {
               </div>
             )}
             
-            {user && (
+            {isLoggedIn && (
               <div className="pt-4 mt-2 border-t border-white/10 flex flex-col space-y-1">
                 <div className="px-4 py-2 opacity-60 text-xs uppercase tracking-widest font-semibold">Profil İşlemleri</div>
                 <Link to="/profil" onClick={() => setIsMobileMenuOpen(false)} className="py-3 px-4 text-base font-medium text-white hover:bg-white/5 rounded-xl transition-colors flex gap-3 items-center">

@@ -77,7 +77,7 @@ export default function StudentProfile() {
     {
       targetId: 'tour-profile-rules-and-multipliers',
       title: 'Program Tamamlama Kuralları ve Çarpan Sistemi',
-      description: 'Öğrencinin günlük/haftalık program tamamlama yüzdesi akıllı algoritmayla hesaplanır:\n• Görev Ağırlıkları: Soru Çözümü görevleri 100 puan, Konu Çalışması ve Video izleme görevleri 30 puan değerindedir.\n• Son 4 Deneme Esası: Çarpanlar öğrencimizin son 4 denemedeki net ortalamasına göre anlık güncellenir (son gelişim katsayıya doğrudan yansır).\n• Dinamik Ders Çarpanları (x1.00 - x2.50): Net ortalaması düşük (zayıf) olan derslerin katsayısı artar. Öğrenci zayıf olduğu dersteki görevi tamamladığında genel program başarısı daha yüksek oranda yükselir; böylece öğrenci eksik olduğu derslere teşvik edilir.',
+      description: 'Öğrencinin günlük/haftalık program tamamlama yüzdesi akıllı algoritmayla hesaplanır:\n• Görev Ağırlıkları: Soru Çözümü görevleri 100 puan, Konu Çalışması ve Video izleme görevleri 30 puan değerindedir.\n• Son 4 Genel Deneme Esası: Çarpanlar öğrencimizin son 4 genel denemedeki net ortalamasına göre anlık güncellenir (branş denemeleri bu hesaplamaya dahil edilmez; genel sınav performansı esas alınır).\n• Dinamik Ders Çarpanları (x1.00 - x2.50): Net ortalaması düşük (zayıf) olan derslerin katsayısı artar. Öğrenci zayıf olduğu dersteki görevi tamamladığında genel program başarısı daha yüksek oranda yükselir; böylece öğrenci eksik olduğu derslere teşvik edilir.',
       position: 'top'
     },
     {
@@ -114,15 +114,16 @@ export default function StudentProfile() {
   }, [activeStudent]);
 
   const displayMultipliers = useMemo(() => {
-    if (Object.keys(multipliers).some(k => multipliers[k] > 1.0)) {
+    if (multipliers && Object.keys(multipliers).length > 0) {
       return multipliers;
     }
     if (location.state?.startTour || location.state?.isDemo) {
       return {
-        'Temel Matematik': 1.85,
-        'Fizik': 1.60,
+        'Matematik (TYT)': 1.85,
         'Geometri': 1.50,
-        'Kimya': 1.35
+        'Fizik (TYT)': 1.60,
+        'Kimya (TYT)': 1.35,
+        'Din Kültürü': 1.00
       };
     }
     return multipliers;
@@ -371,31 +372,56 @@ export default function StudentProfile() {
            </form>
 
            <div id="tour-profile-rules-and-multipliers" className="bg-slate-900/40 border border-white/5 rounded-3xl p-8 mb-8">
-               <h3 className="text-xl font-bold mb-8 flex items-center gap-3">
+               <h3 className="text-xl font-bold mb-6 flex items-center gap-3">
                   <Info className="text-blue-500" /> Program Tamamlama Kuralları ve Çarpanlar
                </h3>
                <div className="space-y-6">
                  <p className="text-sm text-slate-300 leading-relaxed text-left">
-                   Günlük programların tamamlama yüzdesi, öğrencinin sınav performansı ve görev tipine göre hesaplanır. Soru Çözümü görevleri <b className="text-white">{TASK_WEIGHTS['Soru Çözümü']} puan</b>, Konu Çalışması ve YouTube Video görevleri <b className="text-white">{TASK_WEIGHTS['Konu Çalışması']} puan</b> değerindedir. Deneme analizlerinde <b className="text-white">sadece son 4 denemenin</b> net ortalaması dikkate alınır (böylece öğrencinin gelişimi katsayılara yansır). Net ortalaması düşük olan derslerin katsayıları 1.00 ile 2.50 arasında artış gösterir, böylece zayıf dersler program yüzdesini daha çok etkiler.
+                   Haftalık ve günlük programların tamamlama yüzdesi, öğrencinin sınav performansı ve görev türlerine göre ağırlıklandırılarak hesaplanır. 
+                   Soru Çözümü görevleri <b className="text-white">{TASK_WEIGHTS['Soru Çözümü']} puan</b>, 
+                   Konu Çalışması görevleri <b className="text-white">{TASK_WEIGHTS['Konu Çalışması']} puan</b>, 
+                   YouTube Video görevleri ise video süresine bakılmaksızın görev başına <b className="text-white">{TASK_WEIGHTS['YouTube Video']} puan</b> değerindedir (her video 1 görev olarak hesaplanır). 
+                   Çarpan analizinde <b className="text-white">sadece son 4 genel denemenin</b> net ortalaması dikkate alınır (branş denemeleri dahil edilmez). 
+                   Denemelerde boş bırakılan veya neti düşük olan derslerin çarpanları <b>1.00</b> ile <b>2.50</b> arasında yükselir; tam başarı gösterilen dersler ise taban çarpan olan <b>x1.00</b> olarak değerlendirilir.
                  </p>
                  
-                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    {Object.entries(displayMultipliers).map(([subject, m]) => {
-                       const multiplier = Number(m);
-                       if (multiplier <= 1.0) return null;
-                       return (
-                         <div key={subject} className="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-col gap-1 items-center justify-center text-center">
-                           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{subject}</span>
-                           <span className={`text-2xl font-black ${multiplier > 1.5 ? 'text-red-400' : 'text-orange-400'}`}>x{multiplier.toFixed(2)}</span>
-                         </div>
-                       );
-                    })}
-                 </div>
+                 {Object.keys(displayMultipliers).length > 0 ? (
+                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {Object.entries(displayMultipliers).map(([subject, m]) => {
+                         const multiplier = Number(m);
+                         const isMastered = multiplier <= 1.0;
+                         const isHigh = multiplier > 1.6;
+                         const isMedium = multiplier > 1.0 && multiplier <= 1.6;
 
-                 {Object.keys(displayMultipliers).length === 0 && (
+                         let badgeCls = 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400';
+                         let tagText = 'Tam Başarı (x1.00)';
+                         let multiplierCls = 'text-emerald-400';
+
+                         if (isHigh) {
+                           badgeCls = 'border-red-500/30 bg-red-500/10 text-red-400';
+                           tagText = 'Geliştirilmeli';
+                           multiplierCls = 'text-red-400';
+                         } else if (isMedium) {
+                           badgeCls = 'border-amber-500/30 bg-amber-500/10 text-amber-400';
+                           tagText = 'Gelişim Alanı';
+                           multiplierCls = 'text-amber-400';
+                         }
+
+                         return (
+                           <div key={subject} className={`border rounded-2xl p-3.5 flex flex-col gap-1.5 items-center justify-center text-center transition-all bg-white/[0.02] ${isMastered ? 'border-white/10 hover:border-emerald-500/30' : isHigh ? 'border-red-500/20 hover:border-red-500/40' : 'border-amber-500/20 hover:border-amber-500/40'}`}>
+                             <span className="text-[11px] font-bold text-slate-300 truncate max-w-full" title={subject}>{subject}</span>
+                             <span className={`text-xl font-black ${multiplierCls}`}>x{multiplier.toFixed(2)}</span>
+                             <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${badgeCls}`}>
+                               {tagText}
+                             </span>
+                           </div>
+                         );
+                      })}
+                   </div>
+                 ) : (
                    <div className="p-4 bg-blue-500/10 border border-blue-500/20 text-blue-300 rounded-xl text-xs font-bold leading-relaxed flex items-start gap-3">
                       <Info size={16} className="mt-0.5 flex-shrink-0" />
-                      <p className="text-left">Öğrencinin henüz değerlendirilmiş bir denemesi bulunmuyor veya alanına uyan derslerde tam net gösterdi. Bu nedenle tüm ders çarpanları <strong className="text-white">1.00</strong> olarak kabul ediliyor.</p>
+                      <p className="text-left">Öğrencinin henüz değerlendirilmiş bir genel denemesi bulunmuyor. Bu nedenle tüm ders çarpanları varsayılan olarak <strong className="text-white">x1.00</strong> kabul edilmektedir.</p>
                    </div>
                  )}
                </div>

@@ -204,7 +204,7 @@ export default function StudentLayout() {
         <aside className={`
           fixed inset-y-0 left-0 z-50 w-72 bg-slate-900/95 md:bg-slate-900/40 backdrop-blur-3xl border-r border-white/5 flex flex-col transition-all duration-300 print:hidden
           ${isMobileDrawerOpen ? 'translate-x-0' : '-translate-x-full'}
-          md:translate-x-0 md:static
+          md:translate-x-0 md:static md:h-auto md:min-h-full
           ${isSidebarCollapsed ? 'md:w-20' : 'md:w-64'}
         `}>
           {/* Toggle Button Inside Sidebar (Desktop only) */}
@@ -242,7 +242,7 @@ export default function StudentLayout() {
             </button>
           </div>
 
-          <nav className="flex-1 px-3 py-4 space-y-6 overflow-y-auto custom-scrollbar">
+          <nav className="flex-1 md:flex-none px-3 py-4 space-y-6 overflow-y-auto md:overflow-y-visible md:h-auto no-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {menuSections.map((section, idx) => (
               <div key={idx} className="space-y-1">
                 {section.title && (

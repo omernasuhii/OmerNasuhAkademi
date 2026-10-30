@@ -8,6 +8,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
+import { referralService } from "../../services/referralService";
 import { UserCheck, X } from "lucide-react";
 
 export default function AdminCoachApprovals() {
@@ -38,8 +39,9 @@ export default function AdminCoachApprovals() {
   const handleApprove = async (id: string) => {
     try {
       await updateDoc(doc(db, "users", id), { approved: true });
+      await referralService.grantCoachWelcomeGift(id, 1500);
       setCoaches((prev) => prev.filter((c) => c.id !== id));
-      alert("Koç başarıyla onaylandı.");
+      alert("Koç başarıyla onaylandı ve 1.500 TL hoş geldin bakiyesi kontrol edildi.");
     } catch (err) {
       console.error(err);
       alert("Onaylama sırasında bir hata oluştu.");

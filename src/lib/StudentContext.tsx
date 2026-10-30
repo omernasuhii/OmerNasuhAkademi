@@ -28,6 +28,11 @@ interface Student {
   parentPhone?: string;
   phone?: string;
   isDemo?: boolean;
+  xp?: number;
+  streak?: number;
+  highestStreak?: number;
+  maxStreak?: number;
+  streakInfo?: any;
 }
 
 interface StudentContextType {

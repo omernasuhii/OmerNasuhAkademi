@@ -16,6 +16,7 @@ export default function ReferralSettings() {
     coachDepositGiftType: 'percent',
     coachDepositGiftValue: 5,
     coachReferrerRewardValue: 5,
+    coachWelcomeGiftAmount: 1500,
     discountPayer: 'system'
   });
   
@@ -311,6 +312,27 @@ export default function ReferralSettings() {
                           </span>
                         </div>
                         <p className="text-[10px] text-slate-500 font-bold">Davet eden koçun, davet ettiği koçun her bakiye yüklemesinde kazanacağı prim/hediye.</p>
+                      </div>
+
+                      <div className="space-y-3 md:col-span-2 pt-4 border-t border-white/5">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center justify-between">
+                          <span className="flex items-center gap-2 text-emerald-400">
+                            <Gift size={14} /> Yeni Kaydolan Koç Hoş Geldin Hediyesi
+                          </span>
+                          <span className="bg-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-lg text-[9px] font-bold">KAYIT ANINDA</span>
+                        </label>
+                        <div className="relative">
+                          <input 
+                            type="number" 
+                            value={settings.coachWelcomeGiftAmount ?? 1500}
+                            onChange={(e) => setSettings({...settings, coachWelcomeGiftAmount: Number(e.target.value)})}
+                            className="w-full bg-slate-900 border border-emerald-500/30 rounded-xl pl-5 pr-14 py-4 text-emerald-400 font-mono text-xl focus:border-emerald-500 outline-none transition-all"
+                          />
+                          <span className="absolute right-5 top-1/2 -translate-y-1/2 text-sm font-black text-slate-500">
+                            TL
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 font-bold">Platforma yeni kaydolan koçların cüzdanına hediye olarak tanımlanacak sistem başlangıç bakiyesi (Varsayılan: 1.500 TL).</p>
                       </div>
                     </div>
                   ) : (

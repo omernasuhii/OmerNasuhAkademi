@@ -215,14 +215,14 @@ export default function ServiceManagement() {
 
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex -space-x-2">
-                    {service.assignedCoachIds.slice(0, 3).map(id => (
+                    {(service.assignedCoachIds || []).slice(0, 3).map(id => (
                       <div key={id} className="w-8 h-8 rounded-full border-2 border-slate-950 bg-slate-800 flex items-center justify-center text-[8px] font-bold text-slate-400">
                         {id.slice(0, 1).toUpperCase()}
                       </div>
                     ))}
-                    {service.assignedCoachIds.length > 3 && (
+                    {(service.assignedCoachIds || []).length > 3 && (
                       <div className="w-8 h-8 rounded-full border-2 border-slate-950 bg-slate-900 flex items-center justify-center text-[8px] font-bold text-white">
-                        +{service.assignedCoachIds.length - 3}
+                        +{(service.assignedCoachIds || []).length - 3}
                       </div>
                     )}
                 </div>

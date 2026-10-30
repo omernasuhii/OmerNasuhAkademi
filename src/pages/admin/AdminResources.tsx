@@ -19,10 +19,18 @@ import {
   Key,
   Layers,
   FileText,
-  Camera
+  Camera,
+  BookmarkCheck,
+  Check,
+  Target,
+  Book,
+  RefreshCw,
+  Sparkles
 } from 'lucide-react';
 import { studentDataService } from '../../services/studentDataService';
 import { BRANCH_CONFIG } from '../../constants/branchConfig';
+import { CURRICULUM } from '../../constants/curriculum';
+import { getCurriculumTopicsForBook } from '../../utils/bookProgress';
 import { getYoutubeChannelsForSubject } from '../../constants/youtubeChannels';
 import { BarcodeScannerModal } from '../../components/BarcodeScannerModal';
 
@@ -43,12 +51,16 @@ export default function AdminResources() {
   // Video viewer modal state
   const [viewingVideoBook, setViewingVideoBook] = useState<any>(null);
 
+  // Custom topic input for fasikül
+  const [customFasikulTopic, setCustomFasikulTopic] = useState('');
+
   // Form State
   const [formData, setFormData] = useState({
     name: '',
     type: 'TYT',
     subject: 'Türkçe',
     resourceType: 'soru',
+    coveredTopics: [] as string[],
     isbn: '',
     order: '',
     playlistUrl: '',
@@ -57,7 +69,9 @@ export default function AdminResources() {
     totalVideos: 0,
     totalDurationFormatted: '',
     totalDurationMinutes: 0,
-    videos: [] as any[]
+    videos: [] as any[],
+    totalExamCount: 10,
+    denemeCategory: 'branch'
   });
 
   // YouTube Fetch State
@@ -69,6 +83,10 @@ export default function AdminResources() {
   const [newVideoDuration, setNewVideoDuration] = useState('');
   const [newVideoUrl, setNewVideoUrl] = useState('');
 
+  // Bulk YouTube Sync State
+  const [isSyncingYouTube, setIsSyncingYouTube] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+
   useEffect(() => {
     loadBooks();
   }, []);
@@ -78,6 +96,46 @@ export default function AdminResources() {
     const data = await studentDataService.getGlobalBooks();
     setBooks(data);
     setLoading(false);
+  };
+
+  const handleSyncAllYouTube = async () => {
+    if (isSyncingYouTube) return;
+    setIsSyncingYouTube(true);
+    setSyncFeedback({
+      type: 'info',
+      message: 'Tüm YouTube oynatma listeleri taranıyor ve yeni videolar çekiliyor...'
+    });
+
+    try {
+      const res = await fetch('/api/youtube/sync-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setSyncFeedback({
+          type: 'success',
+          message: data.message || `Senkronizasyon tamamlandı: ${data.totalChecked} liste tarandı, ${data.updatedCount} liste güncellendi (+${data.newVideosTotal} yeni video).`
+        });
+        await loadBooks();
+      } else {
+        setSyncFeedback({
+          type: 'error',
+          message: data.error || data.message || 'Senkronizasyon işlemi gerçekleştirilemedi.'
+        });
+      }
+    } catch (err: any) {
+      setSyncFeedback({
+        type: 'error',
+        message: 'Senkronizasyon sırasında bağlantı hatası oluştu: ' + (err.message || 'Bilinmeyen hata')
+      });
+    } finally {
+      setIsSyncingYouTube(false);
+      setTimeout(() => {
+        setSyncFeedback(null);
+      }, 7000);
+    }
   };
 
   // Find duplicate ISBNs across all books (excluding YouTube)
@@ -122,6 +180,7 @@ export default function AdminResources() {
         type: book.type || 'TYT',
         subject: book.subject || 'Türkçe',
         resourceType: book.resourceType || 'soru',
+        coveredTopics: Array.isArray(book.coveredTopics) ? [...book.coveredTopics] : [],
         isbn: book.resourceType === 'youtube' ? '' : (book.isbn || ''),
         order: book.order || '',
         playlistUrl: book.playlistUrl || (book.playlistId ? `https://www.youtube.com/playlist?list=${book.playlistId}` : ''),
@@ -130,7 +189,9 @@ export default function AdminResources() {
         totalVideos: book.totalVideos || (book.videos?.length || 0),
         totalDurationFormatted: book.totalDurationFormatted || '',
         totalDurationMinutes: book.totalDurationMinutes || 0,
-        videos: Array.isArray(book.videos) ? [...book.videos] : []
+        videos: Array.isArray(book.videos) ? [...book.videos] : [],
+        totalExamCount: book.totalExamCount || 10,
+        denemeCategory: book.denemeCategory || 'branch'
       });
     } else {
       setEditingBook(null);
@@ -139,6 +200,7 @@ export default function AdminResources() {
         type: 'TYT',
         subject: 'Türkçe',
         resourceType: 'soru',
+        coveredTopics: [],
         isbn: '',
         order: '',
         playlistUrl: '',
@@ -147,9 +209,12 @@ export default function AdminResources() {
         totalVideos: 0,
         totalDurationFormatted: '',
         totalDurationMinutes: 0,
-        videos: []
+        videos: [],
+        totalExamCount: 10,
+        denemeCategory: 'branch'
       });
     }
+    setCustomFasikulTopic('');
     setIsModalOpen(true);
   };
 
@@ -240,8 +305,9 @@ export default function AdminResources() {
       return;
     }
     const mins = parseInt(newVideoDuration) || 30;
+    const currentVideos = Array.isArray(formData.videos) ? formData.videos : [];
     const newVid = {
-      order: formData.videos.length + 1,
+      order: currentVideos.length + 1,
       videoId: '',
       title: newVideoTitle.trim(),
       durationFormatted: `${mins} dk`,
@@ -250,7 +316,7 @@ export default function AdminResources() {
       url: newVideoUrl.trim() || ''
     };
 
-    const updated = [...formData.videos, newVid];
+    const updated = [...currentVideos, newVid];
     setFormData(prev => ({
       ...prev,
       videos: updated,
@@ -286,12 +352,18 @@ export default function AdminResources() {
       }
     }
 
-    const bookToSave = {
+    const bookToSave: any = {
       ...(editingBook || {}),
       ...formData,
+      coveredTopics: formData.resourceType === 'fasikul' ? (formData.coveredTopics || []) : [],
       isbn: finalIsbn,
       order: formData.order ? parseInt(formData.order.toString()) : null
     };
+
+    if (formData.resourceType === 'deneme') {
+      bookToSave.totalExamCount = Number(formData.totalExamCount) || 10;
+      bookToSave.denemeCategory = formData.denemeCategory || 'branch';
+    }
 
     try {
       await studentDataService.saveGlobalBook(bookToSave);
@@ -344,12 +416,82 @@ export default function AdminResources() {
           <h1 className="text-2xl font-black text-white tracking-tight uppercase">Sistem Kaynakları</h1>
           <p className="text-slate-400 text-sm">Global kaynakları (Soru bankası, konu anlatımı ve YouTube video kampları) yönetin.</p>
         </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleSyncAllYouTube}
+            disabled={isSyncingYouTube}
+            className="flex items-center gap-2 bg-red-600/90 hover:bg-red-600 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-red-600/20 text-sm cursor-pointer"
+            title="Sistemdeki tüm YouTube oynatma listelerini şimdi tara ve yeni videoları çek"
+          >
+            {isSyncingYouTube ? (
+              <Loader2 size={18} className="animate-spin text-white" />
+            ) : (
+              <RefreshCw size={18} />
+            )}
+            <span>{isSyncingYouTube ? 'Senkronize Ediliyor...' : 'YouTube Videolarını Çek'}</span>
+          </button>
+
+          <button
+            onClick={() => handleOpenModal()}
+            className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20 text-sm cursor-pointer"
+          >
+            <Plus size={20} />
+            Yeni Kaynak Ekle
+          </button>
+        </div>
+      </div>
+
+      {/* Sync Feedback Toast Banner */}
+      {syncFeedback && (
+        <div className={`p-4 rounded-2xl border transition-all flex items-center justify-between gap-3 shadow-xl ${
+          syncFeedback.type === 'success' 
+            ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-200'
+            : syncFeedback.type === 'error'
+            ? 'bg-red-950/80 border-red-500/40 text-red-200'
+            : 'bg-blue-950/80 border-blue-500/40 text-blue-200'
+        }`}>
+          <div className="flex items-center gap-3">
+            {syncFeedback.type === 'success' ? (
+              <CheckCircle2 size={22} className="text-emerald-400 shrink-0" />
+            ) : syncFeedback.type === 'error' ? (
+              <AlertCircle size={22} className="text-red-400 shrink-0" />
+            ) : (
+              <Loader2 size={22} className="animate-spin text-blue-400 shrink-0" />
+            )}
+            <div className="text-sm font-semibold">{syncFeedback.message}</div>
+          </div>
+          <button
+            onClick={() => setSyncFeedback(null)}
+            className="text-xs px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+          >
+            Kapat
+          </button>
+        </div>
+      )}
+
+      {/* Automated YouTube Sync Information Card */}
+      <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-red-950/30 to-slate-900 border border-red-500/20 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-red-500/10 text-red-400 shrink-0 border border-red-500/20">
+            <Clock size={20} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black text-red-400 uppercase tracking-wide">Otomatik Günlük Senkronizasyon</span>
+              <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 text-[10px] font-bold">Her gün 23:00'te Aktif</span>
+            </div>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Tüm YouTube ders kampları her gece saat <strong>23:00</strong>'te sunucu tarafından taranır; kanallara yüklenen yeni videolar sisteme otomatik olarak eklenir.
+            </p>
+          </div>
+        </div>
         <button
-          onClick={() => handleOpenModal()}
-          className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20"
+          onClick={handleSyncAllYouTube}
+          disabled={isSyncingYouTube}
+          className="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/30 font-bold transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
         >
-          <Plus size={20} />
-          Yeni Kaynak Ekle
+          <RefreshCw size={12} className={isSyncingYouTube ? "animate-spin" : ""} />
+          <span>Şimdi Tara</span>
         </button>
       </div>
 
@@ -378,11 +520,11 @@ export default function AdminResources() {
                     ISBN: {group.displayIsbn}
                   </span>
                   <span className="text-[11px] font-bold text-slate-400">
-                    {group.books.length} Kaynakta Ortak
+                    {(group.books || []).length} Kaynakta Ortak
                   </span>
                 </div>
                 <div className="space-y-1.5 divide-y divide-white/5">
-                  {group.books.map(b => (
+                  {(group.books || []).map(b => (
                     <div key={b.id} className="pt-1.5 first:pt-0 flex items-center justify-between gap-2 text-xs">
                       <div className="truncate">
                         <span className="font-semibold text-white">{b.name}</span>
@@ -451,6 +593,42 @@ export default function AdminResources() {
 
         <button
           type="button"
+          onClick={() => setResourceTypeFilter('fasikul')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            resourceTypeFilter === 'fasikul'
+              ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20'
+              : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-white/5'
+          }`}
+        >
+          <BookmarkCheck size={14} />
+          <span>Konu Fasikülleri</span>
+          <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+            resourceTypeFilter === 'fasikul' ? 'bg-white/20 text-white' : 'bg-slate-700 text-slate-300'
+          }`}>
+            {books.filter(b => b.resourceType === 'fasikul').length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setResourceTypeFilter('deneme')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            resourceTypeFilter === 'deneme'
+              ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/20'
+              : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-white/5'
+          }`}
+        >
+          <Target size={14} />
+          <span>Denemeler</span>
+          <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+            resourceTypeFilter === 'deneme' ? 'bg-white/20 text-white' : 'bg-slate-700 text-slate-300'
+          }`}>
+            {books.filter(b => b.resourceType === 'deneme').length}
+          </span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setResourceTypeFilter('konu')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
             resourceTypeFilter === 'konu'
@@ -508,6 +686,8 @@ export default function AdminResources() {
             >
               <option value="Hepsi">Tüm Türler</option>
               <option value="soru">Soru Bankası</option>
+              <option value="fasikul">Konu Fasikülü</option>
+              <option value="deneme">Deneme</option>
               <option value="konu">Konu Anlatımı</option>
               <option value="youtube">YouTube</option>
             </select>
@@ -567,6 +747,12 @@ export default function AdminResources() {
                     <div className="flex items-center gap-2">
                       {book.resourceType === 'youtube' ? (
                         <Youtube size={18} className="text-red-400 shrink-0" />
+                      ) : book.resourceType === 'fasikul' ? (
+                        <BookmarkCheck size={18} className="text-purple-400 shrink-0" />
+                      ) : book.resourceType === 'deneme' ? (
+                        <Target size={18} className="text-rose-400 shrink-0" />
+                      ) : book.resourceType === 'konu' ? (
+                        <Layers size={18} className="text-blue-400 shrink-0" />
                       ) : (
                         <BookOpen size={18} className="text-emerald-400 shrink-0" />
                       )}
@@ -575,6 +761,16 @@ export default function AdminResources() {
                     {book.channelTitle && (
                       <div className="text-[11px] text-red-400/90 font-medium mt-0.5 ml-6 flex items-center gap-1">
                         <span>Kanal: {book.channelTitle}</span>
+                      </div>
+                    )}
+                    {book.resourceType === 'fasikul' && Array.isArray(book.coveredTopics) && book.coveredTopics.length > 0 && (
+                      <div className="text-[11px] text-purple-300 font-medium mt-1 ml-6 flex flex-wrap items-center gap-1">
+                        <span className="text-slate-400">Kapsam:</span>
+                        {book.coveredTopics.map((ct: string, i: number) => (
+                          <span key={i} className="bg-purple-500/15 border border-purple-500/30 text-purple-200 px-1.5 py-0.2 rounded text-[10px]">
+                            {ct}
+                          </span>
+                        ))}
                       </div>
                     )}
                     {book.resourceType !== 'youtube' && book.isbn && (
@@ -596,30 +792,60 @@ export default function AdminResources() {
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
                         book.resourceType === 'youtube' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                        book.resourceType === 'fasikul' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' :
+                        book.resourceType === 'deneme' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
                         book.resourceType === 'konu' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
                         'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                       }`}>
-                        {book.resourceType === 'youtube' ? 'YouTube Kampı' : book.resourceType === 'konu' ? 'Konu Anlatımı' : 'Soru Bankası'}
+                        {book.resourceType === 'youtube' ? 'YouTube Kampı' : 
+                         book.resourceType === 'fasikul' ? 'Konu Fasikülü' : 
+                         book.resourceType === 'deneme' ? 'Deneme Paketi' : 
+                         book.resourceType === 'konu' ? 'Konu Anlatımı' : 'Soru Bankası'}
                       </span>
 
-                      {book.resourceType === 'youtube' && book.videos && book.videos.length > 0 && (
-                        <button
-                          onClick={() => setViewingVideoBook(book)}
-                          className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10 px-2 py-0.5 rounded-full text-[10px] font-bold transition-colors cursor-pointer"
-                          title="Videoları Görüntüle"
-                        >
-                          <Video size={11} className="text-red-400" />
-                          <span>{book.videos.length} Video</span>
-                          {book.totalDurationFormatted && (
-                            <span className="text-slate-400">({book.totalDurationFormatted})</span>
+                      {book.resourceType === 'deneme' && (
+                        <div className="flex items-center gap-1">
+                          <span className="bg-rose-500/10 border border-rose-500/20 text-rose-300 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                            {book.totalExamCount || 10} Deneme
+                          </span>
+                          {book.denemeCategory === 'general' ? (
+                            <span className="bg-rose-500/20 border border-rose-500/30 text-rose-200 px-1.5 py-0.5 rounded-full text-[10px] font-bold">
+                              Genel
+                            </span>
+                          ) : (
+                            <span className="bg-slate-800 text-slate-300 border border-white/5 px-1.5 py-0.5 rounded-full text-[10px]">
+                              Branş
+                            </span>
                           )}
-                          <Eye size={10} className="ml-0.5 text-slate-400" />
-                        </button>
+                        </div>
+                      )}
+
+                      {book.resourceType === 'youtube' && Array.isArray(book.videos) && book.videos.length > 0 && (
+                        <div className="flex flex-col gap-1 items-start">
+                          <button
+                            onClick={() => setViewingVideoBook(book)}
+                            className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10 px-2 py-0.5 rounded-full text-[10px] font-bold transition-colors cursor-pointer"
+                            title="Videoları Görüntüle"
+                          >
+                            <Video size={11} className="text-red-400" />
+                            <span>{(book.videos || []).length} Video</span>
+                            {book.totalDurationFormatted && (
+                              <span className="text-slate-400">({book.totalDurationFormatted})</span>
+                            )}
+                            <Eye size={10} className="ml-0.5 text-slate-400" />
+                          </button>
+                          {book.lastSyncedAt && (
+                            <span className="text-[9px] text-slate-500 font-medium flex items-center gap-1">
+                              <Clock size={9} className="text-red-400/70" />
+                              <span>Son Senk: {new Date(book.lastSyncedAt).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' })} {new Date(book.lastSyncedAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</span>
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
                   <div className="col-span-2 flex items-center justify-end gap-2">
-                    {book.resourceType === 'youtube' && book.videos && book.videos.length > 0 && (
+                    {book.resourceType === 'youtube' && Array.isArray(book.videos) && book.videos.length > 0 && (
                       <button 
                         onClick={() => setViewingVideoBook(book)} 
                         className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
@@ -722,6 +948,10 @@ export default function AdminResources() {
               <h2 className="text-xl font-black text-white uppercase tracking-tight flex items-center gap-2">
                 {formData.resourceType === 'youtube' ? (
                   <Youtube className="text-red-400" size={24} />
+                ) : formData.resourceType === 'fasikul' ? (
+                  <BookmarkCheck className="text-purple-400" size={24} />
+                ) : formData.resourceType === 'deneme' ? (
+                  <Target className="text-rose-400" size={24} />
                 ) : (
                   <BookOpen className="text-emerald-400" size={24} />
                 )}
@@ -734,7 +964,7 @@ export default function AdminResources() {
               {/* Material Type Selector */}
               <div className="bg-slate-800/50 p-3.5 rounded-xl border border-white/5">
                 <label className="block text-xs font-black text-slate-300 uppercase tracking-wider mb-2">Materyal Tipi</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   <button
                     type="button"
                     onClick={() => setFormData({ ...formData, resourceType: 'soru' })}
@@ -745,6 +975,28 @@ export default function AdminResources() {
                     }`}
                   >
                     <BookOpen size={14} /> Soru Bankası
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, resourceType: 'fasikul' })}
+                    className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                      formData.resourceType === 'fasikul'
+                        ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20'
+                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <BookmarkCheck size={14} /> Konu Fasikülü
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, resourceType: 'deneme' })}
+                    className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                      formData.resourceType === 'deneme'
+                        ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/20'
+                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Target size={14} /> Deneme
                   </button>
                   <button
                     type="button"
@@ -770,6 +1022,79 @@ export default function AdminResources() {
                   </button>
                 </div>
               </div>
+
+              {/* Deneme Specific Configuration Box */}
+              {formData.resourceType === 'deneme' && (
+                <div className="bg-gradient-to-br from-rose-950/30 to-slate-900 p-4 rounded-xl border border-rose-500/30 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black text-rose-300 uppercase tracking-wider flex items-center gap-2">
+                      <Target size={16} className="text-rose-400" />
+                      Deneme Paketi Yapılandırması
+                    </span>
+                    <span className="text-[10px] font-bold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded-full border border-rose-500/30">
+                      Fiziksel Deneme Paketi
+                    </span>
+                  </div>
+
+                  {/* Deneme Kategori Seçimi (Branş vs Genel) */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">
+                      Deneme Kapsamı:
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 bg-black/30 p-1.5 rounded-xl border border-rose-500/20">
+                      <button
+                        type="button"
+                        onClick={() => setFormData({
+                          ...formData,
+                          denemeCategory: 'branch',
+                          subject: formData.subject === 'Genel Deneme' ? (allSubjects[0] || 'Türkçe') : formData.subject
+                        })}
+                        className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                          (formData.denemeCategory || 'branch') === 'branch'
+                            ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 border border-rose-400/50'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                        }`}
+                      >
+                        <Book size={13} />
+                        <span>Branş Denemesi (Ders Odaklı)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormData({
+                          ...formData,
+                          denemeCategory: 'general',
+                          subject: 'Genel Deneme'
+                        })}
+                        className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                          formData.denemeCategory === 'general'
+                            ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 border border-rose-400/50'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                        }`}
+                      >
+                        <Target size={13} />
+                        <span>Genel Deneme Paketi</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">
+                      Paketteki Toplam Deneme Sayısı:
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={formData.totalExamCount || 10}
+                        onChange={(e) => setFormData({ ...formData, totalExamCount: Math.max(1, parseInt(e.target.value) || 1) })}
+                        className="w-24 bg-black/40 border border-rose-500/30 text-rose-300 font-bold text-center rounded-lg py-2 text-sm outline-none focus:border-rose-400"
+                      />
+                      <span className="text-xs text-slate-400">Adet Deneme Sınavı</span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* YouTube Specific Playlist Fetching Box */}
               {formData.resourceType === 'youtube' && (
@@ -919,7 +1244,13 @@ export default function AdminResources() {
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500/50"
-                  placeholder={formData.resourceType === 'youtube' ? 'Örn: Eyüp B. TYT Matematik Kampı 2025' : 'Örn: 3D TYT Matematik Soru Bankası'}
+                  placeholder={
+                    formData.resourceType === 'youtube' ? 'Örn: Eyüp B. TYT Matematik Kampı 2025' :
+                    formData.resourceType === 'deneme' ? 'Örn: 3D TYT Matematik 10\'lu Branş Denemesi' :
+                    formData.resourceType === 'fasikul' ? 'Örn: Çap Yayınları Trigonometri Fasikülü' :
+                    formData.resourceType === 'konu' ? 'Örn: Palme TYT Biyoloji Konu Anlatımı' :
+                    'Örn: 3D TYT Matematik Soru Bankası'
+                  }
                   required
                 />
               </div>
@@ -954,6 +1285,134 @@ export default function AdminResources() {
                   </select>
                 </div>
               </div>
+
+              {/* Fasikül Scope Selection (Only for Fasikül) */}
+              {formData.resourceType === 'fasikul' && (
+                <div className="bg-purple-950/30 border border-purple-500/30 p-4 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <BookmarkCheck size={18} className="text-purple-400" />
+                      <span className="text-xs font-black text-purple-200 uppercase tracking-wider">
+                        Fasikül Kapsamı ({formData.coveredTopics.length} Konu Seçili)
+                      </span>
+                    </div>
+                    {formData.coveredTopics.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, coveredTopics: [] })}
+                        className="text-[11px] text-purple-400 hover:text-purple-300 underline font-medium"
+                      >
+                        Seçimleri Temizle
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-purple-300/80 leading-relaxed">
+                    Bu fasikül öğrenciye eklendiğinde tüm ders müfredatı yerine yalnızca burada seçilen konu(lar) listelenir ve takip edilir.
+                  </p>
+
+                  {/* Selected Topic Badges */}
+                  {formData.coveredTopics.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 p-2.5 bg-black/30 rounded-lg border border-purple-500/20">
+                      {formData.coveredTopics.map((topic, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-1.5 bg-purple-600/30 border border-purple-500/40 text-purple-200 text-xs px-2.5 py-1 rounded-lg font-medium"
+                        >
+                          <Check size={12} className="text-purple-400" />
+                          <span>{topic}</span>
+                          <button
+                            type="button"
+                            onClick={() => setFormData({
+                              ...formData,
+                              coveredTopics: formData.coveredTopics.filter(t => t !== topic)
+                            })}
+                            className="text-purple-300 hover:text-white ml-0.5"
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Available Topics from Curriculum */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      {formData.subject} ({formData.type}) Müfredatından Konu Seçin:
+                    </label>
+                    <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-2 bg-black/20 rounded-lg border border-white/5">
+                      {getCurriculumTopicsForBook({ subject: formData.subject, type: formData.type }, CURRICULUM).map((top: string) => {
+                        const isSelected = formData.coveredTopics.includes(top);
+                        return (
+                          <button
+                            key={top}
+                            type="button"
+                            onClick={() => {
+                              if (isSelected) {
+                                setFormData({
+                                  ...formData,
+                                  coveredTopics: formData.coveredTopics.filter(t => t !== top)
+                                });
+                              } else {
+                                setFormData({
+                                  ...formData,
+                                  coveredTopics: [...formData.coveredTopics, top]
+                                });
+                              }
+                            }}
+                            className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all text-left flex items-center gap-1.5 ${
+                              isSelected
+                                ? 'bg-purple-600 text-white shadow-sm'
+                                : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/5'
+                            }`}
+                          >
+                            {isSelected ? <Check size={12} /> : <Plus size={12} />}
+                            <span>{top}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Manual / Custom Topic Add */}
+                  <div className="flex gap-2 pt-1">
+                    <input
+                      type="text"
+                      value={customFasikulTopic}
+                      onChange={(e) => setCustomFasikulTopic(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (customFasikulTopic.trim() && !formData.coveredTopics.includes(customFasikulTopic.trim())) {
+                            setFormData({
+                              ...formData,
+                              coveredTopics: [...formData.coveredTopics, customFasikulTopic.trim()]
+                            });
+                            setCustomFasikulTopic('');
+                          }
+                        }
+                      }}
+                      placeholder="Müfredat dışı özel konu veya fasikül başlığı ekle..."
+                      className="flex-1 bg-black/40 border border-purple-500/30 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-purple-400 placeholder-purple-300/40"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (customFasikulTopic.trim() && !formData.coveredTopics.includes(customFasikulTopic.trim())) {
+                          setFormData({
+                            ...formData,
+                            coveredTopics: [...formData.coveredTopics, customFasikulTopic.trim()]
+                          });
+                          setCustomFasikulTopic('');
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold transition-colors"
+                    >
+                      Ekle
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Order & ISBN / Details */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

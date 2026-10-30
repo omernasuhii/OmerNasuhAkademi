@@ -4444,8 +4444,11 @@ export default function QuestionAnalysis() {
             </thead>
             <tbody className="divide-y divide-white/5">
               <AnimatePresence mode="wait">
-                {currentSubject[examType]?.topics.map((topic, index) => {
-                  const avg = (topic.data.reduce((acc, curr) => acc + curr.count, 0) / topic.data.length).toFixed(1);
+                {(currentSubject?.[examType]?.topics || []).map((topic, index) => {
+                  const dataArr = Array.isArray(topic.data) ? topic.data : [];
+                  const avg = dataArr.length > 0 
+                    ? (dataArr.reduce((acc, curr) => acc + curr.count, 0) / dataArr.length).toFixed(1)
+                    : '0.0';
                   return (
                     <motion.tr 
                       key={`${activeSubject}-${topic.name}`}
@@ -4460,7 +4463,7 @@ export default function QuestionAnalysis() {
                           <span className="text-slate-300 font-semibold group-hover:text-white transition-colors">{topic.name}</span>
                         </div>
                       </td>
-                      {topic.data.map((d, i) => (
+                      {dataArr.map((d, i) => (
                         <td key={i} className="p-6 text-center">
                           <div className={`
                             inline-flex items-center justify-center w-10 h-10 rounded-xl font-black text-sm

@@ -16,6 +16,13 @@ export interface BrainstormMessage {
     coreConcept: string;
     recommendedFormat: AdFormatKey;
   }[];
+  quickReplies?: string[];
+  contentPlanDraft?: {
+    hook: string;
+    development: string;
+    resolutionAndCta: string;
+  };
+  readyForMasterGeneration?: boolean;
   // Auto-detection analysis info in response
   autoDetectionInfo?: {
     detectedAudience: TargetAudienceKey;
@@ -31,15 +38,12 @@ export interface VideoClipScene {
   sceneNumber: number;
   timeRange: string; // e.g. "0:00 - 0:10 (10s)", "0:10 - 0:20 (10s)", "0:20 - 0:30 (10s)"
   stage: 'Hook (Kanca)' | 'Problem/Gelişme' | 'Çözüm/Arayüz' | 'Dönüşüm/CTA';
-  speakerType?: 'voiceover' | 'character_dialogue';
-  speakerRoleLabel?: string; // e.g. "🎙️ Arka Ses (Dış Ses)" | "🗣️ Karakter Konuşması (Lip-sync)"
   visualDescription: string;
   cameraMovement: string;
   characterAction: string;
   lightingAndAtmosphere: string;
   flowClipPrompt: string; // Ready to copy into Google Flow for this specific 10s clip with attached logo & UI screenshot references
-  flowAudioPrompt?: string; // Explicit native Turkish audio / voice directive for Flow
-  voiceoverText: string; // %100 Doğal İstanbul Türkçesi dış ses / replik
+  voiceoverText: string; // %100 Türkçe dış ses
   onScreenText: string; // Ekranda görünecek Türkçe yazı
   audioSfxCues: string;
   attachmentDirectives?: {
@@ -65,7 +69,6 @@ export interface FlowConsistencySettings {
   characterProfiles: string;
   environmentArchitecture: string;
   soundDesignScript: string;
-  voiceAndAccentDirective?: string; // Explicit native Istanbul Turkish voice & accent instructions for Flow
   negativePrompts: string;
   logoAttachmentDirective: string;
   screenAttachmentDirective: string;

@@ -5,13 +5,21 @@ import App from './App.tsx';
 import './index.css';
 import { AuthProvider } from './lib/AuthContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { systemLogger } from './services/systemLogger';
 
-// Force unregister any existing service workers to clear cached Vite client
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then((registrations) => {
-    for (const registration of registrations) {
-      registration.unregister();
-    }
+// Initialize global unhandled error and rejection monitoring
+systemLogger.initGlobalListeners();
+
+// Register Firebase Cloud Messaging Service Worker for background notifications
+if ('serviceWorker' in navigator && !window.location.host.includes('localhost:5173')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/firebase-messaging-sw.js')
+      .then((registration) => {
+        console.log('[Service Worker] FCM SW registered successfully:', registration.scope);
+      })
+      .catch((err) => {
+        console.warn('[Service Worker] FCM SW registration failed/skipped:', err?.message || err);
+      });
   });
 }
 

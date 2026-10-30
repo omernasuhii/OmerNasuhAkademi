@@ -85,7 +85,7 @@ export default function CompleteRegistration() {
       }
       
       if (userData.role !== 'student') {
-        navigate(userData.role === 'admin' ? '/panel/admin' : '/panel/koc');
+        navigate(userData.role === 'admin' ? '/' : '/panel/koc');
         return;
       }
       

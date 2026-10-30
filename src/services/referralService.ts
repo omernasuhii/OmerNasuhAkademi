@@ -18,6 +18,7 @@ export interface ReferralSettings {
   coachDepositGiftType?: 'percent' | 'amount';
   coachDepositGiftValue?: number;
   coachReferrerRewardValue?: number;
+  coachWelcomeGiftAmount?: number;
 }
 
 export interface ReferralProcessResult {
@@ -39,6 +40,7 @@ export const referralService = {
           coachDepositGiftType: data.coachDepositGiftType || 'percent',
           coachDepositGiftValue: data.coachDepositGiftValue ?? 5,
           coachReferrerRewardValue: data.coachReferrerRewardValue ?? 5,
+          coachWelcomeGiftAmount: data.coachWelcomeGiftAmount ?? 1500,
         };
       }
       return {
@@ -54,6 +56,7 @@ export const referralService = {
         coachDepositGiftType: 'percent',
         coachDepositGiftValue: 5,
         coachReferrerRewardValue: 5,
+        coachWelcomeGiftAmount: 1500,
       };
     } catch (error) {
       console.error('Error fetching referral settings:', error);
@@ -633,6 +636,79 @@ export const referralService = {
     }
   },
 
+  /**
+   * Yeni kaydolan koçlara 1500 TL hoş geldin hediyesi tanımlar.
+   */
+  grantCoachWelcomeGift: async (coachId: string, customAmount?: number): Promise<boolean> => {
+    try {
+      const coachRef = doc(db, 'users', coachId);
+      const coachSnap = await getDoc(coachRef);
+      if (!coachSnap.exists()) return false;
+
+      const coachData = coachSnap.data();
+      if (coachData.role !== 'coach') return false;
+
+      // Zaten hoş geldin hediyesi almışsa tekrar vermiyoruz
+      if (coachData.hasReceivedWelcomeGift) {
+        return false;
+      }
+
+      const settings = await referralService.getSettings();
+      const giftAmount = customAmount !== undefined ? customAmount : (settings?.coachWelcomeGiftAmount ?? 1500);
+      if (giftAmount <= 0) return false;
+
+      // Güvenlik için wallet_transactions koleksiyonunda da kontrol yapıyoruz
+      const checkQ = query(
+        collection(db, 'wallet_transactions'),
+        where('studentId', '==', coachId),
+        where('type', '==', 'DEPOSIT')
+      );
+      const checkSnap = await getDocs(checkQ);
+      const alreadyHasGift = checkSnap.docs.some(d => {
+        const desc = (d.data().description || '').toLowerCase();
+        return desc.includes('hoş geldin') || desc.includes('hoşgeldin') || desc.includes('kayıt bonusu');
+      });
+
+      if (alreadyHasGift) {
+        await updateDoc(coachRef, {
+          hasReceivedWelcomeGift: true,
+          welcomeGiftAmount: giftAmount
+        });
+        return false;
+      }
+
+      const currentBalance = coachData.systemBalance || 0;
+      await updateDoc(coachRef, {
+        systemBalance: currentBalance + giftAmount,
+        hasReceivedWelcomeGift: true,
+        welcomeGiftAmount: giftAmount,
+        updatedAt: serverTimestamp()
+      });
+
+      await addDoc(collection(db, 'wallet_transactions'), {
+        studentId: coachId,
+        coachId: 'SYSTEM',
+        amount: giftAmount,
+        type: 'DEPOSIT',
+        description: '🎁 Yeni Koç Hoş Geldin Hediyesi',
+        date: new Date().toISOString(),
+        createdAt: serverTimestamp()
+      });
+
+      await notificationService.addNotification(coachId, {
+        title: '🎁 1.500 TL Hoş Geldin Hediyesi!',
+        message: `FocusOn Akademi ailesine hoş geldiniz! Koçluk hesabınıza ₺${giftAmount.toLocaleString('tr-TR')} sistem başlangıç bakiyesi hediye olarak tanımlandı.`,
+        type: 'payment',
+        link: '/panel/koc/cuzdan'
+      });
+
+      return true;
+    } catch (err) {
+      console.error('Error granting coach welcome gift:', err);
+      return false;
+    }
+  },
+
   getReferralStats: async () => {
     try {
       // 1. Get coupons created via referral to see referee stats (Student)
@@ -661,7 +737,7 @@ export const referralService = {
         const data = doc.data();
         if (data.type === 'DEPOSIT') {
           const desc = data.description?.toLowerCase() || '';
-          if (desc.includes('ilk bakiye yükleme') || desc.includes('davet bakiye yükleme hediyesi')) {
+          if (desc.includes('ilk bakiye yükleme') || desc.includes('davet bakiye yükleme hediyesi') || desc.includes('hoş geldin') || desc.includes('hoşgeldin')) {
             totalCoachGifts += data.amount || 0;
           } else if (desc.includes('davet ettiğiniz koç yükleme') || desc.includes('referans koç')) {
             totalReferrerRewards += data.amount || 0;

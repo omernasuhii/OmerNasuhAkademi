@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { AlertTriangle, 
   TrendingUp, 
   Calendar, 
@@ -118,8 +120,6 @@ export default function ParentDashboard() {
         });
 
         if (profile?.coachId) {
-            const { getDoc, doc } = await import('firebase/firestore');
-            const { db } = await import('../../lib/firebase');
             const coachSnap = await getDoc(doc(db, 'users', profile.coachId));
             if (coachSnap.exists()) {
                 setCoachName(coachSnap.data().firstName + ' ' + coachSnap.data().lastName);

@@ -1395,27 +1395,13 @@ export default function TercihRobotu() {
       const deptPoint = getDeptPoint(dept);
       
       const isNew = (() => {
-        if (!dept.departmentPoints || !Array.isArray(dept.departmentPoints)) return true;
-        // Geçmiş yıllarda kontenjanı > 0 olan bir kayıt varsa (yani eskiden açılmışsa)
-        // O zaman bu yeni bir bölüm DEĞİLDİR (muhtemelen "boş kalmış" bir bölümdür).
-        // Eğer tüm geçmiş kayıtlarda kontenjan 0 veya null ise, bu bölüm yenidir.
-        // (Sadece en güncel yıl 2025/2026 olarak düşünülebilir, burada geçmişte kontenjan 0 olanlar kastediliyor)
-        const hasPastQuota = dept.departmentPoints.some(p => {
-          // Güncel yılı hariç tutmak isterseniz (örneğin 2025 veya 2026 yeni açılmış olabilir)
-          // Ancak "boş kalmış" bölümlerin önceki yıllarda mutlaka kontenjanı > 0'dır.
-          return (p.quota !== null && p.quota > 0);
-        });
+        if (!dept.departmentPoints || !Array.isArray(dept.departmentPoints) || dept.departmentPoints.length === 0) return true;
         
-        // Eğer geçmişte kontenjanı > 0 olan bir kayıt var ama rank/point null ise bu "boş kalmış"tır.
-        // Yeni açılan bölüm olması için geçmiş kontenjanların 0 olması (veya hiç olmaması) gerekir.
-        // Ancak bu fonksiyon güncel yılın verisini de departmentPoints içinde tutuyorsa, 
-        // güncel yıl kontenjanına bakmamamız lazım.
-        // deptRank === null kontrolü ile birlikte değerlendirirsek:
         if (deptRank !== null || deptPoint !== null) return false; // Puanı/sırası varsa zaten yeni veya boş değil
         
-        // rank ve point null ise, geçmişte kontenjanı > 0 olan bir kayıt var mı bakalım
-        // Sistemde 2024 ve öncesi "geçmiş" sayılıyor olabilir. (veya en yüksek yıl hariç)
-        const maxYear = Math.max(...dept.departmentPoints.map(p => Number(p.year)));
+        const validYears = dept.departmentPoints.map(p => Number(p.year)).filter(y => !isNaN(y));
+        if (validYears.length === 0) return true;
+        const maxYear = Math.max(...validYears);
         const pastPoints = dept.departmentPoints.filter(p => Number(p.year) < maxYear);
         
         if (pastPoints.length > 0) {

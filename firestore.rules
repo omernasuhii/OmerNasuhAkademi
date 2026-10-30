@@ -136,6 +136,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /system_error_logs/{logId} {
+      allow read, write: if true;
+    }
+
     match /messages/{messageId} {
       allow read, write: if true;
     }

@@ -1,0 +1,21 @@
+{
+  "Instruction": "Update UI copy to reflect the new post-production green screen strategy",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "      text: 'Merhaba! Ben FocusON Akademi Kıdemli Kreatif Direktörünüz. 360° Tam Site RAG motorumuz devrede.\\n\\nSitemizin hem **herkese açık sayfaları (Ana sayfa, Metronom, YÖK Tercih Robotu, vb.)** hem de **Öğrenci, Veli, Koç panel sayfaları (ÇABA Testi, 35+ Teşhis Analizi, Sesli AI Asistan, Haftalık WhatsApp Karnesi, Koçluk Masası)** tam teşekküllü taranmaktadır.\\n\\nAklınızdaki herhangi bir fikri, hedefi veya sorunu serbestçe yazın; yapay zeka **Hedef Kitleyi ve ilgili Site Sayfasını otomatik olarak tespit edecek**, her biri **10 saniyelik 3 modüler sahne promptu**, sitemizden **ekran görüntüsü alma rehberi**, logo entegrasyonu, **konuya özel canlı görsel tasarımı** ve **yüksek dönüşümlü sosyal medya metinlerini** hazırlayacaktır.',",
+      "ReplacementContent": "      text: 'Merhaba! Ben FocusON Akademi Kıdemli Kreatif Direktörünüz. 360° Tam Site RAG motorumuz devrede.\\n\\nSitemizin hem **herkese açık sayfaları (Ana sayfa, Metronom, YÖK Tercih Robotu, vb.)** hem de **Öğrenci, Veli, Koç panel sayfaları (ÇABA Testi, 35+ Teşhis Analizi, Sesli AI Asistan, Haftalık WhatsApp Karnesi, Koçluk Masası)** tam teşekküllü taranmaktadır.\\n\\nAklınızdaki herhangi bir fikri, hedefi veya sorunu serbestçe yazın; yapay zeka **Hedef Kitleyi ve ilgili Site Sayfasını otomatik olarak tespit edecek**, her biri **10 saniyelik 3 modüler sahne promptu**, sitemizden **ekran görüntüsü alma rehberi (post-prodüksiyon için)**, **boş ekran ve logo yerleşimi taktikleri**, **konuya özel canlı görsel tasarımı** ve **yüksek dönüşümlü sosyal medya metinlerini** hazırlayacaktır.',"
+    },
+    {
+      "TargetContent": "              Google Flow ve AI video/görsel motorları için <strong>her biri 10 saniyelik modüler sahne promptları</strong>, sitemizden <strong>ekran görüntüsü alma rehberi</strong>, logomuzun Flow eklerine entegrasyonu ve <strong>%100 Türkçe dış sesler</strong> üreten profesyonel kreatif direktör.",
+      "ReplacementContent": "              Google Flow ve AI video/görsel motorları için <strong>her biri 10 saniyelik modüler sahne promptları</strong>, sitemizden <strong>kurguda (CapCut/Premiere) kullanmak üzere ekran görüntüsü alma rehberi</strong>, karakter sabitleme ve <strong>%100 Türkçe dış sesler</strong> üreten profesyonel kreatif direktör."
+    },
+    {
+      "TargetContent": "                  Google Flow için 10 saniyelik 3 sahne klip promptları, sitemizden ekran görüntüsü alma rehberi, logo ekleme yönergeleri ve %100 Türkçe dış sesler hazırlanıyor.",
+      "ReplacementContent": "                  Google Flow için 10 saniyelik 3 sahne klip promptları, sitemizden ekran görüntüsü alma rehberi, kurguda logo ekleme yönergeleri ve %100 Türkçe dış sesler hazırlanıyor."
+    },
+    {
+      "TargetContent": "                        💡 Sahne 2 Flow promptunda bu referans görselleri ekrandaki cihaza ve üst köşeye otomatik giydirilecektir.",
+      "ReplacementContent": "                        💡 Yapay zeka halüsinasyonlarını önlemek için, bu görselleri Flow'a değil; CapCut, Premiere gibi kurgu programlarında üretilen videoların yeşil/siyah ekranlarına track ederek (sabitleyerek) eklemelisiniz."
+    }
+  ]
+}

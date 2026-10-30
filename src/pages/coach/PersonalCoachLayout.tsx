@@ -52,7 +52,7 @@ export default function PersonalCoachLayout() {
              const newStudentsData: Record<string, any> = {};
 
              if (cachedStudentsJson !== null) {
-                 const newStudents = students.filter(s => !oldStudentsUids.includes(s.uid));
+                 const newStudents = students.filter(s => !oldStudentsUids.includes(s.uid) && !s.isArchived && !s.archived);
                  for (const newStudent of newStudents) {
                      const newStudentKey = `coach_new_student_${userData.uid}_${newStudent.uid}`;
                      if (!safeStorage.getItem(newStudentKey)) {
@@ -61,13 +61,17 @@ export default function PersonalCoachLayout() {
                               title: 'Yeni Öğrenci!',
                               message: `Aramıza yeni biri katıldı: '${newStudent.firstName || ''} ${newStudent.lastName || ''}' öğrencilerinize eklendi. Hemen bir tanışma mesajı gönderin! 👋`,
                               type: 'success',
-                              link: '/panel/koc/ogrenciler'
+                              link: '/panel/koc/ogrenciler',
+                              studentId: newStudent.uid
                           });
                      }
                  }
              }
 
              for (const student of students) {
+                // Skip notification generation for archived students on coach side
+                if (student.isArchived || student.archived) continue;
+
                 newStudentsData[student.uid] = {
                     subscriptionStatus: student.subscriptionStatus,
                     streak: student.streak || 0
@@ -136,14 +140,14 @@ export default function PersonalCoachLayout() {
                      let todayTotal = 0;
                      let todayCompleted = 0;
 
-                     for (const d of pastProgramsRes) {
-                         if (d.tasks) {
+                     for (const d of (pastProgramsRes || [])) {
+                         if (d && Array.isArray(d.tasks)) {
                              totalPastTasks += d.tasks.length;
-                             completedPastTasks += d.tasks.filter((t: any) => t.isDone).length;
+                             completedPastTasks += d.tasks.filter((t: any) => t && t.isDone).length;
                              
                              if (d.id === today) {
                                 todayTotal = d.tasks.length;
-                                todayCompleted = d.tasks.filter((t: any) => t.isDone).length;
+                                todayCompleted = d.tasks.filter((t: any) => t && t.isDone).length;
                              }
                          }
                      }
@@ -264,11 +268,13 @@ export default function PersonalCoachLayout() {
       <AnimatePresence>
         {isSidebarCollapsed && (
           <motion.button
+            id="tour-coach-sidebar-open"
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
             onClick={() => setIsSidebarCollapsed(false)}
-            className="fixed left-4 top-1/2 -translate-y-1/2 z-[60] w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-emerald-500/20 hover:scale-110 transition-transform hidden lg:flex"
+            className="fixed left-4 top-1/2 -translate-y-1/2 z-[70] w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-emerald-500/20 hover:scale-110 transition-transform hidden lg:flex cursor-pointer"
+            title="Yan Paneli Aç"
           >
             <PanelLeftOpen size={20} />
           </motion.button>
@@ -290,18 +296,10 @@ export default function PersonalCoachLayout() {
 
       {/* Sidebar */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-72 bg-[#070b14]/95 border-r border-white/5 flex flex-col transition-all duration-300 lg:static 
+        fixed inset-y-0 left-0 z-50 w-72 bg-[#070b14]/95 border-r border-white/5 flex flex-col transition-all duration-300 lg:static lg:h-auto lg:min-h-full
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         ${isSidebarCollapsed ? 'lg:w-0 lg:opacity-0 lg:pointer-events-none' : 'lg:w-72 lg:opacity-100'}
       `}>
-        {/* Toggle Button Inside Sidebar (Desktop only) */}
-        <button 
-          onClick={() => setIsSidebarCollapsed(true)}
-          className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-12 bg-[#070b14] border border-white/5 rounded-full flex items-center justify-center text-slate-500 hover:text-white transition-colors hidden lg:flex z-10"
-        >
-          <ChevronLeft size={14} />
-        </button>
-
         {/* Logo Section */}
         <div className="p-8 shrink-0 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-3 group">
@@ -324,7 +322,7 @@ export default function PersonalCoachLayout() {
         {/* Search in Sidebar - Removed */}
 
         {/* Navigation */}
-        <nav className="flex-1 px-4 space-y-1 overflow-y-auto custom-scrollbar pb-10">
+        <nav className="flex-1 lg:flex-none px-4 space-y-1 overflow-y-auto lg:overflow-y-visible lg:h-auto no-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pb-10">
           <p className="px-4 text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 mb-4">Ana Menü</p>
           {menuItems.map((item) => (
             <NavLink
@@ -356,6 +354,18 @@ export default function PersonalCoachLayout() {
            </button>
         </div>
       </aside>
+
+      {/* Sidebar Toggle Close Trigger (Fixed on border in the exact vertical center of the viewport, rendered on top of sidebar with z-[70]) */}
+      {!isSidebarCollapsed && (
+        <button 
+          id="tour-coach-sidebar-collapse"
+          onClick={() => setIsSidebarCollapsed(true)}
+          className="fixed left-[288px] -translate-x-1/2 top-1/2 -translate-y-1/2 w-6 h-12 bg-[#0b1324] border border-slate-700 hover:border-emerald-500 rounded-full flex items-center justify-center text-slate-300 hover:text-white shadow-2xl hover:scale-105 transition-all hidden lg:flex z-[70] cursor-pointer group"
+          title="Yan Menüyü Gizle"
+        >
+          <ChevronLeft size={14} className="group-hover:-translate-x-0.5 transition-transform text-slate-400 group-hover:text-emerald-400" />
+        </button>
+      )}
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">

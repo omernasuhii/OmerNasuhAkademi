@@ -214,20 +214,22 @@ export default function CoachAssistant() {
 
       // 2. Kitap Takibi
       context += `   --- KİTAP VE KANAL TAKİBİ ---\n`;
-      if (data.books && data.books.length > 0) {
-        context += `   - Toplam ${data.books.length} kaynak/kitap/kanal kayıtlı.\n`;
-        data.books.slice(0, 5).forEach((b: any) => {
+      const booksList = Array.isArray(data.books) ? data.books : [];
+      if (booksList.length > 0) {
+        context += `   - Toplam ${booksList.length} kaynak/kitap/kanal kayıtlı.\n`;
+        booksList.slice(0, 5).forEach((b: any) => {
           const totalProgress = b.progress || 0;
           context += `       * ${b.title} (${b.subject || ''}): %${totalProgress} tamamlandı.\n`;
         });
-        if (data.books.length > 5) context += `       * (ve ${data.books.length - 5} kaynak daha...)\n`;
+        if (booksList.length > 5) context += `       * (ve ${booksList.length - 5} kaynak daha...)\n`;
       } else {
         context += `   - Kayıtlı kaynak bulunmuyor.\n`;
       }
 
       // 3. Randevular
       context += `   --- RANDEVULAR ---\n`;
-      const activeAppointments = data.appointments.filter((a:any) => ['pending', 'confirmed'].includes(a.status));
+      const appointmentsList = Array.isArray(data.appointments) ? data.appointments : [];
+      const activeAppointments = appointmentsList.filter((a:any) => ['pending', 'confirmed'].includes(a.status));
       if (activeAppointments.length > 0) {
          context += `   - Yaklaşan ${activeAppointments.length} randevu var:\n`;
          activeAppointments.slice(0,3).forEach((a:any) => {

@@ -78,10 +78,22 @@ export default function CoachProfile() {
 
   const [formData, setFormData] = useState({
     coachCode: userData?.coachCode || '',
-    bronzePrice: userData?.bronzePrice || 3000,
-    silverPrice: userData?.silverPrice || 4500,
-    goldPrice: userData?.goldPrice || 6000
+    bronzePrice: userData?.bronzePrice !== undefined && userData?.bronzePrice !== null ? userData.bronzePrice : 3000,
+    silverPrice: userData?.silverPrice !== undefined && userData?.silverPrice !== null ? userData.silverPrice : 4500,
+    goldPrice: userData?.goldPrice !== undefined && userData?.goldPrice !== null ? userData.goldPrice : 6000
   });
+
+  useEffect(() => {
+    if (userData) {
+      setFormData(prev => ({
+        ...prev,
+        coachCode: userData.coachCode || prev.coachCode || '',
+        bronzePrice: userData.bronzePrice !== undefined && userData.bronzePrice !== null ? userData.bronzePrice : prev.bronzePrice,
+        silverPrice: userData.silverPrice !== undefined && userData.silverPrice !== null ? userData.silverPrice : prev.silverPrice,
+        goldPrice: userData.goldPrice !== undefined && userData.goldPrice !== null ? userData.goldPrice : prev.goldPrice
+      }));
+    }
+  }, [userData]);
 
   useEffect(() => {
     async function fetchRate() {
@@ -136,11 +148,21 @@ export default function CoachProfile() {
          }
       }
 
+      const bPrice = formData.bronzePrice !== undefined && formData.bronzePrice !== null && !isNaN(Number(formData.bronzePrice))
+        ? Math.max(0, Number(formData.bronzePrice))
+        : 3000;
+      const sPrice = formData.silverPrice !== undefined && formData.silverPrice !== null && !isNaN(Number(formData.silverPrice))
+        ? Math.max(0, Number(formData.silverPrice))
+        : 4500;
+      const gPrice = formData.goldPrice !== undefined && formData.goldPrice !== null && !isNaN(Number(formData.goldPrice))
+        ? Math.max(0, Number(formData.goldPrice))
+        : 6000;
+
       await updateDoc(doc(db, 'users', user.uid), {
         coachCode: cleanCoachCode,
-        bronzePrice: Number(formData.bronzePrice) || 3000,
-        silverPrice: Number(formData.silverPrice) || 4500,
-        goldPrice: Number(formData.goldPrice) || 6000
+        bronzePrice: bPrice,
+        silverPrice: sPrice,
+        goldPrice: gPrice
       });
       alert('Profil güncellendi!');
       // Assuming a reload or context update happens later.
@@ -296,133 +318,205 @@ export default function CoachProfile() {
                
                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   {/* Bronze */}
-                  <div className="bg-white/5 border border-orange-500/30 rounded-3xl p-6 flex flex-col relative overflow-hidden group hover:border-orange-500/50 transition-all">
-                    <div className="absolute top-0 right-0 p-4 opacity-10 blur-xl group-hover:opacity-20 transition-opacity">
-                      <CreditCard size={100} className="text-orange-500" />
-                    </div>
-                    <div className="flex items-center gap-3 mb-6 relative z-10">
-                       <div className="w-10 h-10 rounded-2xl bg-orange-500/10 flex items-center justify-center text-orange-400">
-                          <CreditCard size={20} />
-                       </div>
-                       <div>
-                          <h4 className="text-orange-400 font-bold leading-tight">Bronz Paket</h4>
-                          <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Aylık Abonelik</span>
-                       </div>
-                    </div>
-                    
-                    <div className="space-y-4 relative z-10 mt-auto">
-                       <div className="flex flex-col gap-1.5">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Satış Fiyatı (₺)</label>
-                          <div className="relative">
-                             <input 
-                                type="number" 
-                                value={formData.bronzePrice}
-                                onChange={(e) => setFormData({...formData, bronzePrice: Number(e.target.value) || 0})}
-                                className="w-full bg-slate-950 border border-white/5 rounded-2xl py-3.5 px-4 text-white font-black text-lg outline-none focus:border-orange-500/50 transition-all font-mono pl-10" 
-                             />
-                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-mono font-bold">₺</span>
-                          </div>
-                       </div>
-                       
-                       <div className="bg-slate-950/50 rounded-2xl p-4 border border-white/5 space-y-3">
-                          <div className="flex justify-between items-center text-xs">
-                             <span className="text-slate-500 font-medium tracking-wide">Sistem Kesintisi</span>
-                             <span className="text-red-400/80 font-mono font-bold">-{Math.max(Math.floor(Number(formData.bronzePrice) * (systemDeductionRate / 100)), minSystemDeductionBronze)} ₺</span>
-                          </div>
-                          <div className="h-px w-full bg-white/5" />
-                          <div className="flex justify-between items-center">
-                             <span className="text-slate-300 font-bold text-xs uppercase tracking-wider">Net Kazanç</span>
-                             <span className="text-emerald-400 font-mono font-black text-base">{Number(formData.bronzePrice) - Math.max(Math.floor(Number(formData.bronzePrice) * (systemDeductionRate / 100)), minSystemDeductionBronze)} ₺</span>
-                          </div>
-                       </div>
-                    </div>
-                  </div>
+                  {(() => {
+                    const bVal = formData.bronzePrice === '' ? 0 : Number(formData.bronzePrice);
+                    const bCut = Math.max(Math.floor(bVal * (systemDeductionRate / 100)), minSystemDeductionBronze);
+                    const bNet = bVal - bCut;
+                    return (
+                      <div className="bg-white/5 border border-orange-500/30 rounded-3xl p-6 flex flex-col relative overflow-hidden group hover:border-orange-500/50 transition-all">
+                        <div className="absolute top-0 right-0 p-4 opacity-10 blur-xl group-hover:opacity-20 transition-opacity">
+                          <CreditCard size={100} className="text-orange-500" />
+                        </div>
+                        <div className="flex items-center gap-3 mb-6 relative z-10">
+                           <div className="w-10 h-10 rounded-2xl bg-orange-500/10 flex items-center justify-center text-orange-400">
+                              <CreditCard size={20} />
+                           </div>
+                           <div>
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-orange-400 font-bold leading-tight">Bronz Paket</h4>
+                                {bVal === 0 && (
+                                  <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Ücretsiz</span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Aylık Abonelik</span>
+                           </div>
+                        </div>
+                        
+                        <div className="space-y-4 relative z-10 mt-auto">
+                           <div className="flex flex-col gap-1.5">
+                              <div className="flex justify-between items-center">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Satış Fiyatı (₺)</label>
+                                <span className="text-[9px] text-slate-500">0 ₺ = Ücretsiz</span>
+                              </div>
+                              <div className="relative">
+                                 <input 
+                                    type="number" 
+                                    min="0"
+                                    value={formData.bronzePrice}
+                                    onChange={(e) => {
+                                      const val = e.target.value === '' ? '' : Math.max(0, Number(e.target.value));
+                                      setFormData({...formData, bronzePrice: val as any});
+                                    }}
+                                    className="w-full bg-slate-950 border border-white/5 rounded-2xl py-3.5 px-4 text-white font-black text-lg outline-none focus:border-orange-500/50 transition-all font-mono pl-10" 
+                                 />
+                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-mono font-bold">₺</span>
+                              </div>
+                           </div>
+                           
+                           <div className="bg-slate-950/50 rounded-2xl p-4 border border-white/5 space-y-3">
+                              <div className="flex justify-between items-center text-xs">
+                                 <span className="text-slate-500 font-medium tracking-wide">Sistem Kesintisi</span>
+                                 <span className="text-red-400/80 font-mono font-bold">-{bCut} ₺</span>
+                              </div>
+                              <div className="h-px w-full bg-white/5" />
+                              <div className="flex justify-between items-center">
+                                 <span className="text-slate-300 font-bold text-xs uppercase tracking-wider">Net Kazanç</span>
+                                 <span className={`${bNet < 0 ? 'text-red-400' : 'text-emerald-400'} font-mono font-black text-base`}>{bNet} ₺</span>
+                              </div>
+                              {bVal === 0 && (
+                                <div className="text-[10px] text-amber-400/90 font-medium pt-1 border-t border-white/5">
+                                  * 0 ₺ satışta asgari sistem kesintisi ({bCut} ₺) koç cüzdanınızdan tahsil edilir.
+                                </div>
+                              )}
+                           </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Silver */}
-                  <div className="bg-white/5 border border-blue-500/30 rounded-3xl p-6 flex flex-col relative overflow-hidden group hover:border-blue-500/50 transition-all">
-                    <div className="absolute top-0 right-0 p-4 opacity-10 blur-xl group-hover:opacity-20 transition-opacity">
-                      <CreditCard size={100} className="text-blue-500" />
-                    </div>
-                    <div className="flex items-center gap-3 mb-6 relative z-10">
-                       <div className="w-10 h-10 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-400">
-                          <CreditCard size={20} />
-                       </div>
-                       <div>
-                          <h4 className="text-blue-400 font-bold leading-tight">Gümüş Paket</h4>
-                          <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Aylık Abonelik</span>
-                       </div>
-                    </div>
-                    
-                    <div className="space-y-4 relative z-10 mt-auto">
-                       <div className="flex flex-col gap-1.5">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Satış Fiyatı (₺)</label>
-                          <div className="relative">
-                             <input 
-                                type="number" 
-                                value={formData.silverPrice}
-                                onChange={(e) => setFormData({...formData, silverPrice: Number(e.target.value) || 0})}
-                                className="w-full bg-slate-950 border border-white/5 rounded-2xl py-3.5 px-4 text-white font-black text-lg outline-none focus:border-blue-500/50 transition-all font-mono pl-10" 
-                             />
-                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-mono font-bold">₺</span>
-                          </div>
-                       </div>
-                       
-                       <div className="bg-slate-950/50 rounded-2xl p-4 border border-white/5 space-y-3">
-                          <div className="flex justify-between items-center text-xs">
-                             <span className="text-slate-500 font-medium tracking-wide">Sistem Kesintisi</span>
-                             <span className="text-red-400/80 font-mono font-bold">-{Math.max(Math.floor(Number(formData.silverPrice) * (systemDeductionRate / 100)), minSystemDeductionSilver)} ₺</span>
-                          </div>
-                          <div className="h-px w-full bg-white/5" />
-                          <div className="flex justify-between items-center">
-                             <span className="text-slate-300 font-bold text-xs uppercase tracking-wider">Net Kazanç</span>
-                             <span className="text-emerald-400 font-mono font-black text-base">{Number(formData.silverPrice) - Math.max(Math.floor(Number(formData.silverPrice) * (systemDeductionRate / 100)), minSystemDeductionSilver)} ₺</span>
-                          </div>
-                       </div>
-                    </div>
-                  </div>
+                  {(() => {
+                    const sVal = formData.silverPrice === '' ? 0 : Number(formData.silverPrice);
+                    const sCut = Math.max(Math.floor(sVal * (systemDeductionRate / 100)), minSystemDeductionSilver);
+                    const sNet = sVal - sCut;
+                    return (
+                      <div className="bg-white/5 border border-blue-500/30 rounded-3xl p-6 flex flex-col relative overflow-hidden group hover:border-blue-500/50 transition-all">
+                        <div className="absolute top-0 right-0 p-4 opacity-10 blur-xl group-hover:opacity-20 transition-opacity">
+                          <CreditCard size={100} className="text-blue-500" />
+                        </div>
+                        <div className="flex items-center gap-3 mb-6 relative z-10">
+                           <div className="w-10 h-10 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-400">
+                              <CreditCard size={20} />
+                           </div>
+                           <div>
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-blue-400 font-bold leading-tight">Gümüş Paket</h4>
+                                {sVal === 0 && (
+                                  <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Ücretsiz</span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Aylık Abonelik</span>
+                           </div>
+                        </div>
+                        
+                        <div className="space-y-4 relative z-10 mt-auto">
+                           <div className="flex flex-col gap-1.5">
+                              <div className="flex justify-between items-center">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Satış Fiyatı (₺)</label>
+                                <span className="text-[9px] text-slate-500">0 ₺ = Ücretsiz</span>
+                              </div>
+                              <div className="relative">
+                                 <input 
+                                    type="number" 
+                                    min="0"
+                                    value={formData.silverPrice}
+                                    onChange={(e) => {
+                                      const val = e.target.value === '' ? '' : Math.max(0, Number(e.target.value));
+                                      setFormData({...formData, silverPrice: val as any});
+                                    }}
+                                    className="w-full bg-slate-950 border border-white/5 rounded-2xl py-3.5 px-4 text-white font-black text-lg outline-none focus:border-blue-500/50 transition-all font-mono pl-10" 
+                                 />
+                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-mono font-bold">₺</span>
+                              </div>
+                           </div>
+                           
+                           <div className="bg-slate-950/50 rounded-2xl p-4 border border-white/5 space-y-3">
+                              <div className="flex justify-between items-center text-xs">
+                                 <span className="text-slate-500 font-medium tracking-wide">Sistem Kesintisi</span>
+                                 <span className="text-red-400/80 font-mono font-bold">-{sCut} ₺</span>
+                              </div>
+                              <div className="h-px w-full bg-white/5" />
+                              <div className="flex justify-between items-center">
+                                 <span className="text-slate-300 font-bold text-xs uppercase tracking-wider">Net Kazanç</span>
+                                 <span className={`${sNet < 0 ? 'text-red-400' : 'text-emerald-400'} font-mono font-black text-base`}>{sNet} ₺</span>
+                              </div>
+                              {sVal === 0 && (
+                                <div className="text-[10px] text-amber-400/90 font-medium pt-1 border-t border-white/5">
+                                  * 0 ₺ satışta asgari sistem kesintisi ({sCut} ₺) koç cüzdanınızdan tahsil edilir.
+                                </div>
+                              )}
+                           </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Gold */}
-                  <div className="bg-white/5 border border-yellow-500/30 rounded-3xl p-6 flex flex-col relative overflow-hidden group hover:border-yellow-500/50 transition-all">
-                    <div className="absolute top-0 right-0 p-4 opacity-10 blur-xl group-hover:opacity-20 transition-opacity">
-                      <CreditCard size={100} className="text-yellow-500" />
-                    </div>
-                    <div className="flex items-center gap-3 mb-6 relative z-10">
-                       <div className="w-10 h-10 rounded-2xl bg-yellow-500/10 flex items-center justify-center text-yellow-400">
-                          <CreditCard size={20} />
-                       </div>
-                       <div>
-                          <h4 className="text-yellow-400 font-bold leading-tight">Altın Paket</h4>
-                          <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Aylık Abonelik</span>
-                       </div>
-                    </div>
-                    
-                    <div className="space-y-4 relative z-10 mt-auto">
-                       <div className="flex flex-col gap-1.5">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Satış Fiyatı (₺)</label>
-                          <div className="relative">
-                             <input 
-                                type="number" 
-                                value={formData.goldPrice}
-                                onChange={(e) => setFormData({...formData, goldPrice: Number(e.target.value) || 0})}
-                                className="w-full bg-slate-950 border border-white/5 rounded-2xl py-3.5 px-4 text-white font-black text-lg outline-none focus:border-yellow-500/50 transition-all font-mono pl-10" 
-                             />
-                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-mono font-bold">₺</span>
-                          </div>
-                       </div>
-                       
-                       <div className="bg-slate-950/50 rounded-2xl p-4 border border-white/5 space-y-3">
-                          <div className="flex justify-between items-center text-xs">
-                             <span className="text-slate-500 font-medium tracking-wide">Sistem Kesintisi</span>
-                             <span className="text-red-400/80 font-mono font-bold">-{Math.max(Math.floor(Number(formData.goldPrice) * (systemDeductionRate / 100)), minSystemDeductionGold)} ₺</span>
-                          </div>
-                          <div className="h-px w-full bg-white/5" />
-                          <div className="flex justify-between items-center">
-                             <span className="text-slate-300 font-bold text-xs uppercase tracking-wider">Net Kazanç</span>
-                             <span className="text-emerald-400 font-mono font-black text-base">{Number(formData.goldPrice) - Math.max(Math.floor(Number(formData.goldPrice) * (systemDeductionRate / 100)), minSystemDeductionGold)} ₺</span>
-                          </div>
-                       </div>
-                    </div>
-                  </div>
+                  {(() => {
+                    const gVal = formData.goldPrice === '' ? 0 : Number(formData.goldPrice);
+                    const gCut = Math.max(Math.floor(gVal * (systemDeductionRate / 100)), minSystemDeductionGold);
+                    const gNet = gVal - gCut;
+                    return (
+                      <div className="bg-white/5 border border-yellow-500/30 rounded-3xl p-6 flex flex-col relative overflow-hidden group hover:border-yellow-500/50 transition-all">
+                        <div className="absolute top-0 right-0 p-4 opacity-10 blur-xl group-hover:opacity-20 transition-opacity">
+                          <CreditCard size={100} className="text-yellow-500" />
+                        </div>
+                        <div className="flex items-center gap-3 mb-6 relative z-10">
+                           <div className="w-10 h-10 rounded-2xl bg-yellow-500/10 flex items-center justify-center text-yellow-400">
+                              <CreditCard size={20} />
+                           </div>
+                           <div>
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-yellow-400 font-bold leading-tight">Altın Paket</h4>
+                                {gVal === 0 && (
+                                  <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Ücretsiz</span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Aylık Abonelik</span>
+                           </div>
+                        </div>
+                        
+                        <div className="space-y-4 relative z-10 mt-auto">
+                           <div className="flex flex-col gap-1.5">
+                              <div className="flex justify-between items-center">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Satış Fiyatı (₺)</label>
+                                <span className="text-[9px] text-slate-500">0 ₺ = Ücretsiz</span>
+                              </div>
+                              <div className="relative">
+                                 <input 
+                                    type="number" 
+                                    min="0"
+                                    value={formData.goldPrice}
+                                    onChange={(e) => {
+                                      const val = e.target.value === '' ? '' : Math.max(0, Number(e.target.value));
+                                      setFormData({...formData, goldPrice: val as any});
+                                    }}
+                                    className="w-full bg-slate-950 border border-white/5 rounded-2xl py-3.5 px-4 text-white font-black text-lg outline-none focus:border-yellow-500/50 transition-all font-mono pl-10" 
+                                 />
+                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-mono font-bold">₺</span>
+                              </div>
+                           </div>
+                           
+                           <div className="bg-slate-950/50 rounded-2xl p-4 border border-white/5 space-y-3">
+                              <div className="flex justify-between items-center text-xs">
+                                 <span className="text-slate-500 font-medium tracking-wide">Sistem Kesintisi</span>
+                                 <span className="text-red-400/80 font-mono font-bold">-{gCut} ₺</span>
+                              </div>
+                              <div className="h-px w-full bg-white/5" />
+                              <div className="flex justify-between items-center">
+                                 <span className="text-slate-300 font-bold text-xs uppercase tracking-wider">Net Kazanç</span>
+                                 <span className={`${gNet < 0 ? 'text-red-400' : 'text-emerald-400'} font-mono font-black text-base`}>{gNet} ₺</span>
+                              </div>
+                              {gVal === 0 && (
+                                <div className="text-[10px] text-amber-400/90 font-medium pt-1 border-t border-white/5">
+                                  * 0 ₺ satışta asgari sistem kesintisi ({gCut} ₺) koç cüzdanınızdan tahsil edilir.
+                                </div>
+                              )}
+                           </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                </div>
             </div>
          </div>

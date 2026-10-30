@@ -15,6 +15,14 @@ import { analysisService } from '../../services/analysisService';
 export const analyses = [
   // Seviye 1 (0 - 1200 XP)
   {
+    id: 'Ç-MOD',
+    title: 'Ç-MOD: Çikolata Bankası',
+    description: 'Ödül ekonomini yönet, iradeni güçlendir. Çalışarak kazan, hak ettiğinde harca.',
+    icon: Candy,
+    color: 'bg-amber-500',
+    path: '/panel/ogrenci/analizler/c-mod'
+  },
+  {
     id: 'VAK-S',
     title: 'VAK-S: Öğrenme Stilleri',
     description: 'Bilgiyi en kolay nasıl öğrenirsin? Görsel, işitsel veya kinestetik profilini keşfet.',
@@ -55,14 +63,6 @@ export const analyses = [
     icon: Puzzle,
     color: 'bg-fuchsia-500',
     path: '/panel/ogrenci/analizler/kolb'
-  },
-  {
-    id: 'Ç-MOD',
-    title: 'Ç-MOD: Çikolata Bankası',
-    description: 'Ödül ekonomini yönet, iradeni güçlendir. Çalışarak kazan, hak ettiğinde harca.',
-    icon: Candy,
-    color: 'bg-amber-500',
-    path: '/panel/ogrenci/analizler/c-mod'
   },
   {
     id: 'OZ-AF',
@@ -490,7 +490,7 @@ export const categoryMap: Record<string, string> = {
 };
 
 const CATEGORIES = ['Tümü', 'Sınav ve Strateji Yönetimi', 'Psikoloji ve Motivasyon', 'Öğrenme ve Odaklanma', 'Genel Değerlendirme'];
-const SILVER_ALLOWED_ANALYSES = ['VAK-S', 'SP-BE', 'SCM', 'ZS-ODO', 'APEA-3D', 'APK-S', 'ABBA', 'AID-Y', 'ADTE-20', 'OZ-AF'];
+const SILVER_ALLOWED_ANALYSES = ['Ç-MOD', 'VAK-S', 'SP-BE', 'SCM', 'ZS-ODO', 'APEA-3D', 'APK-S', 'ABBA', 'AID-Y', 'ADTE-20', 'OZ-AF'];
 
 export default function Analyses() {
   const navigate = useNavigate();
@@ -499,20 +499,27 @@ export default function Analyses() {
   const [selectedCategory, setSelectedCategory] = useState('Tümü');
   const [statusFilter, setStatusFilter] = useState<'all' | 'unlocked' | 'locked' | 'completed'>('all');
   const [activeTab, setActiveTab] = useState<'analizler' | 'tamamlananlar'>('analizler');
-  const [completedCounts, setCompletedCounts] = useState<Record<string, number>>({});
+  const [completedCounts, setCompletedCounts] = useState<Record<string, number>>({ 'Ç-MOD': 1 });
   const [selectedLockedAnalysis, setSelectedLockedAnalysis] = useState<any | null>(null);
 
   const studentXP = userData?.xp || 0;
+
+  // Helper to determine if an analysis is completed (Ç-MOD is automatically completed by default)
+  const isAnalysisDone = (id: string) => {
+    if (id === 'Ç-MOD') return true;
+    return (completedCounts[id] || 0) > 0;
+  };
 
   useEffect(() => {
     const fetchResults = async () => {
       if (!user) return;
       try {
         const results = (await analysisService.getResults(user.uid)).filter((r: any) => !['PARENT_REPORT', 'COACH_REPORT'].includes(r.analysisType));
-        const counts: Record<string, number> = {};
+        const counts: Record<string, number> = { 'Ç-MOD': 1 };
         results.forEach((r: any) => {
           counts[r.analysisType] = (counts[r.analysisType] || 0) + 1;
         });
+        counts['Ç-MOD'] = Math.max(1, counts['Ç-MOD'] || 0);
         setCompletedCounts(counts);
       } catch (err) {
         console.error("Error fetching completed analyses:", err);
@@ -522,7 +529,7 @@ export default function Analyses() {
   }, [user]);
 
   // Find current active index (first uncompleted test in sequence)
-  const currentActiveIndex = analyses.findIndex(a => (completedCounts[a.id] || 0) === 0);
+  const currentActiveIndex = analyses.findIndex(a => !isAnalysisDone(a.id));
 
   // Find the target test for the top status banner:
   // If there's a test locked by XP, target the first test locked by XP, otherwise target currentActiveIndex
@@ -546,8 +553,8 @@ export default function Analyses() {
   // Find the first uncompleted test in sequence that is currently unlocked and ready
   const firstAvailableUnlockedIndex = analyses.findIndex((a, idx) => {
     const reqXP = idx * 600;
-    const isPrevDone = idx === 0 || (completedCounts[analyses[idx - 1].id] || 0) > 0;
-    const isCompleted = (completedCounts[a.id] || 0) > 0;
+    const isPrevDone = idx === 0 || isAnalysisDone(analyses[idx - 1].id);
+    const isCompleted = isAnalysisDone(a.id);
     return studentXP >= reqXP && isPrevDone && !isCompleted;
   });
   const firstAvailableUnlockedTest = firstAvailableUnlockedIndex !== -1 ? analyses[firstAvailableUnlockedIndex] : null;
@@ -563,7 +570,7 @@ export default function Analyses() {
     const prevCardProgress = getLevelProgress(prevIdx, studentXP);
     
     const grandPrevTest = prevIdx > 0 ? analyses[prevIdx - 1] : null;
-    const isGrandPrevDone = prevIdx === 0 || (completedCounts[grandPrevTest?.id || ''] || 0) > 0;
+    const isGrandPrevDone = prevIdx === 0 || isAnalysisDone(grandPrevTest?.id || '');
     const isPrevXPEnough = prevCardProgress.isXPEnough;
 
     const plan = userData?.subscriptionPlan || '';
@@ -591,7 +598,7 @@ export default function Analyses() {
   };
 
   const lockedCount = analyses.length - unlockedCount;
-  const completedTotal = Object.keys(completedCounts).length;
+  const completedTotal = Object.keys(completedCounts).filter(k => isAnalysisDone(k)).length;
 
   const filteredAnalyses = analyses.filter(analysis => {
     const category = categoryMap[analysis.id] || 'Genel Değerlendirme';
@@ -602,7 +609,7 @@ export default function Analyses() {
     const idx = analyses.findIndex(a => a.id === analysis.id);
     const reqXP = idx * 600;
     const isXPEnough = studentXP >= reqXP;
-    const isCompleted = (completedCounts[analysis.id] || 0) > 0;
+    const isCompleted = isAnalysisDone(analysis.id);
 
     let matchesStatus = true;
     if (statusFilter === 'unlocked') matchesStatus = isXPEnough;
@@ -856,7 +863,7 @@ export default function Analyses() {
                   const reqXP = sequenceIndex * 600;
                   const cardProgress = getLevelProgress(sequenceIndex, studentXP);
                   const prevTest = sequenceIndex > 0 ? analyses[sequenceIndex - 1] : null;
-                  const isPrevDone = sequenceIndex === 0 || (completedCounts[prevTest?.id || ''] || 0) > 0;
+                  const isPrevDone = sequenceIndex === 0 || isAnalysisDone(prevTest?.id || '');
                   const isXPEnough = cardProgress.isXPEnough;
 
                   const plan = userData?.subscriptionPlan || '';
@@ -864,7 +871,7 @@ export default function Analyses() {
                   const isLockedForSilver = isSilver && !SILVER_ALLOWED_ANALYSES.includes(analysis.id);
 
                   const isUnlocked = isXPEnough && isPrevDone && !isLockedForSilver;
-                  const isCompleted = (completedCounts[analysis.id] || 0) > 0;
+                  const isCompleted = isAnalysisDone(analysis.id);
 
                   return (
                     <motion.div
@@ -936,7 +943,9 @@ export default function Analyses() {
                             {isCompleted && (
                               <div className="flex items-center gap-1 bg-purple-500/10 border border-purple-500/20 text-purple-300 px-2 py-0.5 rounded-lg">
                                 <CheckCircle2 size={11} />
-                                <span className="text-[9px] font-bold">{completedCounts[analysis.id]}x Bitti</span>
+                                <span className="text-[9px] font-bold">
+                                  {analysis.id === 'Ç-MOD' ? 'Tamamlandı' : `${completedCounts[analysis.id] || 1}x Bitti`}
+                                </span>
                               </div>
                             )}
                           </div>
@@ -988,7 +997,7 @@ export default function Analyses() {
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-xs font-bold text-blue-400 group-hover:translate-x-1 transition-transform">
-                              {isCompleted ? 'Tekrar Çöz' : 'Analize Başla'} <ChevronRight size={14} />
+                              {isCompleted ? (analysis.id === 'Ç-MOD' ? 'Banka & Ödülleri Yönet' : 'Tekrar Çöz') : 'Analize Başla'} <ChevronRight size={14} />
                             </span>
                           )}
                         </div>
@@ -1094,7 +1103,7 @@ export default function Analyses() {
               {!selectedLockedAnalysis.isPrevDone && selectedLockedAnalysis.prevTest ? (() => {
                 const prevIdx = selectedLockedAnalysis.sequenceIndex - 1;
                 const grandPrevTest = prevIdx > 0 ? analyses[prevIdx - 1] : null;
-                const isGrandPrevDone = prevIdx <= 0 || (completedCounts[grandPrevTest?.id || ''] || 0) > 0;
+                const isGrandPrevDone = prevIdx <= 0 || isAnalysisDone(grandPrevTest?.id || '');
                 const prevCardProgress = prevIdx >= 0 ? getLevelProgress(prevIdx, studentXP) : null;
                 const isPrevXPEnough = prevCardProgress ? prevCardProgress.isXPEnough : false;
 

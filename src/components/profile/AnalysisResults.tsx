@@ -21,7 +21,20 @@ export default function AnalysisResults({ searchTerm = '', selectedCategory = 'T
   const loadResults = async () => {
     try {
       const data = await analysisService.getResults(user!.uid);
-      setResults(data.filter((r: any) => !['PARENT_REPORT', 'COACH_REPORT'].includes(r.analysisType)));
+      const userResults = (data || []).filter((r: any) => !['PARENT_REPORT', 'COACH_REPORT'].includes(r.analysisType));
+      const hasCMod = userResults.some((r: any) => r.analysisType === 'Ç-MOD' || r.analysisType === 'Ç-MOD-AI-AUDIT');
+      if (!hasCMod) {
+        userResults.unshift({
+          id: 'c-mod-completed',
+          analysisType: 'Ç-MOD',
+          timestamp: { toDate: () => new Date() },
+          data: {
+            title: 'Ç-MOD: Çikolata Bankası',
+            description: 'Ödül ekonomisi ve irade yönetimi sistemi aktif ve tamamlandı.'
+          }
+        });
+      }
+      setResults(userResults);
     } catch (err) {
       console.error(err);
     } finally {
@@ -795,24 +808,24 @@ export default function AnalysisResults({ searchTerm = '', selectedCategory = 'T
                 </div>
               </div>
             )}
-            {result.analysisType === 'Ç-MOD-AI-AUDIT' && (
+            {(result.analysisType === 'Ç-MOD-AI-AUDIT' || result.analysisType === 'Ç-MOD') && (
               <div className="space-y-4">
                 <div className="flex justify-between items-start">
                   <div className="space-y-1">
                     <div className="text-[10px] font-black text-amber-400 uppercase tracking-widest">Ç-MOD ANALİZİ</div>
-                    <h4 className="text-white font-bold">Çikolata Modeli AI İçgörüsü</h4>
+                    <h4 className="text-white font-bold">{result.analysisType === 'Ç-MOD' ? 'Ç-MOD: Çikolata Bankası' : 'Çikolata Modeli AI İçgörüsü'}</h4>
                   </div>
                   <div className="flex items-center gap-2 text-[10px] text-slate-500 font-medium">
                     <Calendar size={12} />
-                    {result.timestamp?.toDate().toLocaleDateString('tr-TR')}
+                    {result.timestamp?.toDate ? result.timestamp.toDate().toLocaleDateString('tr-TR') : new Date().toLocaleDateString('tr-TR')}
                   </div>
                 </div>
 
                 <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
                   <div className="space-y-1">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">İRADE DEĞERLENDİRMESİ</p>
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">İRADE VE ÖDÜL SİSTEMİ</p>
                     <p className="text-sm font-black text-emerald-400 uppercase tracking-tighter">
-                      AI MÜFETTİŞ RAPORU
+                      {result.analysisType === 'Ç-MOD' ? 'ÖDÜL BANKASI AKTİF & TANIMLI' : 'AI MÜFETTİŞ RAPORU'}
                     </p>
                   </div>
                 </div>
@@ -824,10 +837,10 @@ export default function AnalysisResults({ searchTerm = '', selectedCategory = 'T
                       </div>
                    </div>
                    <button 
-                     onClick={() => navigate(`/panel/ogrenci/analizler/sonuc/${result.id}`)}
+                     onClick={() => navigate(result.id === 'c-mod-completed' ? '/panel/ogrenci/analizler/c-mod' : `/panel/ogrenci/analizler/sonuc/${result.id}`)}
                      className="text-[10px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1 hover:text-amber-300 transition-colors"
                    >
-                     Raporu Oku <ChevronRight size={14} />
+                     {result.id === 'c-mod-completed' ? 'Bankaya Git' : 'Raporu Oku'} <ChevronRight size={14} />
                    </button>
                 </div>
               </div>
@@ -1361,7 +1374,7 @@ export default function AnalysisResults({ searchTerm = '', selectedCategory = 'T
             )}
 
             {/* Fallback card for undefined or non-mapped types */}
-            {!['OZ-AF', 'ABBA', 'AG-MOT', 'HIRAT', 'AID-Y', 'ADTE-20', 'APEA-3D', 'APK-S', 'AB-CTE', 'AS-EQ', 'AYCE', 'AT-CM', 'ADDE-20', 'ADT-Ö', 'B-AVO', 'ÇDÖ-E', 'AMID', 'Ç-MOD-AI-AUDIT', 'ÇZ-8', 'DART', 'DOPA', 'GTS-36', 'IM-OM', 'K-E-A', 'KOLB-DÖSE', 'MERCEK', 'ÖTI-A', 'MÇ-ZP', 'VAK-S', 'SP-BE', 'KLS', 'ZS-ODO', 'SI-GOZ', 'SW-D', 'TOTE', 'WD-3D', 'T-LINE', 'VGF-E', 'SOC-A', 'PDAR-360', 'SS-DKM', 'SZP-30', 'ZG-ZP', 'SCM', 'SD-SYE'].includes(result.analysisType) && (
+            {!['OZ-AF', 'ABBA', 'AG-MOT', 'HIRAT', 'AID-Y', 'ADTE-20', 'APEA-3D', 'APK-S', 'AB-CTE', 'AS-EQ', 'AYCE', 'AT-CM', 'ADDE-20', 'ADT-Ö', 'B-AVO', 'ÇDÖ-E', 'AMID', 'Ç-MOD-AI-AUDIT', 'Ç-MOD', 'ÇZ-8', 'DART', 'DOPA', 'GTS-36', 'IM-OM', 'K-E-A', 'KOLB-DÖSE', 'MERCEK', 'ÖTI-A', 'MÇ-ZP', 'VAK-S', 'SP-BE', 'KLS', 'ZS-ODO', 'SI-GOZ', 'SW-D', 'TOTE', 'WD-3D', 'T-LINE', 'VGF-E', 'SOC-A', 'PDAR-360', 'SS-DKM', 'SZP-30', 'ZG-ZP', 'SCM', 'SD-SYE'].includes(result.analysisType) && (
                <div className="space-y-4">
                  <div className="flex justify-between items-start">
                    <div className="space-y-1">

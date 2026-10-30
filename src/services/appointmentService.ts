@@ -343,7 +343,8 @@ export const appointmentService = {
                 title: 'Yeni Randevu Talebi',
                 message: `Öğrenciniz '${data.studentName}' ${data.date} tarihinde saat ${data.startTime} için bir randevu talep etti.`,
                 type: 'appointment',
-                link: '/panel/koc/randevular'
+                link: '/panel/koc/randevular',
+                studentId: data.studentId
              });
           } catch(e) {}
       }
@@ -354,7 +355,8 @@ export const appointmentService = {
                 title: 'Yeni Randevu Atandı',
                 message: `Koçun sana ${data.date} tarihi saat ${data.startTime} için yeni bir randevu atadı.`,
                 type: 'appointment',
-                link: '/panel/ogrenci/randevular'
+                link: '/panel/ogrenci/randevular',
+                studentId: data.studentId
              });
           } catch(e) {}
       }
@@ -450,7 +452,8 @@ export const appointmentService = {
                          title: 'Randevu İptal Edildi',
                          message: `Öğrenciniz '${data.studentName}', ${data.date} saat ${data.startTime} için olan randevusunu iptal etti.`,
                          type: 'appointment',
-                         link: '/panel/koc/randevular'
+                         link: '/panel/koc/randevular',
+                        studentId: data.studentId
                      });
                  }
              }
@@ -487,7 +490,8 @@ export const appointmentService = {
                  title: 'Randevu Güncellendi',
                  message: `Öğrenciniz '${oldData.studentName}', randevusunu ${data.date || oldData.date} tarihi saat ${data.startTime || oldData.startTime} olarak güncelledi.`,
                  type: 'appointment',
-                 link: '/panel/koc/randevular'
+                 link: '/panel/koc/randevular',
+                 studentId: oldData.studentId
              });
           } else if (currentUserUid === oldData.coachId) {
              await notificationService.addNotification(oldData.studentId, {

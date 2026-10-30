@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "./firebase";
 import { useAuth } from "./AuthContext";
 import { cartService } from "../services/cartService";
 import { safeStorage } from "./localStorage";
@@ -68,9 +70,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
         // Fetch from Firestore
         try {
-          const { getDoc, doc } = await import("firebase/firestore");
-          const { db } = await import("./firebase");
-
           const docRef = doc(db, "users", user.uid);
           const snap = await getDoc(docRef);
           if (snap.exists() && snap.data().cart && snap.data().cart.items) {
